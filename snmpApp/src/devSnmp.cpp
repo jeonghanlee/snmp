@@ -203,8 +203,9 @@ static char *tnow(void)
 static void copy_string(char *target, int maxsize, char *source)
 {
   int len = strlen(source);
-  if (len < maxsize)
+  if (len < maxsize) {
     strcpy(target,source);
+  }
   else {
     strncpy(target,source,maxsize-1);
     target[maxsize-1] = 0;
@@ -215,17 +216,21 @@ static int snmpScanLong(char *str, long *dest, int base = 10)
 {
   char *endp;
   long num = strtol(str,&endp,base);
-  if (endp == str) return(0);
+  if (endp == str) {
+    return(0);
+  }
   (*dest) = num;
   return(1);
 }
 //--------------------------------------------------------------------
 static int differentEnough(double d1, double d2)
 {
-  if (d1 == d2) return(false);
-  if (d1 == 0.0) return( fabs(d2) > 1.0e-9);
-  if (d2 == 0.0) return( fabs(d1) > 1.0e-9);
+  if (d1 == d2)  { return(false);}
+  if (d1 == 0.0) { return( fabs(d2) > 1.0e-9);}
+  if (d2 == 0.0) { return( fabs(d1) > 1.0e-9);}
+  
   double pd = fabs((d2 - d1) / d1);
+  
   return( pd > 0.00001 );
 }
 //----------------------------------------------------------------------
@@ -233,7 +238,7 @@ static int local_isBigEndian(void)
 {
   static int _bigEndianState = -1;
 
-  if (_bigEndianState >= 0) return( _bigEndianState);
+  if (_bigEndianState >= 0) { return( _bigEndianState); }
   long X = 1;
   unsigned char *pUC = (unsigned char *) &X;
   _bigEndianState = (pUC[0] == 0) ? 1 : 0;
@@ -244,8 +249,10 @@ static int local_isNegativeZero(double v)
 {
   static int chkidx = -1;
 
-  if (v != 0.0) return(false);
-  if (chkidx < 0) chkidx = local_isBigEndian() ? 0 : sizeof(double)-1;
+  if (v != 0.0) { return(false);} 
+  if (chkidx < 0) {
+    chkidx = local_isBigEndian() ? 0 : sizeof(double)-1;
+  }
   unsigned char *pUC = (unsigned char *) &v;
   return( (pUC[chkidx] & 0x0080) ? true : false );
 }
@@ -253,7 +260,9 @@ static int local_isNegativeZero(double v)
 static unsigned long specialValueForChar(char c)
 {
   for (int ii = 0; specialFlagArray[ii].flagChar != 0; ii++) {
-    if (specialFlagArray[ii].flagChar == c) return(specialFlagArray[ii].flagValue);
+    if (specialFlagArray[ii].flagChar == c) {
+      return(specialFlagArray[ii].flagValue);
+    }
   }
   return(0);
 }
@@ -310,7 +319,9 @@ static void snmpAtExit(void *arg)
   epicsThreadSleep(0.2);
 
   if (pManager) {
-    if (snmpDebugLevel) printf("devSnmp : deleting manager object\n");
+    if (snmpDebugLevel) {
+      printf("devSnmp : deleting manager object\n");
+    }
     delete pManager;
     pManager = NULL;
   }
@@ -332,11 +343,15 @@ static void snmpInitHook(initHookState state)
 //----------------------------------------------------------------------
 static void debugLevelChange(void)
 {
-  if (snmpDebugLevel < 0) snmpDebugLevel = 0;
-  if (snmpDebugLevel == 0)
+  if (snmpDebugLevel < 0)  {
+    snmpDebugLevel = 0;
+  }
+  if (snmpDebugLevel == 0) {
     printf("devSnmp: debug level is now OFF\n");
-  else
+  }
+  else {
     printf("devSnmp: debug level level is now %d\n",snmpDebugLevel);
+  }
 }
 //----------------------------------------------------------------------
 static void sessionRetriesChange(void)
@@ -420,7 +435,7 @@ static char *snmpStrStr(char *str, char *mask)
   char *tmpStr = NULL;
 
   if ((str != NULL) && (mask != NULL)) {
-
+    
     for (i = 0; *(str + i) != '\0'; i++) {
       if (*(str + i) == *mask) {
         tmpStr = str + i;
@@ -429,8 +444,10 @@ static char *snmpStrStr(char *str, char *mask)
           ++i; ++x;
           if (*(mask + x) == '\0') {
             return(tmpStr);
-          } else
+          }
+	  else {
             continue;
+	  }
         }
       }
     }
@@ -443,8 +460,9 @@ static int snmpStrCmp(char *s0, char *s1)
   if ((s0 == NULL) || (s1 == NULL)) return(1);
   char *ts0 = s0, *ts1 = s1;
   for (; *ts0 != ':' && *ts0 && *ts1; ts0++, ts1++) {
-    if (*ts0 != *ts1)
+    if (*ts0 != *ts1) {
       return(1);
+    }
   }
   return(0);
 }
@@ -457,12 +475,15 @@ static int binListItem_compare(void *p1, void *p2)
   int u1 = pL1->topPollWeight;
   int u2 = pL2->topPollWeight;
 
-  if (u1 > u2)
+  if (u1 > u2) {
     return(1);
-  else if (u2 > u1)
+  }
+  else if (u2 > u1) {
     return(-1);
-  else
+  }
+  else {
     return(0);
+  }
 }
 //--------------------------------------------------------------------
 static int list_context_compare(void *p1, void *p2)
@@ -473,12 +494,15 @@ static int list_context_compare(void *p1, void *p2)
   unsigned long u1 = (unsigned long) pL1->context();
   unsigned long u2 = (unsigned long) pL2->context();
 
-  if (u1 > u2)
+  if (u1 > u2) {
     return(-1);
-  else if (u2 > u1)
+  }
+  else if (u2 > u1) {
     return(1);
-  else
+  }
+  else {
     return(0);
+  }
 }
 //--------------------------------------------------------------------
 static int devSnmp_host_compare(void *p1, void *p2)
@@ -548,10 +572,12 @@ static void analyzeMismatch(netsnmp_variable_list *varlist, devSnmp_oid **oidlis
   misMask[0] = 0;
   for (int ii = 0; ii < varCount; ii++) {
     if (snmp_oid_compare(varArray[ii].oidPtr,varArray[ii].oidLen,
-                         oidArray[ii].oidPtr,oidArray[ii].oidLen) != 0)
+                         oidArray[ii].oidPtr,oidArray[ii].oidLen) != 0) {
       strcat(misMask,"M");
-    else
+    }
+    else {
       strcat(misMask,"-");
+    }
   }
 
   // count oids requested not in vars returned (missing)
@@ -565,7 +591,9 @@ static void analyzeMismatch(netsnmp_variable_list *varlist, devSnmp_oid **oidlis
         break;
       }
     }
-    if (! found) oidsMissing++;
+    if (! found) {
+      oidsMissing++;
+    }
   }
 
   // count vars returned not in oids requested (extra)
@@ -579,7 +607,9 @@ static void analyzeMismatch(netsnmp_variable_list *varlist, devSnmp_oid **oidlis
         break;
       }
     }
-    if (! found) oidsExtra++;
+    if (! found) {
+      oidsExtra++;
+    }
   }
 
   printf("%s  %s missing:%d extra:%d\n",tnow(),misMask,oidsMissing,oidsExtra);
@@ -663,8 +693,9 @@ void *snmpPointerList::itemAt(int idx)
 void *snmpPointerList::removeItemAt(int idx)
 {
   void *retval;
-  if ((idx < 0) || (idx >= currCount))
+  if ((idx < 0) || (idx >= currCount)) {
     retval = NULL;
+  }
   else {
     retval = pPtrList[idx];
     for (int ii = idx; ii < currCount-1; ii++) {
@@ -712,10 +743,12 @@ snmpTimeObject::~snmpTimeObject(void)
 //--------------------------------------------------------------------
 void snmpTimeObject::start(epicsTimeStamp *pnow)
 {
-  if (pnow)
+  if (pnow) {
     memcpy(&lastStarted,pnow,sizeof(epicsTimeStamp));
-  else
+  }
+  else {
     epicsTimeGetCurrent(&lastStarted);
+  }
 }
 //--------------------------------------------------------------------
 bool snmpTimeObject::started(void)
@@ -736,7 +769,8 @@ void snmpTimeObject::toDateTimeString(char *str)
 
   if (! started()) {
     strcpy(str,"n/a");
-  } else {
+  }
+  else {
     epicsTimeToTM(&tb,&nsec,&lastStarted);
     tb.tm_mon++;
     tb.tm_year += 1900;
@@ -841,8 +875,13 @@ void snmpWeightCollection::deleteBins(void)
     int count = binList->count();
     for (int ii = count-1; ii >= 0; ii--) {
       readBinListItem *pBin = (readBinListItem *) binList->removeItemAt(ii);
-      if (! pBin) continue;
-      if (pBin->pList) delete pBin->pList;
+      if (! pBin)  {
+	continue;
+      }
+      if (pBin->pList) {
+	delete pBin->pList;
+      }
+      
       delete pBin;
     }
   }
@@ -1077,7 +1116,9 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
 
       if (sanityCount != oidList->count()) {
         // SANITY CHECK FAILED
-        if (pOurGroup) pOurGroup->sessionGotError(this);
+        if (pOurGroup) {
+	  pOurGroup->sessionGotError(this);
+	}
         if (snmpDebugLevel >= 3) {
           printf("*** devSnmp %s transaction (GET) sanity check failed: asked for %d oids got %d\n"
                  "*** (try adding epicsSnmpSetMaxOidsPerReq call to ioc script)\n",
@@ -1090,7 +1131,8 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
           if (! pOID) continue;
           pOID->replyProcessing(this,op,SNMP_ERR_NOERROR,NULL);
         }
-      } else {
+      }
+      else {
         // roll through reply variables in PDU, sending data along to the
         // devSnmp_oid they belong to for processing
         netsnmp_variable_list *vars = pdu->variables;
@@ -1107,7 +1149,8 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
         }
         if ((badReturns) && (snmpDebugLevel >= 2)) analyzeMismatch(pdu->variables,oidArray);
       }
-    } else {
+    }
+    else {
       //
       // error in request
       //
@@ -1124,13 +1167,16 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
       for (int ii = 0; ii < oidCount; ii++) {
         devSnmp_oid *pOID = oidArray[ii];
         if (! pOID) continue;
-        if (ii == bad_index)
+        if (ii == bad_index) {
           pOID->replyProcessing(this,op,pdu->errstat,NULL);
-        else
+	}
+        else {
           pOID->replyProcessing(this,op,SNMP_ERR_NOERROR,NULL);
+	}
       }
     }
-  } else {
+  }
+  else {
     //
     // operation FAILED (timed out, etc)
     //
@@ -1587,7 +1633,7 @@ bool devSnmp_oid::getValueDouble(double *value)
 {
   // if we have no valid double reading, return false
   if (! hasReadingDouble()) {
-    strcpy(lastError,"oid has no valid double reading");
+    strcpy(lastError,"devSnmp_oid::getValueDouble: oid has no valid double reading");
     return(false);
   }
   epicsMutexLock(valMutex);
@@ -1600,7 +1646,7 @@ bool devSnmp_oid::getValueLong(long *value)
 {
   // if we have no valid long reading, return false
   if (! hasReadingLong()) {
-    strcpy(lastError,"oid has no valid double reading");
+    strcpy(lastError,"devSnmp_oid::getValueLong: oid has no valid double reading");
     return(false);
   }
   epicsMutexLock(valMutex);
@@ -1618,9 +1664,10 @@ bool devSnmp_oid::getRawValueString(char *str, int maxsize)
   // will be matched, just that we got a non-timeout response from the
   // remote host with a string value.
   if (! hasReading()) {
-    strcpy(lastError,"oid has no valid reading");
+    strcpy(lastError,"devSnmp_oid::getRawValueString: oid has no valid reading");
     return(false);
   }
+
 
   epicsMutexLock(valMutex);
   copy_string(str,maxsize,reading.read_string);
@@ -2181,8 +2228,13 @@ bool devSnmp_pv::getValueString(char *str, int maxsize)
 {
   // get raw string
   char rawData[ oidExtra.data_len ];
+  if (snmpDebugLevel >= 100) {
+    printf("devSnmp_pv::getValueString str-%s-%d, rawdata-%s:%d\n", str, maxsize, rawData, oidExtra.data_len);
+  }
+  
   if (! getRawValueString(rawData,oidExtra.data_len)) return(false);
 
+  
   // try to locate our mask
   char *pc = snmpStrStr(rawData, oidExtra.mask);
   if (! pc) {
@@ -2232,8 +2284,9 @@ bool devSnmp_pv::getValueDouble(double *value)
 
   // otherwise try parsing oid's string value (if there is one)
   char str[ oidExtra.data_len ];
+  str[0] = '\0';
   if (! getValueString(str,sizeof(str))) return(false);
-#ifdef epicsScanDouble
+  #ifdef epicsScanDouble
   // epicsScanDouble is a macro calling epicsParseDouble with a units pointer of NULL
   // and that causes strings with trailing units text to fail conversion
   // so we must call epicsParseDouble with a units pointer
@@ -2272,6 +2325,7 @@ bool devSnmp_pv::getValueLong(long *value)
 
   // otherwise try parsing oid's string value (if there is one)
   char str[ oidExtra.data_len ];
+  str[0] = '\0';
   if (! getValueString(str,sizeof(str))) return(false);
 
   if (! (oidExtra.special_flags & SPECIAL_FLAG_HEXBITS)) {
@@ -2324,6 +2378,7 @@ bool devSnmp_pv::getValueLong(long *value)
 //--------------------------------------------------------------------
 bool devSnmp_pv::getRawValueString(char *str, int maxsize)
 {
+  //  printf("devSnmp_pv::getRawValueString: %s-%d\n", str, maxsize);
   if (! pOurOID) {
     sprintf(lastError,"oid object is NULL");
     return(false);
@@ -2657,7 +2712,7 @@ devSnmp_pv *devSnmp_group::createPV
   pvList->append(pPV);
 
   // keep PV list sorted
-  // (no real reason, just makes reports nicer)
+  // (no real reason, just makes report nicer)
   pvList->sort(devSnmp_pv_compare);
 
   return(pPV);
@@ -4229,20 +4284,23 @@ static long snmpLiRead(struct longinRecord *pli)
 {
   devSnmp_pv  *pPV;
   epicsStatus status = epicsError;
-  long new_val;
+  long new_val = 0;
 
-  if (pli->dpvt == NULL)
+  if (pli->dpvt == NULL) {
     return(epicsError);
-  else
+  }
+  else {
     pPV = (devSnmp_pv *) pli->dpvt;
-
+  }
+  
   status = 2;
 
   if (pPV->getValueLong(&new_val)) {
     pli->val = new_val;
     pli->udf = false;
     status = epicsOk;
-  } else {
+  }
+  else {
 #ifdef LI_ON_READ_ERROR_VALUE
     pli->val = LI_ON_READ_ERROR_VALUE;
 #endif
@@ -4365,11 +4423,14 @@ static epicsStatus snmpWfInit(struct waveformRecord *pwf)
 //--------------------------------------------------------------------
 static epicsStatus snmpWfRead(struct waveformRecord *pwf)
 {
+
+
+  
   devSnmp_pv *pPV;
   long status = epicsError;
   int i;
 
-  if (pwf->dpvt == NULL)
+  if (pwf->dpvt == NULL) 
     return(epicsError);
   else
     pPV = (devSnmp_pv *) pwf->dpvt;
@@ -4842,12 +4903,17 @@ static int snmpWfGauge32Convert(void *rval, char *sval)
   char *cp;
   SNMP_UINT32 *lp = (SNMP_UINT32*) rval;
 
+ 
   if (sval == NULL) return(epicsError);
+  
   cp = strchr(sval, ':') + 1;
-  if ((cp != NULL) && (lp != NULL) && sscanf(cp, "%" SCNu32, lp))
-    return(epicsOk);
-  else
+  
+  if ((cp != NULL) && (lp != NULL) && sscanf(cp, "%" SCNu32, lp)) {
+      return(epicsOk);
+  }
+  else {   
     return(epicsError);
+  }
 }
 //--------------------------------------------------------------------
 static int snmpWfGauge64Convert(void *rval, char *sval)

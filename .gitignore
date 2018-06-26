@@ -1,0 +1,7 @@
+O.*
+.cvs*
+snmp.Makefile
+*~
+*.d
+
+

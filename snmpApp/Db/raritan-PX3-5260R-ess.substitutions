@@ -1,0 +1,54 @@
+#
+#  https://help.raritan.com/px3-5000/v3.4.0/en/
+#
+#  Model            : PX3-5260R
+#  Firmware Version : 3.3.10.5-43736
+#
+#
+file "raritan-pdu-info.template" {
+pattern { P, USER, HOST }
+{ "$(PREFIX)", public, "$(PDU_IP)" }
+}
+
+file "raritan-pdu-inlet.template" {
+pattern { P, USER, HOST }
+{ "$(PREFIX)", public, "$(PDU_IP)" }
+}
+
+file "raritan-pdu-outlet.template" {
+pattern { P, USER, HOST, OUTLET_ID }
+{ "$(PREFIX)", public, "$(PDU_IP)", 1 }
+{ "$(PREFIX)", public, "$(PDU_IP)", 2 }
+{ "$(PREFIX)", public, "$(PDU_IP)", 3 }
+{ "$(PREFIX)", public, "$(PDU_IP)", 4 }
+{ "$(PREFIX)", public, "$(PDU_IP)", 5 }
+{ "$(PREFIX)", public, "$(PDU_IP)", 6 }
+{ "$(PREFIX)", public, "$(PDU_IP)", 7 }
+{ "$(PREFIX)", public, "$(PDU_IP)", 8 }
+{ "$(PREFIX)", public, "$(PDU_IP)", 9 }
+{ "$(PREFIX)", public, "$(PDU_IP)", 10 }
+{ "$(PREFIX)", public, "$(PDU_IP)", 11 }
+{ "$(PREFIX)", public, "$(PDU_IP)", 12 }
+}
+
+file "raritan-pdu-outlet-ctrl.template"  {
+pattern { P, USER, HOST, OUTLET_ID }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 1 }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 2 }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 3 }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 4 }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 5 }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 6 }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 7 }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 8 }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 9 }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 10 }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 11 }
+{ "$(PREFIX)", guru, "$(PDU_IP)", 12 }
+}
+
+file "raritan-pdu-extsensor.template" {
+pattern { P, USER, HOST,  EXT_SENSOR_ID }
+{ "$(PREFIX)", public, "$(PDU_IP)", 1 }
+}
+

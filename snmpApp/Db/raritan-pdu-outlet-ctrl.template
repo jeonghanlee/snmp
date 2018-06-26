@@ -1,0 +1,80 @@
+
+record(longin, "$(P)Outlet$(OUTLET_ID)-SState-RB_")
+{
+    field(DESC, "SNMP channel")
+    field(SCAN, "1 second")
+    field(DTYP, "Snmp")
+    field( INP, "@$(HOST) $(USER) PDU2-MIB::switchingOperation.1.$(OUTLET_ID)  ( 100 i")
+    field(LOPR, "0")
+    field(HOPR, "1")
+}
+
+record(mbbi, "$(P)Outlet$(OUTLET_ID)-SState-RB")
+{
+    field(DTYP, "Soft Channel")
+    field( INP, "$(P)Outlet$(OUTLET_ID)-SState-RB_ CPP")
+    field(ZRST, "off")
+    field(ZRVL, "0")
+    field(ONST, "on")
+    field(ONVL, "1")
+    field(TWSV, "INVALID")
+    field(THSV, "INVALID")
+    field(FRSV, "INVALID")
+    field(FVSV, "INVALID")
+    field(SXSV, "INVALID")
+    field(SVSV, "INVALID")
+    field(EISV, "INVALID")
+    field(NISV, "INVALID")
+    field(TESV, "INVALID")
+    field(ELSV, "INVALID")
+    field(TVSV, "INVALID")
+    field(TTSV, "INVALID")
+    field(FTSV, "INVALID")
+    field(FFSV, "INVALID")
+    field(UNSV, "INVALID")
+    field(FLNK, "$(P)Outlet$(OUTLET_ID)-SStateUpdate_")
+}
+
+record(longout, "$(P)Outlet$(OUTLET_ID)-SState-SET_")
+{
+    field(DESC, "SNMP channel")
+    field(DTYP, "Snmp")
+    field( OUT, "@$(HOST) $(USER) PDU2-MIB::switchingOperation.1.$(OUTLET_ID)  ( 100 i")
+    field(LOPR, "0")
+    field(DRVL, "0")
+    field(HOPR, "1")
+    field(DRVH, "1")
+}
+
+record(mbbo, "$(P)Outlet$(OUTLET_ID)-SState-SET")
+{
+    field(DTYP, "Soft Channel")
+    field( OUT, "$(P)Outlet$(OUTLET_ID)-SState-SET_ PP")
+    field(ZRST, "off")
+    field(ZRVL, "0")
+    field(ONST, "on")
+    field(ONVL, "1")
+    field(TWSV, "INVALID")
+    field(FRSV, "INVALID")
+    field(FVSV, "INVALID")
+    field(SXSV, "INVALID")
+    field(SVSV, "INVALID")
+    field(EISV, "INVALID")
+    field(NISV, "INVALID")
+    field(TESV, "INVALID")
+    field(ELSV, "INVALID")
+    field(TVSV, "INVALID")
+    field(TTSV, "INVALID")
+    field(FTSV, "INVALID")
+    field(FFSV, "INVALID")
+    field(UNSV, "INVALID")
+    field(IVOA, "Don't drive outputs")
+}
+
+
+record(longout, "$(P)Outlet$(OUTLET_ID)-SStateUpdate_")
+{
+    field( DOL, "$(P)Outlet$(OUTLET_ID)-SState-RB NPP")
+    field(OMSL, "closed_loop")
+    field( OUT, "$(P)Outlet$(OUTLET_ID)-SState-SET NPP")
+}

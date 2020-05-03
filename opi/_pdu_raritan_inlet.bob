@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<display version="2.0.0">
+  <name>Display</name>
+  <width>320</width>
+  <height>20</height>
+  <widget type="textupdate" version="2.0.0">
+    <name>Text Update</name>
+    <pv_name>$(P)$(R)Inlet-RMSVoltage-RB</pv_name>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>Text Update_1</name>
+    <pv_name>$(P)$(R)Inlet-RMSCurrent-RB</pv_name>
+    <x>110</x>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>Text Update_2</name>
+    <pv_name>$(P)$(R)Inlet-ActivePower-RB</pv_name>
+    <x>220</x>
+  </widget>
+</display>

@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<display version="2.0.0">
+  <name>Display</name>
+  <width>450</width>
+  <height>20</height>
+  <widget type="textupdate" version="2.0.0">
+    <name>Text Update</name>
+    <pv_name>$(P)$(R)ExtSensor$(N)-RB.DESC</pv_name>
+    <width>230</width>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>Text Update_1</name>
+    <pv_name>$(P)$(R)ExtSensor$(N)-RB</pv_name>
+    <x>240</x>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>Text Update_2</name>
+    <pv_name>$(P)$(R)ExtSensor$(N)-SN-RB</pv_name>
+    <x>350</x>
+    <show_units>false</show_units>
+  </widget>
+</display>

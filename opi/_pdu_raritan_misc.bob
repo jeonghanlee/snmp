@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<display version="2.0.0">
+  <name>Display</name>
+  <width>340</width>
+  <height>20</height>
+  <widget type="textupdate" version="2.0.0">
+    <name>Text Update_1</name>
+    <pv_name>$(P)$(R)$(PROP)</pv_name>
+    <x>240</x>
+  </widget>
+  <widget type="label" version="2.0.0">
+    <name>Label</name>
+    <text>$(LABEL)</text>
+    <width>230</width>
+  </widget>
+</display>

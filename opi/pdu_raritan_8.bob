@@ -1,0 +1,379 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<display version="2.0.0">
+  <name>Raritan PDU 8</name>
+  <width>860</width>
+  <height>740</height>
+  <widget type="group" version="2.0.0">
+    <name>group-1</name>
+    <x>20</x>
+    <y>70</y>
+    <width>820</width>
+    <height>80</height>
+    <style>3</style>
+    <background_color>
+      <color name="BACKGROUND" red="220" green="225" blue="221">
+      </color>
+    </background_color>
+    <transparent>true</transparent>
+    <widget type="rectangle" version="2.0.0">
+      <name>group-rectangle-1</name>
+      <width>820</width>
+      <height>80</height>
+      <line_width>2</line_width>
+      <line_color>
+        <color name="GROUP-BORDER" red="150" green="155" blue="151">
+        </color>
+      </line_color>
+      <background_color>
+        <color name="GROUP-BACKGROUND" red="200" green="205" blue="201">
+        </color>
+      </background_color>
+      <corner_width>10</corner_width>
+      <corner_height>10</corner_height>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display</name>
+      <file>_pdu_raritan_inlet.bob</file>
+      <x>30</x>
+      <y>40</y>
+      <width>452</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+  </widget>
+  <widget type="rectangle" version="2.0.0">
+    <name>title-bar</name>
+    <class>TITLE-BAR</class>
+    <x use_class="true">0</x>
+    <y use_class="true">0</y>
+    <width>860</width>
+    <height use_class="true">50</height>
+    <line_width use_class="true">0</line_width>
+    <background_color use_class="true">
+      <color name="PRIMARY-HEADER-BACKGROUND" red="151" green="188" blue="202">
+      </color>
+    </background_color>
+  </widget>
+  <widget type="label" version="2.0.0">
+    <name>title</name>
+    <class>TITLE</class>
+    <text>$(P)$(R)</text>
+    <x use_class="true">20</x>
+    <y use_class="true">0</y>
+    <width>570</width>
+    <height use_class="true">50</height>
+    <font use_class="true">
+      <font name="Header 1" family="Source Sans Pro" style="BOLD_ITALIC" size="36.0">
+      </font>
+    </font>
+    <foreground_color use_class="true">
+      <color name="HEADER-TEXT" red="0" green="0" blue="0">
+      </color>
+    </foreground_color>
+    <transparent use_class="true">true</transparent>
+    <horizontal_alignment use_class="true">0</horizontal_alignment>
+    <vertical_alignment use_class="true">1</vertical_alignment>
+    <wrap_words use_class="true">false</wrap_words>
+  </widget>
+  <widget type="label" version="2.0.0">
+    <name>subtitle</name>
+    <class>SUBTITLE</class>
+    <text>Raritan PDU 8</text>
+    <x>590</x>
+    <y use_class="true">20</y>
+    <width>250</width>
+    <height use_class="true">30</height>
+    <font use_class="true">
+      <font name="Header 2" family="Source Sans Pro" style="BOLD_ITALIC" size="21.0">
+      </font>
+    </font>
+    <foreground_color use_class="true">
+      <color name="HEADER-TEXT" red="0" green="0" blue="0">
+      </color>
+    </foreground_color>
+    <horizontal_alignment use_class="true">2</horizontal_alignment>
+    <vertical_alignment use_class="true">2</vertical_alignment>
+    <wrap_words use_class="true">false</wrap_words>
+  </widget>
+  <widget type="group" version="2.0.0">
+    <name>group-3</name>
+    <x>20</x>
+    <y>170</y>
+    <width>820</width>
+    <height>290</height>
+    <style>3</style>
+    <background_color>
+      <color name="BACKGROUND" red="220" green="225" blue="221">
+      </color>
+    </background_color>
+    <transparent>true</transparent>
+    <widget type="rectangle" version="2.0.0">
+      <name>group-rectangle-3</name>
+      <width>820</width>
+      <height>290</height>
+      <line_width>2</line_width>
+      <line_color>
+        <color name="GROUP-BORDER" red="150" green="155" blue="151">
+        </color>
+      </line_color>
+      <background_color>
+        <color name="GROUP-BACKGROUND" red="200" green="205" blue="201">
+        </color>
+      </background_color>
+      <corner_width>10</corner_width>
+      <corner_height>10</corner_height>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_2</name>
+      <file>_pdu_raritan_outlet.bob</file>
+      <macros>
+        <N>1</N>
+      </macros>
+      <x>30</x>
+      <y>40</y>
+      <width>682</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_3</name>
+      <file>_pdu_raritan_outlet.bob</file>
+      <macros>
+        <N>2</N>
+      </macros>
+      <x>30</x>
+      <y>71</y>
+      <width>682</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_8</name>
+      <file>_pdu_raritan_outlet.bob</file>
+      <macros>
+        <N>3</N>
+      </macros>
+      <x>30</x>
+      <y>100</y>
+      <width>682</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_7</name>
+      <file>_pdu_raritan_outlet.bob</file>
+      <macros>
+        <N>4</N>
+      </macros>
+      <x>30</x>
+      <y>130</y>
+      <width>682</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_6</name>
+      <file>_pdu_raritan_outlet.bob</file>
+      <macros>
+        <N>5</N>
+      </macros>
+      <x>30</x>
+      <y>160</y>
+      <width>682</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_5</name>
+      <file>_pdu_raritan_outlet.bob</file>
+      <macros>
+        <N>6</N>
+      </macros>
+      <x>30</x>
+      <y>190</y>
+      <width>682</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_4</name>
+      <file>_pdu_raritan_outlet.bob</file>
+      <macros>
+        <N>7</N>
+      </macros>
+      <x>30</x>
+      <y>220</y>
+      <width>682</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_9</name>
+      <file>_pdu_raritan_outlet.bob</file>
+      <macros>
+        <N>8</N>
+      </macros>
+      <x>30</x>
+      <y>250</y>
+      <width>682</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+  </widget>
+  <widget type="label" version="2.0.0">
+    <name>group-title-1</name>
+    <text>Inlet</text>
+    <x>20</x>
+    <y>70</y>
+    <width>820</width>
+    <height>30</height>
+    <font>
+      <font family="Source Sans Pro" style="BOLD" size="16.0">
+      </font>
+    </font>
+    <horizontal_alignment>1</horizontal_alignment>
+    <vertical_alignment>2</vertical_alignment>
+  </widget>
+  <widget type="label" version="2.0.0">
+    <name>group-title-3</name>
+    <text>Outlet</text>
+    <x>20</x>
+    <y>170</y>
+    <width>820</width>
+    <height>30</height>
+    <font>
+      <font family="Source Sans Pro" style="BOLD" size="16.0">
+      </font>
+    </font>
+    <horizontal_alignment>1</horizontal_alignment>
+    <vertical_alignment>2</vertical_alignment>
+  </widget>
+  <widget type="group" version="2.0.0">
+    <name>group-1_1</name>
+    <x>20</x>
+    <y>480</y>
+    <width>820</width>
+    <height>260</height>
+    <style>3</style>
+    <background_color>
+      <color name="BACKGROUND" red="220" green="225" blue="221">
+      </color>
+    </background_color>
+    <transparent>true</transparent>
+    <widget type="rectangle" version="2.0.0">
+      <name>group-rectangle-1_1</name>
+      <width>820</width>
+      <height>260</height>
+      <line_width>2</line_width>
+      <line_color>
+        <color name="GROUP-BORDER" red="150" green="155" blue="151">
+        </color>
+      </line_color>
+      <background_color>
+        <color name="GROUP-BACKGROUND" red="200" green="205" blue="201">
+        </color>
+      </background_color>
+      <corner_width>10</corner_width>
+      <corner_height>10</corner_height>
+    </widget>
+    <widget type="label" version="2.0.0">
+      <name>group-title-1_1</name>
+      <text>Device</text>
+      <width>820</width>
+      <height>30</height>
+      <font>
+        <font family="Source Sans Pro" style="BOLD" size="16.0">
+        </font>
+      </font>
+      <horizontal_alignment>1</horizontal_alignment>
+      <vertical_alignment>2</vertical_alignment>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_1</name>
+      <file>_pdu_raritan_sensor.bob</file>
+      <macros>
+        <N>1</N>
+      </macros>
+      <x>40</x>
+      <y>130</y>
+      <width>452</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_11</name>
+      <file>_pdu_raritan_sensor.bob</file>
+      <macros>
+        <N>2</N>
+      </macros>
+      <x>40</x>
+      <y>160</y>
+      <width>452</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_13</name>
+      <file>_pdu_raritan_sensor.bob</file>
+      <macros>
+        <N>4</N>
+      </macros>
+      <x>40</x>
+      <y>220</y>
+      <width>452</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_14</name>
+      <file>_pdu_raritan_sensor.bob</file>
+      <macros>
+        <N>3</N>
+      </macros>
+      <x>40</x>
+      <y>190</y>
+      <width>452</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_15</name>
+      <file>_pdu_raritan_misc.bob</file>
+      <macros>
+        <LABEL>Serial number</LABEL>
+        <PROP>SN-RB</PROP>
+      </macros>
+      <x>40</x>
+      <y>70</y>
+      <width>342</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_16</name>
+      <file>_pdu_raritan_misc.bob</file>
+      <macros>
+        <LABEL>Firmware</LABEL>
+        <PROP>FW-RB</PROP>
+      </macros>
+      <x>40</x>
+      <y>100</y>
+      <width>342</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+    <widget type="embedded" version="2.0.0">
+      <name>Embedded Display_17</name>
+      <file>_pdu_raritan_misc.bob</file>
+      <macros>
+        <LABEL>Model</LABEL>
+        <PROP>MODEL-RB</PROP>
+      </macros>
+      <x>40</x>
+      <y>40</y>
+      <width>342</width>
+      <height>22</height>
+      <resize>2</resize>
+    </widget>
+  </widget>
+</display>

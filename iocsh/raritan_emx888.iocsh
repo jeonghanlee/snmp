@@ -1,0 +1,14 @@
+# ### Raritan EXM2-888 ###
+#- ###################################################
+#- HOSTNAME         - SNMP HOSTNAME for communications
+#-
+#- SNMP_VER         - Optional:  SNMP Version
+#-                    Default: SNMP_VERSION_2c
+#-
+#- MAX_OIDS         - Optional:  maximum number of OID for Raritan EXM2-888. 
+#-                    Default: 24
+#- ###################################################
+
+devSnmpSetSnmpVersion("$(HOSTNAME)", $(SNMP_VER=SNMP_VERSION_2c))
+devSnmpSetMaxOidsPerReq("$(HOSTNAME)", $(MAXOIDS=24))
+devSnmpSetParam(SetSkipReadbackMSec, 6000)

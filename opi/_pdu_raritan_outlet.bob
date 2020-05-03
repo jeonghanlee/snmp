@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<display version="2.0.0">
+  <name>Display</name>
+  <width>680</width>
+  <height>20</height>
+  <widget type="bool_button" version="2.0.0">
+    <name>Boolean Button</name>
+    <pv_name>$(P)$(R)Outlet$(N)-SState-SET</pv_name>
+    <width>90</width>
+    <height>20</height>
+    <show_led>false</show_led>
+    <border_alarm_sensitive>false</border_alarm_sensitive>
+    <show_confirm_dialog>1</show_confirm_dialog>
+  </widget>
+  <widget type="led" version="2.0.0">
+    <name>LED</name>
+    <pv_name>$(P)$(R)Outlet$(N)-SState-RB</pv_name>
+    <x>100</x>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>Text Update</name>
+    <pv_name>$(P)$(R)Outlet$(N)-RMSVoltage-RB</pv_name>
+    <x>130</x>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>Text Update_1</name>
+    <pv_name>$(P)$(R)Outlet$(N)-RMSCurrent-RB</pv_name>
+    <x>240</x>
+  </widget>
+  <widget type="textupdate" version="2.0.0">
+    <name>Text Update_2</name>
+    <pv_name>$(P)$(R)Outlet$(N)-ActivePower-RB</pv_name>
+    <x>350</x>
+  </widget>
+  <widget type="textentry" version="3.0.0">
+    <name>Text Entry</name>
+    <pv_name>$(P)$(R)Outlet$(N)-Name-SP</pv_name>
+    <x>460</x>
+    <width>220</width>
+  </widget>
+</display>

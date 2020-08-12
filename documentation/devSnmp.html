@@ -7,9 +7,9 @@
 
 <BODY>
 <H1>EPICS SNMP Device Support Module (NSCL/FRIB)</H1>
-<B>Release 1.0.0.1</B><br>
+<B>Release 1.0.0.2</B><br>
 <B>by John Priller</B><br>
-<B>October 24, 2016</B><br>
+<B>November 18, 2019</B><br>
 
 <h2><u>Contents</u></h2>
 <ul>
@@ -552,6 +552,9 @@ for a helpful little perl script which provides a numeric definition such as:
 </dl>
 
 <h2 id="Versions"><u>Version history</u></h2>
+        <p>1.0.0.2: Address some minor memory leaks found by valgrind, add sanity check to
+        prevent record processing after at-exit called and memory is freed.</p>
+
         <p>1.0.0.1: Add 'R' (RVAL) special_flag.</p>
 
         <p>1.0.0.0: Production release.  Fix for epicsScanDouble behavior change in R3.15.</p>

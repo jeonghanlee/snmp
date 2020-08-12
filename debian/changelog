@@ -1,0 +1,25 @@
+epics-snmp (1.0.0.2) unstable; urgency=medium
+
+  * bump up version
+  * patches applied and commited
+  * use native not quilt
+
+ -- John Priller <priller@frib.msu.edu>  Mon, 18 Nov 2019 10:54:00 -0500
+
+epics-snmp (1.0.0.1-2) unstable; urgency=medium
+
+  * Bump up standards version and debhelper version
+
+ -- Martin Konrad <konrad@frib.msu.edu>  Tue, 16 Jul 2019 18:22:32 -0400
+
+epics-snmp (1.0.0.1-1) unstable; urgency=medium
+
+  * New upstream version 1.0.0.1
+
+ -- Martin Konrad <konrad@frib.msu.edu>  Fri, 11 Jan 2019 18:23:35 -0500
+
+epics-snmp (1.0.0.0-1) unstable; urgency=low
+
+  * Initial release
+
+ -- Daron Chabot <chabot@frib.msu.edu>  Wed, 19 Oct 2016 17:45:27 -0400

@@ -203,9 +203,8 @@ static char *tnow(void)
 static void copy_string(char *target, int maxsize, char *source)
 {
   int len = strlen(source);
-  if (len < maxsize) {
+  if (len < maxsize)
     strcpy(target,source);
-  }
   else {
     strncpy(target,source,maxsize-1);
     target[maxsize-1] = 0;
@@ -216,21 +215,17 @@ static int snmpScanLong(char *str, long *dest, int base = 10)
 {
   char *endp;
   long num = strtol(str,&endp,base);
-  if (endp == str) {
-    return(0);
-  }
+  if (endp == str) return(0);
   (*dest) = num;
   return(1);
 }
 //--------------------------------------------------------------------
 static int differentEnough(double d1, double d2)
 {
-  if (d1 == d2)  { return(false);}
-  if (d1 == 0.0) { return( fabs(d2) > 1.0e-9);}
-  if (d2 == 0.0) { return( fabs(d1) > 1.0e-9);}
-  
+  if (d1 == d2) return(false);
+  if (d1 == 0.0) return( fabs(d2) > 1.0e-9);
+  if (d2 == 0.0) return( fabs(d1) > 1.0e-9);
   double pd = fabs((d2 - d1) / d1);
-  
   return( pd > 0.00001 );
 }
 //----------------------------------------------------------------------
@@ -238,7 +233,7 @@ static int local_isBigEndian(void)
 {
   static int _bigEndianState = -1;
 
-  if (_bigEndianState >= 0) { return( _bigEndianState); }
+  if (_bigEndianState >= 0) return( _bigEndianState);
   long X = 1;
   unsigned char *pUC = (unsigned char *) &X;
   _bigEndianState = (pUC[0] == 0) ? 1 : 0;
@@ -249,10 +244,8 @@ static int local_isNegativeZero(double v)
 {
   static int chkidx = -1;
 
-  if (v != 0.0) { return(false);} 
-  if (chkidx < 0) {
-    chkidx = local_isBigEndian() ? 0 : sizeof(double)-1;
-  }
+  if (v != 0.0) return(false);
+  if (chkidx < 0) chkidx = local_isBigEndian() ? 0 : sizeof(double)-1;
   unsigned char *pUC = (unsigned char *) &v;
   return( (pUC[chkidx] & 0x0080) ? true : false );
 }
@@ -260,9 +253,7 @@ static int local_isNegativeZero(double v)
 static unsigned long specialValueForChar(char c)
 {
   for (int ii = 0; specialFlagArray[ii].flagChar != 0; ii++) {
-    if (specialFlagArray[ii].flagChar == c) {
-      return(specialFlagArray[ii].flagValue);
-    }
+    if (specialFlagArray[ii].flagChar == c) return(specialFlagArray[ii].flagValue);
   }
   return(0);
 }
@@ -319,9 +310,7 @@ static void snmpAtExit(void *arg)
   epicsThreadSleep(0.2);
 
   if (pManager) {
-    if (snmpDebugLevel) {
-      printf("devSnmp : deleting manager object\n");
-    }
+    if (snmpDebugLevel) printf("devSnmp : deleting manager object\n");
     delete pManager;
     pManager = NULL;
   }
@@ -343,15 +332,11 @@ static void snmpInitHook(initHookState state)
 //----------------------------------------------------------------------
 static void debugLevelChange(void)
 {
-  if (snmpDebugLevel < 0)  {
-    snmpDebugLevel = 0;
-  }
-  if (snmpDebugLevel == 0) {
+  if (snmpDebugLevel < 0) snmpDebugLevel = 0;
+  if (snmpDebugLevel == 0)
     printf("devSnmp: debug level is now OFF\n");
-  }
-  else {
+  else
     printf("devSnmp: debug level level is now %d\n",snmpDebugLevel);
-  }
 }
 //----------------------------------------------------------------------
 static void sessionRetriesChange(void)
@@ -435,7 +420,7 @@ static char *snmpStrStr(char *str, char *mask)
   char *tmpStr = NULL;
 
   if ((str != NULL) && (mask != NULL)) {
-    
+
     for (i = 0; *(str + i) != '\0'; i++) {
       if (*(str + i) == *mask) {
         tmpStr = str + i;
@@ -444,10 +429,8 @@ static char *snmpStrStr(char *str, char *mask)
           ++i; ++x;
           if (*(mask + x) == '\0') {
             return(tmpStr);
-          }
-	  else {
+          } else
             continue;
-	  }
         }
       }
     }
@@ -460,9 +443,8 @@ static int snmpStrCmp(char *s0, char *s1)
   if ((s0 == NULL) || (s1 == NULL)) return(1);
   char *ts0 = s0, *ts1 = s1;
   for (; *ts0 != ':' && *ts0 && *ts1; ts0++, ts1++) {
-    if (*ts0 != *ts1) {
+    if (*ts0 != *ts1)
       return(1);
-    }
   }
   return(0);
 }
@@ -475,15 +457,12 @@ static int binListItem_compare(void *p1, void *p2)
   int u1 = pL1->topPollWeight;
   int u2 = pL2->topPollWeight;
 
-  if (u1 > u2) {
+  if (u1 > u2)
     return(1);
-  }
-  else if (u2 > u1) {
+  else if (u2 > u1)
     return(-1);
-  }
-  else {
+  else
     return(0);
-  }
 }
 //--------------------------------------------------------------------
 static int list_context_compare(void *p1, void *p2)
@@ -494,15 +473,12 @@ static int list_context_compare(void *p1, void *p2)
   unsigned long u1 = (unsigned long) pL1->context();
   unsigned long u2 = (unsigned long) pL2->context();
 
-  if (u1 > u2) {
+  if (u1 > u2)
     return(-1);
-  }
-  else if (u2 > u1) {
+  else if (u2 > u1)
     return(1);
-  }
-  else {
+  else
     return(0);
-  }
 }
 //--------------------------------------------------------------------
 static int devSnmp_host_compare(void *p1, void *p2)
@@ -569,15 +545,13 @@ static void analyzeMismatch(netsnmp_variable_list *varlist, devSnmp_oid **oidlis
 
   // compare list of vars returned to oids requested
   char misMask[128];
-  misMask[0] = 0;
+  misMask[0] = '\0';
   for (int ii = 0; ii < varCount; ii++) {
     if (snmp_oid_compare(varArray[ii].oidPtr,varArray[ii].oidLen,
-                         oidArray[ii].oidPtr,oidArray[ii].oidLen) != 0) {
+                         oidArray[ii].oidPtr,oidArray[ii].oidLen) != 0)
       strcat(misMask,"M");
-    }
-    else {
+    else
       strcat(misMask,"-");
-    }
   }
 
   // count oids requested not in vars returned (missing)
@@ -591,9 +565,7 @@ static void analyzeMismatch(netsnmp_variable_list *varlist, devSnmp_oid **oidlis
         break;
       }
     }
-    if (! found) {
-      oidsMissing++;
-    }
+    if (! found) oidsMissing++;
   }
 
   // count vars returned not in oids requested (extra)
@@ -607,12 +579,27 @@ static void analyzeMismatch(netsnmp_variable_list *varlist, devSnmp_oid **oidlis
         break;
       }
     }
-    if (! found) {
-      oidsExtra++;
-    }
+    if (! found) oidsExtra++;
   }
 
   printf("%s  %s missing:%d extra:%d\n",tnow(),misMask,oidsMissing,oidsExtra);
+}
+//--------------------------------------------------------------------
+void init_OID_struct(OID *pOID, char *oidstr)
+{
+  if (! pOID) return;
+  memset(pOID,0,sizeof(OID));
+  pOID->Name   = dup_string(oidstr);
+  pOID->OidLen = MAX_OID_LEN;
+}
+//--------------------------------------------------------------------
+void term_OID_struct(OID *pOID)
+{
+  if (! pOID) return;
+  if (pOID->Name) {
+    delete [] pOID->Name;
+    pOID->Name = NULL;
+  }
 }
 //--------------------------------------------------------------------
 // class snmpPointerList
@@ -693,9 +680,8 @@ void *snmpPointerList::itemAt(int idx)
 void *snmpPointerList::removeItemAt(int idx)
 {
   void *retval;
-  if ((idx < 0) || (idx >= currCount)) {
+  if ((idx < 0) || (idx >= currCount))
     retval = NULL;
-  }
   else {
     retval = pPtrList[idx];
     for (int ii = idx; ii < currCount-1; ii++) {
@@ -743,12 +729,10 @@ snmpTimeObject::~snmpTimeObject(void)
 //--------------------------------------------------------------------
 void snmpTimeObject::start(epicsTimeStamp *pnow)
 {
-  if (pnow) {
+  if (pnow)
     memcpy(&lastStarted,pnow,sizeof(epicsTimeStamp));
-  }
-  else {
+  else
     epicsTimeGetCurrent(&lastStarted);
-  }
 }
 //--------------------------------------------------------------------
 bool snmpTimeObject::started(void)
@@ -769,8 +753,7 @@ void snmpTimeObject::toDateTimeString(char *str)
 
   if (! started()) {
     strcpy(str,"n/a");
-  }
-  else {
+  } else {
     epicsTimeToTM(&tb,&nsec,&lastStarted);
     tb.tm_mon++;
     tb.tm_year += 1900;
@@ -875,13 +858,8 @@ void snmpWeightCollection::deleteBins(void)
     int count = binList->count();
     for (int ii = count-1; ii >= 0; ii--) {
       readBinListItem *pBin = (readBinListItem *) binList->removeItemAt(ii);
-      if (! pBin)  {
-	continue;
-      }
-      if (pBin->pList) {
-	delete pBin->pList;
-      }
-      
+      if (! pBin) continue;
+      if (pBin->pList) delete pBin->pList;
       delete pBin;
     }
   }
@@ -1116,9 +1094,7 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
 
       if (sanityCount != oidList->count()) {
         // SANITY CHECK FAILED
-        if (pOurGroup) {
-	  pOurGroup->sessionGotError(this);
-	}
+        if (pOurGroup) pOurGroup->sessionGotError(this);
         if (snmpDebugLevel >= 3) {
           printf("*** devSnmp %s transaction (GET) sanity check failed: asked for %d oids got %d\n"
                  "*** (try adding epicsSnmpSetMaxOidsPerReq call to ioc script)\n",
@@ -1131,8 +1107,7 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
           if (! pOID) continue;
           pOID->replyProcessing(this,op,SNMP_ERR_NOERROR,NULL);
         }
-      }
-      else {
+      } else {
         // roll through reply variables in PDU, sending data along to the
         // devSnmp_oid they belong to for processing
         netsnmp_variable_list *vars = pdu->variables;
@@ -1149,8 +1124,7 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
         }
         if ((badReturns) && (snmpDebugLevel >= 2)) analyzeMismatch(pdu->variables,oidArray);
       }
-    }
-    else {
+    } else {
       //
       // error in request
       //
@@ -1167,16 +1141,13 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
       for (int ii = 0; ii < oidCount; ii++) {
         devSnmp_oid *pOID = oidArray[ii];
         if (! pOID) continue;
-        if (ii == bad_index) {
+        if (ii == bad_index)
           pOID->replyProcessing(this,op,pdu->errstat,NULL);
-	}
-        else {
+        else
           pOID->replyProcessing(this,op,SNMP_ERR_NOERROR,NULL);
-	}
       }
     }
-  }
-  else {
+  } else {
     //
     // operation FAILED (timed out, etc)
     //
@@ -1552,6 +1523,7 @@ devSnmp_oid::~devSnmp_oid(void)
     delete settingToSend;
     settingToSend = NULL;
   }
+  term_OID_struct(&oid);
   epicsMutexDestroy(setMutex);
   epicsMutexDestroy(valMutex);
 }
@@ -1594,6 +1566,7 @@ void devSnmp_oid::storeData(netsnmp_variable_list *var)
 
   // always store the string value
   char buffer[1024];
+  buffer[0] = '\0';
   snprint_value(buffer, sizeof(buffer), var->name, var->name_length, var);
   copy_string(reading.read_string,data_len,buffer);
   reading.valid = true;
@@ -1667,7 +1640,6 @@ bool devSnmp_oid::getRawValueString(char *str, int maxsize)
     strcpy(lastError,"devSnmp_oid::getRawValueString: oid has no valid reading");
     return(false);
   }
-
 
   epicsMutexLock(valMutex);
   copy_string(str,maxsize,reading.read_string);
@@ -1758,6 +1730,7 @@ void devSnmp_oid::debugSetProgress(const char *msg)
 {
   if (setDebugging) {
     char tmp[256];
+    tmp[0] = '\0';
     sprintf(tmp,"[%9.3lf] debugSetProgress %s %s\n",
             debugSetTime.elapsedSeconds(NULL),
             oidName(),
@@ -1783,6 +1756,7 @@ void devSnmp_oid::set(char set_type, char *str)
 
   if (setDebugging) {
     char tmp[256];
+    tmp[0] = '\0';
     sprintf(tmp,"set('%c',\"%s\")\n",set_type,str);
     debugSetProgress(tmp);
   }
@@ -1998,6 +1972,7 @@ void devSnmp_oid::report(int level, char *match)
 void devSnmp_oid::debugDump(void)
 {
   char valstr[1024];
+  valstr[0] = '\0';
   if (! getRawValueString(valstr,sizeof(valstr))) strcpy(valstr,"(n/a)");
   printf("  oid %s\n",oidName());
   printf("    Has reading      : %d\n",hasReading());
@@ -2228,13 +2203,12 @@ bool devSnmp_pv::getValueString(char *str, int maxsize)
 {
   // get raw string
   char rawData[ oidExtra.data_len ];
-  if (snmpDebugLevel >= 100) {
+  rawData[0] = '\0';
+   if (snmpDebugLevel >= 100) {
     printf("devSnmp_pv::getValueString str-%s-%d, rawdata-%s:%d\n", str, maxsize, rawData, oidExtra.data_len);
   }
-  
   if (! getRawValueString(rawData,oidExtra.data_len)) return(false);
 
-  
   // try to locate our mask
   char *pc = snmpStrStr(rawData, oidExtra.mask);
   if (! pc) {
@@ -2286,7 +2260,7 @@ bool devSnmp_pv::getValueDouble(double *value)
   char str[ oidExtra.data_len ];
   str[0] = '\0';
   if (! getValueString(str,sizeof(str))) return(false);
-  #ifdef epicsScanDouble
+#ifdef epicsScanDouble
   // epicsScanDouble is a macro calling epicsParseDouble with a units pointer of NULL
   // and that causes strings with trailing units text to fail conversion
   // so we must call epicsParseDouble with a units pointer
@@ -2378,9 +2352,8 @@ bool devSnmp_pv::getValueLong(long *value)
 //--------------------------------------------------------------------
 bool devSnmp_pv::getRawValueString(char *str, int maxsize)
 {
-  //  printf("devSnmp_pv::getRawValueString: %s-%d\n", str, maxsize);
   if (! pOurOID) {
-    sprintf(lastError,"oid object is NULL");
+    sprintf(lastError,"devSnmp_pv::getRawValueString : oid object is NULL");
     return(false);
   }
   bool retstat = pOurOID->getRawValueString(str,maxsize);
@@ -2452,7 +2425,7 @@ void devSnmp_pv::set(char *str)
 bool devSnmp_pv::wasSetRecently(void)
 {
   if (! pOurOID) {
-    sprintf(lastError,"oid object is NULL");
+    sprintf(lastError,"devSnmp_pv::wasSetRecently : oid object is NULL");
     return(false);
   }
   return( (lastSetSent.elapsedMilliseconds(&globalLastTick) < snmpSetSkipReadbackMSec) ? true : false );
@@ -2556,7 +2529,7 @@ void devSnmp_pv::debugDump(void)
 {
   printf("%s PV %s\n",tnow(),recordName());
   char tmp[128];
-  tmp[0] = 0;
+  tmp[0] = '\0';
   bool vok = getValueString(tmp,sizeof(tmp));
   printf("  value okay   : %d\n",vok);
   printf("  value string : '%s'\n",tmp);
@@ -2712,7 +2685,7 @@ devSnmp_pv *devSnmp_group::createPV
   pvList->append(pPV);
 
   // keep PV list sorted
-  // (no real reason, just makes report nicer)
+  // (no real reason, just makes reports nicer)
   pvList->sort(devSnmp_pv_compare);
 
   return(pPV);
@@ -3069,7 +3042,7 @@ devSnmp_host::~devSnmp_host(void)
 
   // delete host name
   if (hostname) {
-    delete hostname;
+    delete [] hostname;
     hostname = NULL;
   }
 }
@@ -3579,13 +3552,13 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink)
 
   // validate OID text, fill in OID structure
   OID oid;
-  oid.Name   = dup_string(base.oidStr);
-  oid.OidLen = MAX_OID_LEN;
+  init_OID_struct(&oid,base.oidStr);
   if (! get_node(oid.Name, oid.Oid, &oid.OidLen)) {
     if (! read_objid(oid.Name,oid.Oid,&oid.OidLen)) {
       printf("devSnmp: error parsing %s '%s'\n",pRec->name,instioStr);
       printf("         OID '%s' read_objid failed\n",oid.Name);
       snmp_perror("devSnmp_manager::addPV");
+      term_OID_struct(&oid);
       return(NULL);
     }
   }
@@ -3593,7 +3566,10 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink)
   // find or create host object for this OID
   devSnmp_host *pHost = findHost(base.host);
   if (! pHost) pHost = createHost(base.host);
-  if (! pHost) return(NULL);
+  if (! pHost) {
+    term_OID_struct(&oid);
+    return(NULL);
+  }
 
   // add PV to this host
   devSnmp_pv *pPV = pHost->addPV(&base,&extra,&oid,pRec);
@@ -3762,6 +3738,7 @@ void devSnmp_manager::report(int level, char *match)
   }
   if (showSendDetail) {
     char tmp[128];
+    tmp[0] = '\0';
     snmpTimeObject T;
     T.start(&globalLastTick);
     T.toDateTimeString(tmp);
@@ -4112,6 +4089,7 @@ int devSnmpSetParam(const char *param, int value)
     printf("\ndevSnmp settable parameters\n\n");
     printf("%-*s  value\n",longest,"parameter name");
     char bar1[longest+1];
+    bar1[0] = '\0';
     memset(bar1,'-',longest);
     bar1[longest] = 0;
     printf("%s  -----\n",bar1);
@@ -4171,6 +4149,8 @@ int snmpzr(int level, char *match)
 //--------------------------------------------------------------------
 static long snmpAiInit(struct aiRecord *pai)
 {
+  if (doingEpicsExit) return(epicsError);
+
   // ai.inp must be an INST_IO
   switch (pai->inp.type) {
     case INST_IO:
@@ -4202,6 +4182,8 @@ static long snmpAiInit(struct aiRecord *pai)
 //--------------------------------------------------------------------
 static long snmpAiRead(struct aiRecord *pai)
 {
+  if (doingEpicsExit) return(epicsError);
+
   devSnmp_pv *pPV;
   epicsStatus status = epicsError;
 
@@ -4251,6 +4233,8 @@ static long snmpAiRead(struct aiRecord *pai)
 //--------------------------------------------------------------------
 static long snmpLiInit(struct longinRecord *pli)
 {
+  if (doingEpicsExit) return(epicsError);
+
   // ai.inp must be an INST_IO
   switch (pli->inp.type) {
     case INST_IO:
@@ -4282,25 +4266,24 @@ static long snmpLiInit(struct longinRecord *pli)
 //--------------------------------------------------------------------
 static long snmpLiRead(struct longinRecord *pli)
 {
-  devSnmp_pv  *pPV;
+  if (doingEpicsExit) return(epicsError);
+
+  devSnmp_pv *pPV;
   epicsStatus status = epicsError;
   long new_val = 0;
 
-  if (pli->dpvt == NULL) {
+  if (pli->dpvt == NULL)
     return(epicsError);
-  }
-  else {
+  else
     pPV = (devSnmp_pv *) pli->dpvt;
-  }
-  
+
   status = 2;
 
   if (pPV->getValueLong(&new_val)) {
     pli->val = new_val;
     pli->udf = false;
     status = epicsOk;
-  }
-  else {
+  } else {
 #ifdef LI_ON_READ_ERROR_VALUE
     pli->val = LI_ON_READ_ERROR_VALUE;
 #endif
@@ -4316,6 +4299,8 @@ static long snmpLiRead(struct longinRecord *pli)
 //--------------------------------------------------------------------
 static long snmpSiInit(struct stringinRecord *psi)
 {
+  if (doingEpicsExit) return(epicsError);
+
   // si.inp must be an VME_IO
   switch (psi->inp.type) {
     case INST_IO:
@@ -4347,10 +4332,12 @@ static long snmpSiInit(struct stringinRecord *psi)
 //--------------------------------------------------------------------
 static long snmpSiRead(struct stringinRecord *psi)
 {
+  if (doingEpicsExit) return(epicsError);
+
   devSnmp_pv *pPV;
   epicsStatus status = epicsError;
   char val[40];
-
+  val[0] = '\0';
   if (psi->dpvt == NULL)
     return(epicsError);
   else
@@ -4379,6 +4366,8 @@ static long snmpSiRead(struct stringinRecord *psi)
 //--------------------------------------------------------------------
 static epicsStatus snmpWfInit(struct waveformRecord *pwf)
 {
+  if (doingEpicsExit) return(epicsError);
+
   epicsStatus status = epicsOk;
 
   // ai.inp must be an INST_IO
@@ -4423,14 +4412,13 @@ static epicsStatus snmpWfInit(struct waveformRecord *pwf)
 //--------------------------------------------------------------------
 static epicsStatus snmpWfRead(struct waveformRecord *pwf)
 {
+  if (doingEpicsExit) return(epicsError);
 
-
-  
   devSnmp_pv *pPV;
   long status = epicsError;
   int i;
 
-  if (pwf->dpvt == NULL) 
+  if (pwf->dpvt == NULL)
     return(epicsError);
   else
     pPV = (devSnmp_pv *) pwf->dpvt;
@@ -4497,6 +4485,8 @@ static epicsStatus snmpWfRead(struct waveformRecord *pwf)
 //--------------------------------------------------------------------
 static long snmpAoInit(struct aoRecord *pao)
 {
+  if (doingEpicsExit) return(epicsError);
+
   // ao.scan must be Passive
   if (pao->scan != menuScanPassive) {
     recGblRecordError(S_db_badField,(void *)pao,
@@ -4533,6 +4523,8 @@ static long snmpAoInit(struct aoRecord *pao)
 //--------------------------------------------------------------------
 static long snmpAoWrite(struct aoRecord *pao)
 {
+  if (doingEpicsExit) return(epicsError);
+
   devSnmp_pv *pPV;
   long status = epicsOk;
 
@@ -4600,9 +4592,11 @@ static double snmpAoBackConvert(struct aoRecord *pao, long dint)
 //--------------------------------------------------------------------
 static long snmpAoReadback(devSnmp_pv *pPV)
 {
+  if (doingEpicsExit) return(epicsError);
+
   struct aoRecord *pao = (struct aoRecord *) pPV->record();
   epicsStatus status = epicsError;
-  double new_val;
+  double new_val = 0.0;
   bool process_record = false;
 
   status = -1;
@@ -4666,6 +4660,8 @@ static long snmpAoReadback(devSnmp_pv *pPV)
 //--------------------------------------------------------------------
 static long snmpLoInit(struct longoutRecord *plo)
 {
+  if (doingEpicsExit) return(epicsError);
+
   // lo.scan must be Passive
   if (plo->scan != menuScanPassive) {
     recGblRecordError(S_db_badField,(void *)plo,
@@ -4702,6 +4698,8 @@ static long snmpLoInit(struct longoutRecord *plo)
 //--------------------------------------------------------------------
 static long snmpLoWrite(struct longoutRecord *plo)
 {
+  if (doingEpicsExit) return(epicsError);
+
   devSnmp_pv *pPV;
 
   if (plo->dpvt == NULL)
@@ -4725,10 +4723,13 @@ static long snmpLoWrite(struct longoutRecord *plo)
 //--------------------------------------------------------------------
 static long snmpLoReadback(devSnmp_pv *pPV)
 {
+  if (doingEpicsExit) return(epicsError);
+
   struct longoutRecord *plo = (struct longoutRecord *) pPV->record();
   epicsStatus status = epicsError;
   char val[40];
-  long new_val;
+  val[0] = '\0';
+  long new_val = 0.0;
   bool process_record = false;
 
   if (pPV->getValueString(val,sizeof(val))) {
@@ -4787,6 +4788,8 @@ static long snmpLoReadback(devSnmp_pv *pPV)
 //--------------------------------------------------------------------
 static long snmpSoInit(struct stringoutRecord *pso)
 {
+  if (doingEpicsExit) return(epicsError);
+
   // so.scan must be Passive
   if (pso->scan != menuScanPassive) {
     recGblRecordError(S_db_badField,(void *)pso,
@@ -4823,6 +4826,8 @@ static long snmpSoInit(struct stringoutRecord *pso)
 //--------------------------------------------------------------------
 static long snmpSoWrite(struct stringoutRecord *pso)
 {
+  if (doingEpicsExit) return(epicsError);
+
   devSnmp_pv *pPV;
 
   if (pso->dpvt == NULL)
@@ -4847,12 +4852,15 @@ static long snmpSoWrite(struct stringoutRecord *pso)
 //--------------------------------------------------------------------
 static long snmpSoReadback(devSnmp_pv *pPV)
 {
+  if (doingEpicsExit) return(epicsError);
+
   struct stringoutRecord *pso = (struct stringoutRecord *) pPV->record();
   epicsStatus status = epicsError;
   char val[40];
   char new_val[40];
   bool process_record = false;
-
+  val[0] = '\0';
+  new_val[0] = '\0';
   status = -1;
 
   if (pPV->getValueString(val,sizeof(val))) {
@@ -4903,17 +4911,12 @@ static int snmpWfGauge32Convert(void *rval, char *sval)
   char *cp;
   SNMP_UINT32 *lp = (SNMP_UINT32*) rval;
 
- 
   if (sval == NULL) return(epicsError);
-  
   cp = strchr(sval, ':') + 1;
-  
-  if ((cp != NULL) && (lp != NULL) && sscanf(cp, "%" SCNu32, lp)) {
-      return(epicsOk);
-  }
-  else {   
+  if ((cp != NULL) && (lp != NULL) && sscanf(cp, "%" SCNu32, lp))
+    return(epicsOk);
+  else
     return(epicsError);
-  }
 }
 //--------------------------------------------------------------------
 static int snmpWfGauge64Convert(void *rval, char *sval)

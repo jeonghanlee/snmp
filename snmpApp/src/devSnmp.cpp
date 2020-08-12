@@ -1566,7 +1566,7 @@ void devSnmp_oid::storeData(netsnmp_variable_list *var)
 
   // always store the string value
   char buffer[1024];
-  buffer[0] = '\0'
+  buffer[0] = '\0';
   snprint_value(buffer, sizeof(buffer), var->name, var->name_length, var);
   copy_string(reading.read_string,data_len,buffer);
   reading.valid = true;
@@ -1730,7 +1730,7 @@ void devSnmp_oid::debugSetProgress(const char *msg)
 {
   if (setDebugging) {
     char tmp[256];
-    tmp[0] = '\0'
+    tmp[0] = '\0';
     sprintf(tmp,"[%9.3lf] debugSetProgress %s %s\n",
             debugSetTime.elapsedSeconds(NULL),
             oidName(),
@@ -1756,7 +1756,7 @@ void devSnmp_oid::set(char set_type, char *str)
 
   if (setDebugging) {
     char tmp[256];
-    tmp[0] = '\0'
+    tmp[0] = '\0';
     sprintf(tmp,"set('%c',\"%s\")\n",set_type,str);
     debugSetProgress(tmp);
   }
@@ -1972,7 +1972,7 @@ void devSnmp_oid::report(int level, char *match)
 void devSnmp_oid::debugDump(void)
 {
   char valstr[1024];
-  valstr[0] = '\0'
+  valstr[0] = '\0';
   if (! getRawValueString(valstr,sizeof(valstr))) strcpy(valstr,"(n/a)");
   printf("  oid %s\n",oidName());
   printf("    Has reading      : %d\n",hasReading());
@@ -2203,7 +2203,7 @@ bool devSnmp_pv::getValueString(char *str, int maxsize)
 {
   // get raw string
   char rawData[ oidExtra.data_len ];
-  rawData[0] = '\0'
+  rawData[0] = '\0';
    if (snmpDebugLevel >= 100) {
     printf("devSnmp_pv::getValueString str-%s-%d, rawdata-%s:%d\n", str, maxsize, rawData, oidExtra.data_len);
   }
@@ -2529,7 +2529,7 @@ void devSnmp_pv::debugDump(void)
 {
   printf("%s PV %s\n",tnow(),recordName());
   char tmp[128];
-  tmp[0] = '\0'
+  tmp[0] = '\0';
   bool vok = getValueString(tmp,sizeof(tmp));
   printf("  value okay   : %d\n",vok);
   printf("  value string : '%s'\n",tmp);
@@ -4859,8 +4859,8 @@ static long snmpSoReadback(devSnmp_pv *pPV)
   char val[40];
   char new_val[40];
   bool process_record = false;
-  val[0] = '\0'
-  new_val[0] = '\0'
+  val[0] = '\0';
+  new_val[0] = '\0';
   status = -1;
 
   if (pPV->getValueString(val,sizeof(val))) {

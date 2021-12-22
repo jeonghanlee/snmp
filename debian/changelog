@@ -1,3 +1,22 @@
+epics-snmp (1.1.0.3) unstable; urgency=medium
+
+  * Add bug-fix patches from Dmitry Bazhenov <bazhenov.dn@gmail.com>
+  * Add CheckRanges parameter to devSnmpSetParam
+
+ -- John Priller <priller@frib.msu.edu>  Mon, 10 Jun 2021 08:00:00 -0500
+
+epics-snmp (1.1.0.2) unstable; urgency=medium
+
+  * Fix net-snmp assuming callback_magic is pointer to struct synch_state
+
+ -- John Priller <priller@frib.msu.edu>  Mon, 24 May 2021 08:00:00 -0500
+
+epics-snmp (1.1.0.1) unstable; urgency=medium
+
+  * add SNMPv3 parameters
+
+ -- John Priller <priller@frib.msu.edu>  Fri, 21 May 2021 08:00:00 -0500
+
 epics-snmp (1.0.0.2) unstable; urgency=medium
 
   * bump up version

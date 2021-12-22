@@ -1,0 +1,3087 @@
+SGP-MIB DEFINITIONS ::= BEGIN
+
+IMPORTS
+    MODULE-COMPLIANCE, OBJECT-GROUP, NOTIFICATION-GROUP
+        FROM SNMPv2-CONF
+    MODULE-IDENTITY, OBJECT-TYPE, NOTIFICATION-TYPE, enterprises, Integer32, Unsigned32
+        FROM SNMPv2-SMI
+    TEXTUAL-CONVENTION, TruthValue, DisplayString, DateAndTime
+        FROM SNMPv2-TC;
+
+nvent MODULE-IDENTITY
+    LAST-UPDATED "202108231230Z"
+    ORGANIZATION "nVent"
+    CONTACT-INFO "Author: nVent, Schroff GmbH
+                  E-Mail: hardware.management@nVent.com
+                  http://schroff.nVent.com"
+    DESCRIPTION "This MIB file defines objects that can be managed on Smart Gateway Platform.
+                 $Revision$
+                 Copyright (C) 2018-2021, nVent"
+    -- NB: add new REVISION/DESCRIPTION entry above the existing ones and sync with LAST-UPDATED
+    REVISION     "202108231230Z"
+    DESCRIPTION  "Added ctrlCachedState to controlsTable."
+    REVISION     "202105241130Z"
+    DESCRIPTION  "Added ctrlName to controlConfigurationTable."
+    REVISION     "202005151230Z"
+    DESCRIPTION  "Renamed SMRC to SGP (Smart Gateway Platform)."
+    REVISION     "201911011930Z"
+    DESCRIPTION  "Added selEntryOldest and selEntryNewest."
+    REVISION     "201906041630Z"
+    DESCRIPTION  "Separated iPDU-specific variables (they all have ipdu prefix)
+                  and replaced ipdu prefix for common iPDU/SMRC items to smrc."
+    REVISION     "201902211600Z"
+    DESCRIPTION  "The Float64TC data type was replaced with DisplayString."
+    REVISION     "201811161800Z"
+    DESCRIPTION  "Synchronized variable descriptions with the User Guide."
+    REVISION     "201811120000Z"
+    DESCRIPTION  "Converted to SNMPv2 format, validated with MIB checker."
+    REVISION     "201702191637Z"
+    DESCRIPTION  "Initial Revision."
+    ::= { enterprises 16394 }
+
+    products            OBJECT IDENTIFIER ::= { nvent 2 }
+    nventMIBConformance OBJECT IDENTIFIER ::= { products 2 }
+    smartGatewayPlatform OBJECT IDENTIFIER ::= { products 3 }
+    sgp                 OBJECT IDENTIFIER ::= { smartGatewayPlatform 1 }
+
+--  start of SGP specific data types declarations
+
+    TypeSensorType
+        ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION "Known sensor types"
+        SYNTAX INTEGER { 
+            temperature(1),
+            voltage(2),
+            amperage(3),
+            fan(4),
+            physicalSecurity(5),
+            platformViolation(6),
+            processor(7),
+            powerSupply(8),
+            powerUnit(9),
+            coolingDevice(10),
+            otherUnitsBasedSensor(11),
+            memory(12),
+            driveSlot(13),
+            postMemoryResize(14),
+            systemFwProgress(15),
+            eventLoggingDisabled(16),
+            reserved1(17),
+            systemEvent(18),
+            criticalInterrupt(19),
+            button(20),
+            moduleBoard(21),
+            microcontrollerCoprocessor(22),
+            addinCard(23),
+            chassis(24),
+            chipSet(25),
+            otherFru(26),
+            cableInterconnect(27),
+            terminator(28),
+            systemBootInitiated(29),
+            bootError(30),
+            osBoot(31),
+            osCriticalStop(32),
+            slotConnector(33),
+            systemAcpiPowerState(34),
+            reserved2(35),
+            platformAlert(36),
+            entityPresence(37),
+            monitorAsicIc(38),
+            lan(39),
+            managementSubsystemHealth(40),
+            battery(41),
+            sessionAudit(42),
+            versionChange(43),
+            operational(160),
+            oemSensor(192),
+            humidity(256),
+            rebootReason(257),
+            operationalState(258),
+            commChannelLinkState(65537),
+            managementBusState(65538),
+            commChannelBusState(65539),
+            configData(65540),
+            powerBudget(65541)
+        }
+
+    TypeSensorUnit
+        ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION "The units for SHX sensors"
+        SYNTAX INTEGER {
+            unspecified(-1),
+            degreesC(1), 
+            degreesF(2),
+            degreesK(3),
+            volts(4),
+            amps(5),
+            watts(6),
+            joules(7),
+            coulombs(8),
+            va(9),
+            nits(10),
+            lumen(11),
+            lux(12),
+            candela(13),
+            kpa(14),
+            psi(15),
+            newton(16),
+            cfm(17),
+            rpm(18),
+            hz(19),
+            microsecond(20),
+            millisecond(21),
+            second(22),
+            minute(23),
+            hour(24),
+            day(25),
+            week(26),
+            mil(27),
+            inches(28),
+            feet(29),
+            cuIn(30),
+            cuFeet(31),
+            mm(32),
+            cm(33),
+            m(34),
+            cuCm(35),
+            cuM(36),
+            liters(37),
+            fluidOunce(38),
+            radians(39),
+            steradians(40),
+            revolutions(41),
+            cycles(42),
+            gravities(43),
+            ounce(44),
+            pound(45),
+            ftLb(46),
+            ozIn(47),
+            gauss(48),
+            gilberts(49),
+            henry(50),
+            millihenry(51),
+            farad(52),
+            microfarad(53),
+            ohms(54),
+            siemens(55),
+            mole(56),
+            becquerel(57),
+            ppm(58),
+            reserved(59),
+            decibels(60),
+            dba(61),
+            dbc(62),
+            gray(63),
+            sievert(64),
+            colorTempDegK(65),
+            bit(66),
+            kilobit(67),
+            megabit(68),
+            gigabit(69),
+            byte(70),
+            kilobyte(71),
+            megabyte(72),
+            gigabyte(73),
+            word(74),
+            dword(75),
+            qword(76),
+            line(77),
+            hit(78),
+            miss(79),
+            retry(80),
+            reset(81),
+            overrun(82),
+            underrun(83),
+            collision(84),
+            packets(85),
+            messages(86),
+            characters(87),
+            errors(88),
+            correctableErrors(89),
+            uncorrectableErrors(90)
+        }
+
+    TypeSensorCategory
+        ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION "Sensor event categories"
+        SYNTAX INTEGER {
+            unspecified(-1),
+            threshold(1),
+            usage(2),
+            state(3),
+            predFail(4),
+            limit(5),
+            performance(6),
+            severity(7),
+            presence(8),
+            enable(9),
+            availability(10),
+            redundancy(11),
+            sensorSpecific(126),
+            generic(127)
+        }
+
+    TypeEventType
+        ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION "Event types"
+        SYNTAX INTEGER {
+            resource(1),
+            domain(2),
+            sensor(3),
+            sensorEnableChange(4),
+            hotswap(5),
+            watchdog(6),
+            hpiSw(7),
+            oem(8),
+            user(9),
+            dimi(10),
+            dimiUpdate(11),
+            fumi(12)
+        }
+
+    TypeSeverityType
+        ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION "Event severity types"
+        SYNTAX INTEGER {
+            critical(1),
+            major(2),
+            minor(3),
+            informational(4),
+            ok(5),
+            debug(241),
+            all(256)
+        }
+
+    TypeCtrlType
+        ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION "Control types"
+        SYNTAX INTEGER {
+            digital(1),
+            discrete(2),
+            analog(3),
+            stream(4),
+            text(5),
+            oem(193)
+        }
+
+    TypeCtrlOutputType 
+        ::= TEXTUAL-CONVENTION
+        STATUS      current
+        DESCRIPTION "Control output types"
+        SYNTAX INTEGER {
+            generic(1),
+            led(2),
+            fanSpeed(3),
+            dryContactClosure(4),
+            powerSupplyInhibit(5),
+            audible(6),
+            frontPanelLockout(7),
+            powerInterlock(8),
+            powerState(9),
+            lcdDisplay(10),
+            oem(11),
+            genericAddress(12),
+            ipAddress(13),
+            resourceId(14),
+            powerBudget(15),
+            activate(16),
+            reset(17)
+        }
+
+--  end of SGP specific data types declarations
+
+
+--  ********* CONFIGURATION BRANCH *********
+
+    configuration       OBJECT IDENTIFIER ::= { sgp 1 }
+
+--  ********* Unit Configuration *********
+
+    unitConfiguration   OBJECT IDENTIFIER ::= { configuration 1 }
+
+    shxCount OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of SHX units supported"
+        ::= { unitConfiguration 1 }
+
+    unitName OBJECT-TYPE
+            SYNTAX      DisplayString
+            MAX-ACCESS  read-write
+            STATUS      current
+            DESCRIPTION "System host name"
+        ::= { unitConfiguration 2 }
+
+    hardwareVersion OBJECT-TYPE
+            SYNTAX      DisplayString
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "Hardware version of the main board"
+        ::= { unitConfiguration 3 }
+
+    firmwareVersion OBJECT-TYPE
+            SYNTAX      DisplayString
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "System firmware version"
+        ::= { unitConfiguration 4 }
+
+    utcOffset OBJECT-TYPE
+            SYNTAX      DisplayString
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "UTC offset of the system time"
+        ::= { unitConfiguration 5 }
+
+    resourceCount OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of resources in the system"
+        ::= { unitConfiguration 6 }
+
+    totalSensorCount OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of external (physical) sensors"
+        ::= { unitConfiguration 7 }
+
+    managedSensorCount OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of managed sensors"
+        ::= { unitConfiguration 8 }
+
+    externalSensorsZCoordinateUnits OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "External Sensor Z Coordinate units: Freeform Text (T) or Rack Units (U)"
+        ::= { unitConfiguration 9 }
+
+    serverCount OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of entries in serverReachabilityTable"
+        ::= { unitConfiguration 10 }
+
+    model OBJECT-TYPE
+            SYNTAX      DisplayString
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The device model name"
+        ::= { unitConfiguration 11 }
+
+    cascadedDeviceConnected OBJECT-TYPE
+            SYNTAX      TruthValue
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "Reserved for future use as indicator of cascade configuration"
+        ::= { unitConfiguration 12 }
+
+    networkConfigurationTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeNetworkConfigurationTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Network interface configuration table"
+        ::= { unitConfiguration 13 }
+
+        networkConfigurationTableEntry OBJECT-TYPE
+                SYNTAX      TypeNetworkConfigurationTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Network interface configuration table entry"
+                INDEX       { networkInterfaceId }
+            ::= { networkConfigurationTable 1 }
+
+        TypeNetworkConfigurationTableEntry ::=
+            SEQUENCE {
+                networkInterfaceId              Unsigned32,
+                networkInterfaceName            DisplayString,
+                networkInterfaceMacAddress      DisplayString,
+                networkInterfaceIPv4UseDHCP     TruthValue,
+                networkInterfaceIpV4Address     DisplayString,
+                networkInterfaceIpV4Gateway     DisplayString,
+                networkInterfaceIPv6UseDHCP     TruthValue,
+                networkInterfaceIpV6Addresses   DisplayString
+            }
+
+        networkInterfaceId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Index of the network interface"
+            ::= { networkConfigurationTableEntry 1 }
+
+        networkInterfaceName OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Network interface name, e.g. eth0 or wlan0"
+            ::= { networkConfigurationTableEntry 2 }
+
+        networkInterfaceMacAddress OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "MAC address"
+            ::= { networkConfigurationTableEntry 3 }
+
+        networkInterfaceIPv4UseDHCP OBJECT-TYPE
+                SYNTAX TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether IPv4 DHCP used"
+            ::= { networkConfigurationTableEntry 4 }
+
+        networkInterfaceIpV4Address OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "IPv4 address with the number of significant bits in the network mask, e.g. 192.168.0.1/24"
+            ::= { networkConfigurationTableEntry 5 }
+
+        networkInterfaceIpV4Gateway OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "IPv4 gateway address"
+            ::= { networkConfigurationTableEntry 6 }
+            
+        networkInterfaceIPv6UseDHCP OBJECT-TYPE
+                SYNTAX TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether IPv6 DHCP used"
+            ::= { networkConfigurationTableEntry 7 }
+
+        networkInterfaceIpV6Addresses OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "IPv6 address with scope"
+            ::= { networkConfigurationTableEntry 8 }
+            
+
+    unitsTemperature OBJECT-TYPE
+            SYNTAX      DisplayString
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The temperature measurement units"
+        ::= { unitConfiguration 14 }
+
+    unitsLength OBJECT-TYPE
+            SYNTAX      DisplayString
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The length measurement units"
+        ::= { unitConfiguration 15 }
+
+    unitsPressure OBJECT-TYPE
+            SYNTAX      DisplayString
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The pressure measurement units"
+        ::= { unitConfiguration 16 }
+
+--  ********* SHX Configuration *********
+
+    shxConfiguration    OBJECT IDENTIFIER ::= { configuration 2 }
+
+    shxConfigurationTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeShxConfigurationTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "SHX devices configuration table"
+        ::= { shxConfiguration 1 }
+
+        shxConfigurationTableEntry OBJECT-TYPE
+                SYNTAX      TypeShxConfigurationTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "SHX devices configuration table entry"
+                INDEX       { shxResourceId }
+            ::= { shxConfigurationTable 1 }
+
+        TypeShxConfigurationTableEntry ::=
+            SEQUENCE {
+                shxResourceId                   Unsigned32,
+                shxOperationalState             Integer32,
+                shxValvePosition                Unsigned32,
+                shxCoolerTempSetpoint           Integer32,
+                shxFanPerformanceSetpoint       Integer32,
+                shxMaximumCooling               TruthValue,
+                shxAlertState                   TruthValue,
+                shxModel                        DisplayString,
+                shxFirmwareVersion              DisplayString
+            }
+
+        shxResourceId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Resource ID of the SHX device, equal to <resource>. Resource IDs for SHX devices are in the range 2000 to 2999"
+            ::= { shxConfigurationTableEntry 1 }
+
+        shxOperationalState OBJECT-TYPE
+                SYNTAX INTEGER {
+                    online(1),
+                    offline(2)
+                }
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The operational state of the SHX controller: disconnected(-1), offline(2) or online(1). To switch SHX power state while controller is connected, set operationalState to 2 (offline) or 1 (online)"
+            ::= { shxConfigurationTableEntry 2 }
+
+        shxValvePosition OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The current opening state of the water valve (in percentages from 0 to 100)"
+            ::= { shxConfigurationTableEntry 3 }
+
+        shxCoolerTempSetpoint OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The setpoint for the desired temperature"
+            ::= { shxConfigurationTableEntry 4 }
+
+        shxFanPerformanceSetpoint OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The fan performance setpoint, in percents"
+            ::= { shxConfigurationTableEntry 5 }
+
+        shxMaximumCooling OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "Indicates whether maximum cooling is requested (1) or not (2). To request maximum cooling, set maximumCoolingState to 1 (true)"
+            ::= { shxConfigurationTableEntry 6 }
+
+        shxAlertState OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "Indicates whether SHX controller is in alert state (1) or not (2). To acknowledge alert status, set shxAlertState to 2 (false)"
+            ::= { shxConfigurationTableEntry 7 }
+
+        shxModel OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The model identifier of an SHX controller"
+            ::= { shxConfigurationTableEntry 8 }
+
+        shxFirmwareVersion OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The firmware version of an SHX controller"
+            ::= { shxConfigurationTableEntry 9 }
+
+    shxSensorCountTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeShxSensorCountTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "SHX device sensors count table"
+        ::= { shxConfiguration 2 }
+
+        shxSensorCountTableEntry OBJECT-TYPE
+                SYNTAX      TypeShxSensorCountTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "SHX device sensors count table entry"
+                INDEX       { shxResourceId }
+            ::= { shxSensorCountTable 1 }
+
+        TypeShxSensorCountTableEntry ::=
+            SEQUENCE {
+                shxSensorCount                  Unsigned32
+            }
+
+        shxSensorCount OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The number of sensors at SHX device"
+            ::= { shxSensorCountTableEntry 1 }
+
+    shxSensorConfigurationTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeShxSensorConfigurationTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "SHX device sensors configuration table"
+        ::= { shxConfiguration 3 }
+
+        shxSensorConfigurationTableEntry OBJECT-TYPE
+                SYNTAX      TypeShxSensorConfigurationTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "An SHX devices sensor configuration table entry"
+                INDEX       { shxResourceId, shxSensorId }
+            ::= { shxSensorConfigurationTable 1 }
+
+        TypeShxSensorConfigurationTableEntry ::=
+            SEQUENCE {
+                shxSensorId                     Unsigned32,
+                shxInterface                    Unsigned32,
+                shxAddress                      Unsigned32,
+                shxSensorName                   DisplayString,
+                shxSensorType                   TypeSensorType,
+                shxSensorCategory               TypeSensorCategory,
+                shxSensorEnableControl          Integer32,
+                shxSensorEventControl           Integer32,
+                shxSensorAssertEventMask        DisplayString,
+                shxSensorDeassertEventMask      DisplayString,
+                shxSensorIsReadingSupported     TruthValue,
+                shxSensorBaseUnit               TypeSensorUnit,
+                shxSensorModifierUnit           TypeSensorUnit,
+                shxSensorModifierUse            Integer32,
+                shxSensorPercentage             TruthValue,
+                shxSensorAccuracy               DisplayString,
+                shxSensorResolution             DisplayString,
+                shxSensorTolerance              DisplayString,
+                shxSensorMaximum                DisplayString,
+                shxSensorMinimum                DisplayString,
+                shxSensorThresholdsIsAccessible TruthValue,
+                shxSensorLowerCriticalThreshold DisplayString,
+                shxSensorLowerMajorThreshold    DisplayString,
+                shxSensorLowerMinorThreshold    DisplayString,
+                shxSensorUpperCriticalThreshold DisplayString,
+                shxSensorUpperMajorThreshold    DisplayString,
+                shxSensorUpperMinorThreshold    DisplayString,
+                shxSensorPositiveHysteresis     DisplayString,
+                shxSensorNegativeHysteresis     DisplayString,
+                shxSensorPollInterval           Unsigned32,
+                shxSensorAssertionDelayCount    Unsigned32
+                -- Add other fields from the sensor RDR here
+            }
+
+        shxSensorId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..2147483647)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Sensor ID of the SHX device"
+            ::= { shxSensorConfigurationTableEntry 1}
+
+        shxInterface OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "SHX sensor interface number"
+            ::= { shxSensorConfigurationTableEntry 2}
+
+        shxAddress OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "SHX sensor device address"
+            ::= { shxSensorConfigurationTableEntry 3}
+
+        shxSensorName OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "User-defined name of the sensor (e.g. Fan Speed 1)"
+            ::= { shxSensorConfigurationTableEntry 4}
+
+        shxSensorType OBJECT-TYPE
+                SYNTAX      TypeSensorType
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor type (data type is described in this MIB)"
+            ::= { shxSensorConfigurationTableEntry 5}
+
+        shxSensorCategory OBJECT-TYPE
+                SYNTAX      TypeSensorCategory
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor category (data type is described in this MIB)"
+            ::= { shxSensorConfigurationTableEntry 6}
+
+        shxSensorEnableControl OBJECT-TYPE
+                SYNTAX INTEGER {
+                    enabled(1),
+                    disabled(2)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether sensor control is enabled(1) or disabled(2)"
+            ::= { shxSensorConfigurationTableEntry 7}
+
+        shxSensorEventControl OBJECT-TYPE
+                SYNTAX INTEGER {
+                    perEvent(1),
+                    readOnlyMasks(2),
+                    readOnly(3)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor event control: Per-Event(1), Read-Only Masks(2) or Read-Only(3)"
+            ::= { shxSensorConfigurationTableEntry 8}
+
+        shxSensorAssertEventMask OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Bitmask of allowed Assertion events from the sensor"
+            ::= { shxSensorConfigurationTableEntry 9 }
+
+        shxSensorDeassertEventMask OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Bitmask of allowed Deassertion events from the sensor"
+            ::= { shxSensorConfigurationTableEntry 10 }
+
+        shxSensorIsReadingSupported OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether sensor reading is supported(1) or not supported(2)"
+            ::= { shxSensorConfigurationTableEntry 11 }
+
+        shxSensorBaseUnit OBJECT-TYPE
+                SYNTAX      TypeSensorUnit
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The base units (data type is described in this MIB). This parameter does not apply to discrete sensors."
+            ::= { shxSensorConfigurationTableEntry 12 }
+
+        shxSensorModifierUnit OBJECT-TYPE
+                SYNTAX      TypeSensorUnit
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor modifier unit (data type is described in this MIB)"
+            ::= { shxSensorConfigurationTableEntry 13 }
+
+        shxSensorModifierUse OBJECT-TYPE
+                SYNTAX INTEGER {
+                    none(-1),
+                    basicOverModifier(1),
+                    basicTimesModifier(2)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "A sensor modifier unit use: Basic Over Modifier(1), Basic Times Modifier(2) or None(-1)"
+            ::= { shxSensorConfigurationTableEntry 14 }
+
+        shxSensorPercentage OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicated whether the sensor reading is returned in percents (1) or not (2)"
+            ::= { shxSensorConfigurationTableEntry 15 }
+
+        shxSensorAccuracy OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor accuracy"
+            ::= { shxSensorConfigurationTableEntry 16 }
+
+        shxSensorResolution OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor resolution"
+            ::= { shxSensorConfigurationTableEntry 17 }
+
+        shxSensorTolerance OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor tolerance"
+            ::= { shxSensorConfigurationTableEntry 18 }
+
+        shxSensorMaximum OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The largest possible value. This parameter does not apply to discrete sensors"
+            ::= { shxSensorConfigurationTableEntry 19 }
+
+        shxSensorMinimum OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The smallest possible value. This parameter does not apply to discrete sensors"
+            ::= { shxSensorConfigurationTableEntry 20 }
+
+        shxSensorThresholdsIsAccessible OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether sensor thresholds are accessible(1) or not (2)"
+            ::= { shxSensorConfigurationTableEntry 21 }
+
+        shxSensorLowerCriticalThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The lower critical threshold. This parameter does not apply to discrete sensors"
+            ::= { shxSensorConfigurationTableEntry 22 }
+
+        shxSensorLowerMajorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The lower major threshold. This parameter does not apply to discrete sensors"
+            ::= { shxSensorConfigurationTableEntry 23 }
+
+        shxSensorLowerMinorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The lower minor threshold. This parameter does not apply to discrete sensors"
+            ::= { shxSensorConfigurationTableEntry 24 }
+
+        shxSensorUpperCriticalThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The upper critical threshold. This parameter does not apply to discrete sensors"
+            ::= { shxSensorConfigurationTableEntry 25 }
+
+        shxSensorUpperMajorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The upper major threshold. This parameter does not apply to discrete sensors"
+            ::= { shxSensorConfigurationTableEntry 26 }
+              
+        shxSensorUpperMinorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The upper minor threshold. This parameter does not apply to discrete sensors"
+            ::= { shxSensorConfigurationTableEntry 27 }
+
+        shxSensorPositiveHysteresis OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The positive hysteresis used for deassertions. This parameter does not apply to discrete sensors"
+            ::= { shxSensorConfigurationTableEntry 28 }
+
+        shxSensorNegativeHysteresis OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The negative hysteresis used for deassertions. This parameter does not apply to discrete sensors"
+            ::= { shxSensorConfigurationTableEntry 29 }
+
+        shxSensorPollInterval OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The sensor polling interval in milliseconds"
+            ::= { shxSensorConfigurationTableEntry 30 }
+
+        shxSensorAssertionDelayCount OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The delay measured in samples before a state is asserted. If the value is zero, then the state is asserted as soon as it is detected; if it is non-zero, say n, then the assertion condition must exist for n+1 consecutive samples before the corresponding assertion event is reported"
+            ::= { shxSensorConfigurationTableEntry 31 }
+
+--  ********* Managed Sensor Configuration *********
+
+    managedSensorConfigurationTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeManagedSensorConfigurationTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Managed sensor configuration table"
+        ::= { configuration 3 }
+
+        managedSensorConfigurationTableEntry OBJECT-TYPE
+                SYNTAX      TypeManagedSensorConfigurationTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Managed sensor configuration table entry"
+                INDEX       { managedSensorId }
+            ::= { managedSensorConfigurationTable 1 }
+
+        TypeManagedSensorConfigurationTableEntry ::=
+            SEQUENCE {
+                managedSensorId                     Unsigned32,
+                managedSensorType                   TypeSensorType,
+                managedSensorName                   DisplayString,
+                managedSensorDescription            DisplayString,
+                managedSensorXCoordinate            DisplayString,
+                managedSensorYCoordinate            DisplayString,
+                managedSensorZCoordinate            DisplayString,
+                managedSensorSubtype                DisplayString,
+                managedSensorCategory               TypeSensorCategory,
+                managedSensorEnableControl          Integer32,
+                managedSensorEventControl           Integer32,
+                managedSensorAssertEventMask        DisplayString,
+                managedSensorDeassertEventMask      DisplayString,
+                managedSensorIsReadingSupported     TruthValue,
+                managedSensorBaseUnit               TypeSensorUnit,
+                managedSensorModifierUnit           TypeSensorUnit,
+                managedSensorModifierUse            Integer32,
+                managedSensorPercentage             TruthValue,
+                managedSensorAccuracy               DisplayString,
+                managedSensorResolution             DisplayString,
+                managedSensorTolerance              DisplayString,
+                managedSensorMaximum                DisplayString,
+                managedSensorMinimum                DisplayString,
+                managedSensorThresholdsIsAccessible TruthValue,
+                managedSensorLowerCriticalThreshold DisplayString,
+                managedSensorLowerMajorThreshold    DisplayString,
+                managedSensorLowerMinorThreshold    DisplayString,
+                managedSensorUpperCriticalThreshold DisplayString,
+                managedSensorUpperMajorThreshold    DisplayString,
+                managedSensorUpperMinorThreshold    DisplayString,
+                managedSensorPositiveHysteresis     DisplayString,
+                managedSensorNegativeHysteresis     DisplayString,
+                managedSensorPollInterval           Unsigned32,
+                managedSensorAssertionDelayCount    Unsigned32,
+                managedSensorResourceId             Unsigned32,
+                managedSensorExternalSensorNumber   Unsigned32
+            }
+
+        managedSensorId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..2147483647)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Managed sensor ID"
+            ::= { managedSensorConfigurationTableEntry 1 }
+
+        managedSensorType OBJECT-TYPE
+                SYNTAX      TypeSensorType
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor type (data type is described in this MIB)"
+            ::= { managedSensorConfigurationTableEntry 2 }
+
+        managedSensorName OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The user-defined name of the sensor (e.g. Fan Speed 1); defaults to the original physical sensor name if not changed by the user"
+            ::= { managedSensorConfigurationTableEntry 3 }
+
+        managedSensorDescription OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The user-defined description of the sensor"
+            ::= { managedSensorConfigurationTableEntry 4 }
+
+        managedSensorXCoordinate OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The X coordinate of the sensor location"
+            ::= { managedSensorConfigurationTableEntry 5 }
+
+        managedSensorYCoordinate OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The Y coordinate of the sensor location"
+            ::= { managedSensorConfigurationTableEntry 6 }
+
+        managedSensorZCoordinate OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The Z coordinate of the sensor location"
+            ::= { managedSensorConfigurationTableEntry 7 }
+
+        managedSensorSubtype OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "Type of measurement in case the sensor type is discrete"
+            ::= { managedSensorConfigurationTableEntry 8 }
+
+        managedSensorCategory OBJECT-TYPE
+                SYNTAX      TypeSensorCategory
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor category (data type is described in this MIB)"
+            ::= { managedSensorConfigurationTableEntry 9 }
+
+        managedSensorEnableControl OBJECT-TYPE
+                SYNTAX INTEGER {
+                    enabled(1),
+                    disabled(2)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether sensor control is enabled(1) or disabled(2)"
+            ::= { managedSensorConfigurationTableEntry 10 }
+
+        managedSensorEventControl OBJECT-TYPE
+                SYNTAX INTEGER {
+                    perEvent(1),
+                    readOnlyMasks(2),
+                    readOnly(3)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor event control: Per-Event(1), Read-Only Masks(2) or Read-Only(3)"
+            ::= { managedSensorConfigurationTableEntry 11 }
+
+        managedSensorAssertEventMask OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Bitmask of allowed Assertion events from the sensor"
+            ::= { managedSensorConfigurationTableEntry 12 }
+              
+        managedSensorDeassertEventMask OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Bitmask of allowed Deassertion events from the sensor"
+            ::= { managedSensorConfigurationTableEntry 13 }
+
+        managedSensorIsReadingSupported OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether sensor reading is supported (1) or not (2)"
+            ::= { managedSensorConfigurationTableEntry 14 }
+
+        managedSensorBaseUnit OBJECT-TYPE
+                SYNTAX      TypeSensorUnit
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The base units (data type is described in this MIB). This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 15 }
+
+        managedSensorModifierUnit OBJECT-TYPE
+                SYNTAX      TypeSensorUnit
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor modifier unit (data type is described in this MIB)"
+            ::= { managedSensorConfigurationTableEntry 16 }
+
+        managedSensorModifierUse OBJECT-TYPE
+                SYNTAX INTEGER {
+                    none(-1),
+                    basicOverModifier(1),
+                    basicTimesModifier(2)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "A sensor modifier unit use: Basic Over Modifier(1), Basic Times Modifier(2) or None(-1)"
+            ::= { managedSensorConfigurationTableEntry 17 }
+
+        managedSensorPercentage OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicated whether the sensor reading is returned in percents (1) or not (2)"
+            ::= { managedSensorConfigurationTableEntry 18 }
+
+        managedSensorAccuracy OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor accuracy: how close (in percents) the measurement is to the actual value. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 19 }
+
+        managedSensorResolution OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor resolution: the minimum difference between any two measured values. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 20 }
+
+        managedSensorTolerance OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor tolerance: the difference between a sensor value and the actual value. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 21 }
+
+        managedSensorMaximum OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The biggest possible value. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 22 }
+
+        managedSensorMinimum OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The smallest possible value. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 23 }
+
+        managedSensorThresholdsIsAccessible OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether sensor thresholds are accessible (1) or not (2)"
+            ::= { managedSensorConfigurationTableEntry 24 }
+
+        managedSensorLowerCriticalThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The lower critical threshold. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 25 }
+
+        managedSensorLowerMajorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The lower major threshold. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 26 }
+
+        managedSensorLowerMinorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The lower minor threshold. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 27 }
+
+        managedSensorUpperCriticalThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The upper critical threshold. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 28 }
+
+        managedSensorUpperMajorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The upper major threshold. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 29 }
+
+        managedSensorUpperMinorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The upper minor threshold. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 30 }  
+
+        managedSensorPositiveHysteresis OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The positive hysteresis used for deassertions. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 31 }
+
+        managedSensorNegativeHysteresis OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The negative hysteresis used for deassertions. This parameter does not apply to discrete sensors"
+            ::= { managedSensorConfigurationTableEntry 32 }
+
+        managedSensorPollInterval OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The sensor polling interval in milliseconds"
+            ::= { managedSensorConfigurationTableEntry 33 }
+
+        managedSensorAssertionDelayCount OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The delay measured in samples before a state is asserted. If the value is zero, then the state is asserted as soon as it is detected; if it is non-zero, say n, then the assertion condition must exist for n+1 consecutive samples before the corresponding assertion event is reported"
+            ::= { managedSensorConfigurationTableEntry 34 }
+
+        managedSensorResourceId OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The resource number of the original physical sensor"
+            ::= { managedSensorConfigurationTableEntry 35 }
+
+        managedSensorExternalSensorNumber OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor number of the original physical sensor"
+            ::= { managedSensorConfigurationTableEntry 36 }
+
+--  ********* Control Configuration *********
+
+    controlConfigurationTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeControlConfigurationTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Control configuration table"
+        ::= { configuration 4 }
+
+        controlConfigurationTableEntry OBJECT-TYPE
+                SYNTAX      TypeControlConfigurationTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Control configuration table entry"
+                INDEX       { ctrlResourceId, ctrlId }
+            ::= { controlConfigurationTable 1 }
+
+        TypeControlConfigurationTableEntry ::=
+            SEQUENCE {
+                ctrlResourceId                  Unsigned32,
+                ctrlId                          Unsigned32,
+                ctrlType                        TypeCtrlType,
+                ctrlOutputType                  TypeCtrlOutputType,
+                ctrlMaximumValue                Integer32,
+                ctrlMinimumValue                Integer32,
+                ctrlDefaultValue                Integer32,
+                ctrlDefaultMode                 Integer32,
+                ctrlDefaultModeReadOnly         TruthValue, 
+                ctrlWriteOnly                   TruthValue, 
+                ctrlOem                         Unsigned32,
+                ctrlName                        DisplayString
+            }
+
+        ctrlResourceId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "The resource number of the control"
+            ::= { controlConfigurationTableEntry 1 }
+              
+        ctrlId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..2147483647)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "The control number"
+            ::= { controlConfigurationTableEntry 2 }
+
+        ctrlType OBJECT-TYPE
+                SYNTAX      TypeCtrlType
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The control type (data type is described in this MIB)"
+            ::= { controlConfigurationTableEntry 3 }
+
+        ctrlOutputType OBJECT-TYPE
+                SYNTAX      TypeCtrlOutputType
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The control output type (data type is described in this MIB)"
+            ::= { controlConfigurationTableEntry 4 }
+
+        ctrlMaximumValue OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The maximum value of the control"
+            ::= { controlConfigurationTableEntry 5 }
+
+        ctrlMinimumValue OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The minimum value of the control"
+            ::= { controlConfigurationTableEntry 6 }
+
+        ctrlDefaultValue OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The default value of the control"
+            ::= { controlConfigurationTableEntry 7 }
+
+        ctrlDefaultMode OBJECT-TYPE
+                SYNTAX INTEGER {
+                    auto(1),
+                    manual(2)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The default mode of the control: automatic(1), manual(2) or unavailable(-1)"
+            ::= { controlConfigurationTableEntry 8 }
+
+        ctrlDefaultModeReadOnly OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether the default control mode is read-only(1) or not(2)"
+            ::= { controlConfigurationTableEntry 9 }
+
+        ctrlWriteOnly OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether the control is write-only(1) or not(2)"
+            ::= { controlConfigurationTableEntry 10 }
+
+        ctrlOem OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "An OEM specific value in the control definition"
+            ::= { controlConfigurationTableEntry 11 }
+
+        ctrlName OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The name of the control (e.g. Fan Speed setpoint 1)"
+            ::= { controlConfigurationTableEntry 12 }
+
+
+-- ********* Sensor Log Configuration *********
+
+    logConfiguration    OBJECT IDENTIFIER ::= { configuration 5 }
+
+    logDataRetrieval OBJECT-TYPE
+            SYNTAX INTEGER {
+                    enabled(1),
+                    disabled(2)
+                }
+            MAX-ACCESS  read-write
+            STATUS      current
+            DESCRIPTION "Indicates if log data retrieval is enabled(1) or disabled(2)"
+        ::= { logConfiguration 1 }
+
+    logMeasurementPeriod OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-write
+            STATUS      current
+            DESCRIPTION "Data sample collection periodicity in seconds"
+        ::= { logConfiguration 2 }
+
+    logSize OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of entries in the sensor log"
+        ::= { logConfiguration 3 }
+
+--  ********* External Sensor Configuration *********
+
+    externalSensorConfigurationTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeExternalSensorConfigurationTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "External sensor configuration table"
+        ::= { configuration 6 }
+
+        externalSensorConfigurationTableEntry OBJECT-TYPE
+                SYNTAX      TypeExternalSensorConfigurationTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "External sensor configuration table entry"
+                INDEX       { externalResourceId, externalSensorId }
+            ::= { externalSensorConfigurationTable 1 }
+
+        TypeExternalSensorConfigurationTableEntry ::=
+            SEQUENCE {
+                externalResourceId                      Unsigned32,
+                externalSensorId                        Unsigned32,
+                externalResourceName                    DisplayString,
+                externalSensorName                      DisplayString,
+                externalSensorType                      TypeSensorType,
+                externalSensorCategory                  TypeSensorCategory,
+                externalSensorEnableControl             Integer32,
+                externalSensorEventControl              Integer32,
+                externalSensorAssertEventMask           DisplayString,
+                externalSensorDeassertEventMask         DisplayString,
+                externalSensorIsReadingSupported        TruthValue,
+                externalSensorBaseUnit                  TypeSensorUnit,
+                externalSensorModifierUnit              TypeSensorUnit,
+                externalSensorModifierUse               Integer32,
+                externalSensorPercentage                TruthValue,
+                externalSensorAccuracy                  DisplayString,
+                externalSensorResolution                DisplayString,
+                externalSensorTolerance                 DisplayString,
+                externalSensorMaximum                   DisplayString,
+                externalSensorMinimum                   DisplayString,
+                externalSensorThresholdsIsAccessible    TruthValue,
+                externalSensorLowerCriticalThreshold    DisplayString,
+                externalSensorLowerMajorThreshold       DisplayString,
+                externalSensorLowerMinorThreshold       DisplayString,
+                externalSensorUpperCriticalThreshold    DisplayString,
+                externalSensorUpperMajorThreshold       DisplayString,
+                externalSensorUpperMinorThreshold       DisplayString,
+                externalSensorPositiveHysteresis        DisplayString,
+                externalSensorNegativeHysteresis        DisplayString,
+                externalSensorPollInterval              Unsigned32,
+                externalSensorAssertionDelayCount       Unsigned32,
+                externalSensorIsManaged                 TruthValue,
+                externalSensorManagedNumber             Integer32
+                -- Add other fields from the sensor RDR here
+            }
+
+        externalResourceId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "The resource number of the physical sensor"
+            ::= { externalSensorConfigurationTableEntry 1 }
+
+        externalSensorId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..2147483647)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "The sensor number, unique for each sensor within a resource"
+            ::= { externalSensorConfigurationTableEntry 2 }
+
+        externalResourceName OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The name of the resource"
+            ::= { externalSensorConfigurationTableEntry 3 }
+
+        externalSensorName OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The name of the sensor (e.g. Fan Speed 1)"
+            ::= { externalSensorConfigurationTableEntry 4 }
+
+        externalSensorType OBJECT-TYPE
+                SYNTAX      TypeSensorType
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor type (data type is described in this MIB)"
+            ::= { externalSensorConfigurationTableEntry 5 }
+
+        externalSensorCategory OBJECT-TYPE
+                SYNTAX      TypeSensorCategory
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor category (data type is described in this MIB)"
+            ::= { externalSensorConfigurationTableEntry 6 }
+
+        externalSensorEnableControl OBJECT-TYPE
+                SYNTAX INTEGER {
+                    enabled(1),
+                    disabled(2)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether sensor control is enabled(1) or disabled(2)"
+            ::= { externalSensorConfigurationTableEntry 7 }
+
+        externalSensorEventControl OBJECT-TYPE
+                SYNTAX INTEGER {
+                    perEvent(1),
+                    readOnlyMasks(2),
+                    readOnly(3)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor event control: Per-Event(1), Read-Only Masks(2) or Read-Only(3)"
+            ::= { externalSensorConfigurationTableEntry 8 }
+
+        externalSensorAssertEventMask OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Bitmask of allowed Assertion events from the sensor"
+            ::= { externalSensorConfigurationTableEntry 9 }
+              
+        externalSensorDeassertEventMask OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Bitmask of allowed Deassertion events from the sensor"
+            ::= { externalSensorConfigurationTableEntry 10 }
+
+        externalSensorIsReadingSupported OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether sensor reading is supported (1) or not (2)"
+            ::= { externalSensorConfigurationTableEntry 11 }
+
+        externalSensorBaseUnit OBJECT-TYPE
+                SYNTAX      TypeSensorUnit
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The base units (data type is described in this MIB). This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 12 }
+
+        externalSensorModifierUnit OBJECT-TYPE
+                SYNTAX      TypeSensorUnit
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor modifier unit (data type is described in this MIB)"
+            ::= { externalSensorConfigurationTableEntry 13 }
+
+        externalSensorModifierUse OBJECT-TYPE
+                SYNTAX INTEGER {
+                    none(-1),
+                    basicOverModifier(1),
+                    basicTimesModifier(2)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "A sensor modifier unit use: Basic Over Modifier(1), Basic Times Modifier(2) or None(-1)"
+            ::= { externalSensorConfigurationTableEntry 14 }
+
+        externalSensorPercentage OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicated whether the sensor reading is returned in percents (1) or not (2)"
+            ::= { externalSensorConfigurationTableEntry 15 }
+
+        externalSensorAccuracy OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The accuracy: how close (in percents) the measurement is to the actual value. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 16 }
+
+        externalSensorResolution OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The resolution: the minimum difference between any two measured values. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 17 }
+
+        externalSensorTolerance OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The tolerance: the difference between a sensor value and the actual value. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 18 }
+
+        externalSensorMaximum OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The biggest possible value. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 19 }
+
+        externalSensorMinimum OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The smallest possible value. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 20 }
+
+        externalSensorThresholdsIsAccessible OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether sensor thresholds are accessible(1) or not (2)"
+            ::= { externalSensorConfigurationTableEntry 21 }
+
+        externalSensorLowerCriticalThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The lower critical threshold. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 22 }
+
+        externalSensorLowerMajorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The lower major threshold. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 23 }
+
+        externalSensorLowerMinorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The lower minor threshold. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 24 }
+
+        externalSensorUpperCriticalThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The upper critical threshold. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 25 }
+
+        externalSensorUpperMajorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The upper major threshold. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 26 }
+
+        externalSensorUpperMinorThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The upper minor threshold. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 27 }
+
+        externalSensorPositiveHysteresis OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The positive hysteresis used for deassertions. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 28 }
+
+        externalSensorNegativeHysteresis OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The negative hysteresis used for deassertions. This parameter does not apply to discrete sensors"
+            ::= { externalSensorConfigurationTableEntry 29 }
+
+        externalSensorPollInterval OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The sensor polling interval in milliseconds"
+            ::= { externalSensorConfigurationTableEntry 30 }
+
+        externalSensorAssertionDelayCount OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The delay measured in samples before a state is asserted. If the value is zero, then the state is asserted as soon as it is detected; if it is non-zero, say n, then the assertion condition must exist for n+1 consecutive samples before the corresponding assertion event is reported"
+            ::= { externalSensorConfigurationTableEntry 31 }
+
+        externalSensorIsManaged OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "Indicates if the sensor is managed (1), or not (2). Set to 1 to manage this sensor, set to 2 to unmanage it"
+            ::= { externalSensorConfigurationTableEntry 32 }
+
+        externalSensorManagedNumber OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor number of the corresponding managed sensor on resource 0 or -1 if the sensor is not managed"
+            ::= { externalSensorConfigurationTableEntry 33 }
+
+--  ********* SENSOR LOG BRANCH *********
+
+    log                 OBJECT IDENTIFIER ::= { sgp 2 }
+
+    logProperties       OBJECT IDENTIFIER ::= { log 1 }
+
+    logOldestId OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "Index of the oldest sample in the log"
+        ::= { logProperties 1 }
+
+    logNewestId OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "Index of the newest sample in the log"
+        ::= { logProperties 2 }
+
+    logTimeStampTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeLogTimeStampTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Log record timestamp table"
+        ::= { log 2 }
+
+        logTimeStampTableEntry OBJECT-TYPE
+                SYNTAX      TypeLogTimeStampTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Log record timestamp table entry"
+                INDEX       { logEntryIdx }
+            ::= { logTimeStampTable 1 }
+
+        TypeLogTimeStampTableEntry ::=
+            SEQUENCE {
+                logEntryIdx                     Unsigned32,
+                logEntryTimeStamp               DateAndTime
+            }
+
+        logEntryIdx OBJECT-TYPE
+                SYNTAX      Unsigned32(1..2147483647)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Log entry index"
+            ::= { logTimeStampTableEntry 1 }
+
+        logEntryTimeStamp OBJECT-TYPE
+                SYNTAX      DateAndTime 
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The time when the data was collected. It is measured in seconds relative to January 1, 1970 (midnight UTC/GMT), i.e. a value of 0 indicates January 1, 1970 (midnight UTC/GMT)"
+            ::= { logTimeStampTableEntry 2 }
+
+    logManagedSensorTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeExternalSensorTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Managed sensor log table"
+        ::= { log 3 }
+
+        logManagedSensorTableEntry OBJECT-TYPE
+                SYNTAX      TypeExternalSensorTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Managed sensor log table entry"
+                INDEX       { managedSensorId, logEntryIdx }
+            ::= { logManagedSensorTable 1 }
+
+        TypeExternalSensorTableEntry ::=
+            SEQUENCE {
+                logManagedSensorDataAvailable   TruthValue,
+                logManagedSensorReadingCount    Unsigned32,
+                logManagedSensorEventStateCount Unsigned32,
+                logManagedSensorAvgValue        DisplayString,
+                logManagedSensorMinValue        DisplayString,
+                logManagedSensorMaxValue        DisplayString,
+                logManagedSensorDispValue       DisplayString,
+                logManagedSensorAccState        Unsigned32
+            }
+
+        logManagedSensorDataAvailable OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates data availability for this sensor: 1 if available, 2 otherwise"
+            ::= { logManagedSensorTableEntry 1 }
+
+        logManagedSensorReadingCount OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The count of successfully obtained sensor readings during the period"
+            ::= { logManagedSensorTableEntry 2 }
+
+        logManagedSensorEventStateCount OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The count of successfully obtained sensor event state words during the period"
+            ::= { logManagedSensorTableEntry 3 }
+
+        logManagedSensorAvgValue OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The average value across sensor readings for the period"
+            ::= { logManagedSensorTableEntry 4 }
+
+        logManagedSensorMinValue OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The minimum value across sensor readings for the period"
+            ::= { logManagedSensorTableEntry 5 }
+
+        logManagedSensorMaxValue OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The maximum value across sensor readings for the period"
+            ::= { logManagedSensorTableEntry 6 }
+
+        logManagedSensorDispValue OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The dispersion across sensor readings for the period"
+            ::= { logManagedSensorTableEntry 7 }
+
+        logManagedSensorAccState OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The accumulated event state (the logical OR of all sensor event states obtained during the period)"
+            ::= { logManagedSensorTableEntry 8 }
+              
+--  ********* MEASUREMENTS BRANCH *********
+
+    measurements        OBJECT IDENTIFIER ::= { sgp 3 }
+
+    measurementsManagedSensorTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeMeasurementsManagedSensorTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Managed sensor reading table"
+        ::= { measurements 1 }
+
+        measurementsManagedSensorTableEntry OBJECT-TYPE
+                SYNTAX      TypeMeasurementsManagedSensorTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Managed sensor reading table entry"
+                INDEX       { managedSensorId }
+            ::= { measurementsManagedSensorTable 1 }
+
+        TypeMeasurementsManagedSensorTableEntry ::=
+            SEQUENCE {
+                measurementsManagedSensorIsAvailable    TruthValue,
+                measurementsManagedSensorState          Integer32,
+                measurementsManagedSensorValue          DisplayString,
+                measurementsManagedSensorTimeStamp      DateAndTime
+            }
+
+        measurementsManagedSensorIsAvailable OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates data availability for the sensor during this measurement period: 1 if available, 2 otherwise"
+            ::= { measurementsManagedSensorTableEntry 1 }
+
+        measurementsManagedSensorState OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The current event state mask for the sensor"
+            ::= { measurementsManagedSensorTableEntry 2 }
+
+        measurementsManagedSensorValue OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor reading. This parameter does not apply to discrete sensors"
+            ::= { measurementsManagedSensorTableEntry 3 }
+
+        measurementsManagedSensorTimeStamp OBJECT-TYPE
+                SYNTAX      DateAndTime
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor reading timestamp"
+            ::= { measurementsManagedSensorTableEntry 4 }
+
+    measurementsExternalSensorTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeMeasurementsSensorTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "External sensor reading table"
+        ::= { measurements 2 }
+
+        measurementsExternalSensorTableEntry OBJECT-TYPE
+                SYNTAX      TypeMeasurementsSensorTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "External sensor reading table entry"
+                INDEX       { externalResourceId, externalSensorId }
+            ::= { measurementsExternalSensorTable 1 }
+
+        TypeMeasurementsSensorTableEntry ::=
+            SEQUENCE {
+                measurementsExternalSensorIsAvailable   TruthValue,
+                measurementsExternalSensorState         Integer32,
+                measurementsExternalSensorValue         DisplayString,
+                measurementsExternalSensorTimeStamp     DateAndTime
+            }
+
+        measurementsExternalSensorIsAvailable OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates data availability for the sensor during this measurement period: 1 if available, 2 otherwise"
+            ::= { measurementsExternalSensorTableEntry 1 }
+
+        measurementsExternalSensorState OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The current sensor state"
+            ::= { measurementsExternalSensorTableEntry 2 }
+
+        measurementsExternalSensorValue OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor reading"
+            ::= { measurementsExternalSensorTableEntry 3 }
+
+        measurementsExternalSensorTimeStamp OBJECT-TYPE
+                SYNTAX      DateAndTime
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor reading timestamp"
+            ::= { measurementsExternalSensorTableEntry 4 }
+
+--  ********* CONTROLS BRANCH *********
+
+    controls            OBJECT IDENTIFIER ::= { sgp 4 }
+    
+    controlsTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeControlsTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Controls table"
+        ::= { controls 1 }
+
+        controlsTableEntry OBJECT-TYPE
+                SYNTAX      TypeControlsTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Controls table entry"
+                INDEX       { ctrlResourceId, ctrlId }
+            ::= { controlsTable 1 }
+              
+        TypeControlsTableEntry ::=
+            SEQUENCE {
+                ctrlMode                                Integer32,
+                ctrlState                               Integer32,
+                ctrlCachedState                         Integer32
+            }
+
+        ctrlMode OBJECT-TYPE
+                SYNTAX INTEGER {
+                    auto(1),
+                    manual(2)
+                }
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The current control mode: automatic(1), manual(2) or unavailable(-1)"
+            ::= { controlsTableEntry 1 }
+
+        ctrlState OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The current control state"
+            ::= { controlsTableEntry 2 }
+
+        ctrlCachedState OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The cached control state for slow devices"
+            ::= { controlsTableEntry 3 }
+
+--  ********* SERVER REACHABILITY BRANCH *********
+
+    serverReachability  OBJECT IDENTIFIER ::= { sgp 5 }
+
+    serverReachabilityTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeServerReachabilityTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Server reachability table"
+        ::= { serverReachability 1 }
+
+        serverReachabilityTableEntry OBJECT-TYPE
+                SYNTAX      TypeServerReachabilityTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Server reachability table entry"
+                INDEX       { serverId }
+            ::= { serverReachabilityTable 1 }
+
+        TypeServerReachabilityTableEntry ::=
+            SEQUENCE {
+                serverId                                Unsigned32,
+                serverIpAddress                         DisplayString,
+                serverPingEnabled                       Integer32,
+                serverReachable                         TruthValue,
+                serverUnreachable                       TruthValue
+            }
+
+        serverId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Server entry index"
+            ::= { serverReachabilityTableEntry 1 }
+
+        serverIpAddress OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "Host Name or IP address of the target system"
+            ::= { serverReachabilityTableEntry 2 }
+
+        serverPingEnabled OBJECT-TYPE
+                SYNTAX INTEGER {
+                    enabled(1),
+                    disabled(2)
+                }
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "1 - if periodic poll of the target system via the ping command is enabled, 2 - otherwise"
+            ::= { serverReachabilityTableEntry 3 }
+
+        serverReachable OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "1 - if the target system is responding, 2 - otherwise"
+            ::= { serverReachabilityTableEntry 4 }
+
+        serverUnreachable OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "1 - if the target system is not responding, 2 - otherwise"
+            ::= { serverReachabilityTableEntry 5 }
+
+--  ********* POWER MANAGEMENT BRANCH (only available at iPDU) *********
+
+    ipduPowerManagement OBJECT IDENTIFIER ::= { sgp 6 }
+
+--  ********* Plugs Table *********
+
+    plugsTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypePlugsTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Power plugs table (only available at iPDU)"
+        ::= { ipduPowerManagement 1 }
+
+        plugsTableEntry OBJECT-TYPE
+                SYNTAX      TypePlugsTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Power plugs table entry"
+                INDEX       { plugId }
+            ::= { plugsTable 1 }
+
+        TypePlugsTableEntry ::=
+            SEQUENCE {
+                plugId                                  Unsigned32,
+                plugResourceID                          Unsigned32,
+                plugClearAccumulatedEnergy              Integer32
+            }
+
+        plugId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "The plug number"
+            ::= { plugsTableEntry 1 }
+
+        plugResourceID OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Inlet module resource number for the plug"
+            ::= { plugsTableEntry 2 }
+
+        plugClearAccumulatedEnergy OBJECT-TYPE
+                SYNTAX INTEGER {
+                    clear(1),
+                    idle(2)
+                }
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "Set to 1 to clear accumulated energies on the plug. Value 2 means this counter reset is not requested"
+            ::= { plugsTableEntry 3 }
+    
+--  ********* Phases Table *********
+
+    phasesTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypePhasesTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Power phases table (only available at iPDU)"
+        ::= { ipduPowerManagement 2 }
+
+        phasesTableEntry OBJECT-TYPE
+                SYNTAX      TypePhasesTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Power phases table entry"
+                INDEX       { plugId, phaseId }
+            ::= { phasesTable 1 }
+
+        TypePhasesTableEntry ::=
+            SEQUENCE {
+                phaseId                                 Unsigned32,
+                phaseResourceID                         Unsigned32,
+                phaseVoltageRMS                         DisplayString,
+                phaseCurrentRMS                         DisplayString,
+                phaseActivePower                        DisplayString,
+                phaseApparentPower                      DisplayString,
+                phasePowerFactor                        DisplayString,
+                phaseActiveEnergy                       DisplayString,
+                phaseFrequency                          DisplayString
+            }
+
+        phaseId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "The phase number (1, 2 or 3)"
+            ::= { phasesTableEntry 1 }
+
+        phaseResourceID OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Inlet module resource number for the phase"
+            ::= { phasesTableEntry 2 }
+
+        phaseVoltageRMS OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Voltage RMS sensor reading for the phase (volts)"
+            ::= { phasesTableEntry 3 }
+
+        phaseCurrentRMS OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Current RMS sensor reading for the phase (amps)"
+            ::= { phasesTableEntry 4 }
+
+        phaseActivePower OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Active Power sensor reading for the phase (watts)"
+            ::= { phasesTableEntry 5 }
+
+        phaseApparentPower OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Apparent Power sensor reading for the phase (watts)"
+            ::= { phasesTableEntry 6 }
+
+        phasePowerFactor OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Power Factor for the phase"
+            ::= { phasesTableEntry 7 }
+
+        phaseActiveEnergy OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the accumulated Active Energy for the phase"
+            ::= { phasesTableEntry 8 }
+
+        phaseFrequency OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Frequency for the phase (hz)"
+            ::= { phasesTableEntry 9 }
+
+--  ********* Branches Table *********
+
+    branchesTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeBranchesTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Power branches table (only available at iPDU)"
+        ::= { ipduPowerManagement 3 }
+
+        branchesTableEntry OBJECT-TYPE
+                SYNTAX      TypeBranchesTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Power branches table entry"
+                INDEX       { branchId }
+            ::= { branchesTable 1 }
+
+        TypeBranchesTableEntry ::=
+            SEQUENCE {
+                branchId                                Unsigned32,
+                branchPlugId                            Unsigned32,
+                branchPhaseId                           Unsigned32,
+                branchInletModuleResourceId             Integer32,
+                branchOutletModuleResourceId            Integer32,
+                branchCircuitBreakerOpen                Integer32,
+                branchVoltageRMS                        DisplayString,
+                branchCurrentRMS                        DisplayString,
+                branchActivePower                       DisplayString,
+                branchApparentPower                     DisplayString,
+                branchPowerFactor                       DisplayString,
+                branchActiveEnergy                      DisplayString,
+                branchClearAccumulatedEnergy            Integer32
+            }
+
+        branchId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "The branch number"
+            ::= { branchesTableEntry 1 }
+
+        branchPlugId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The owning plug number"
+            ::= { branchesTableEntry 2 }
+
+        branchPhaseId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The owning phase number"
+            ::= { branchesTableEntry 3 }
+
+        branchInletModuleResourceId OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Inlet module resource ID for the branch"
+            ::= { branchesTableEntry 4 }
+
+        branchOutletModuleResourceId OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Outlet module resource ID for the branch"
+            ::= { branchesTableEntry 5 }
+
+        branchCircuitBreakerOpen OBJECT-TYPE
+                SYNTAX INTEGER {
+                    closed(1),
+                    open(2)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether the circuit breaker is closed (1) or open (2)"
+            ::= { branchesTableEntry 6 }
+
+        branchVoltageRMS OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Voltage RMS sensor reading for the branch (volts)"
+            ::= { branchesTableEntry 7 }
+
+        branchCurrentRMS OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Current RMS sensor reading for the branch (amps)"
+            ::= { branchesTableEntry 8 }
+
+        branchActivePower OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Active Power sensor reading for the branch (watts)"
+            ::= { branchesTableEntry 9 }
+
+        branchApparentPower OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Apparent Power sensor reading for the branch (watts)"
+            ::= { branchesTableEntry 10 }
+
+        branchPowerFactor OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Power Factor for the branch"
+            ::= { branchesTableEntry 11 }
+
+        branchActiveEnergy OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the accumulated Active Energy for the branch"
+            ::= { branchesTableEntry 12 }
+
+        branchClearAccumulatedEnergy OBJECT-TYPE
+                SYNTAX INTEGER {
+                    clear(1),
+                    idle(2)
+                }
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "Set to 1 to clear accumulated energies for the branch. Value 2 means this counter reset is not requested"
+            ::= { branchesTableEntry 13 }
+
+--  ********* Outlets Table *********
+    
+    outletsTable OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeOutletsTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "Power outlets table (only available at iPDU)"
+        ::= { ipduPowerManagement 4 }
+
+        outletsTableEntry OBJECT-TYPE
+                SYNTAX      TypeOutletsTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "Power outlets table entry"
+                INDEX       { outletId }
+            ::= { outletsTable 1 }
+
+        TypeOutletsTableEntry ::=
+            SEQUENCE {
+                outletId                                Unsigned32,
+                outletBranchId                          Unsigned32,
+                outletResourceId                        Unsigned32,
+                outletName                              DisplayString,
+                outletType                              Integer32,
+                outletState                             Integer32,
+                outletRelayFault                        Integer32,
+                outletVoltageRMS                        DisplayString,
+                outletCurrentRMS                        DisplayString,
+                outletActivePower                       DisplayString,
+                outletApparentPower                     DisplayString,
+                outletFrequency                         DisplayString,
+                outletPowerFactor                       DisplayString,
+                outletActiveEnergy                      DisplayString,
+                outletPeakCurrentRMS                    DisplayString,
+                outletClearAccumulatedEnergy            Integer32,
+                outletClearPeakCurrent                  Integer32
+            }
+
+        outletId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "The outlet number"
+            ::= { outletsTableEntry 1 }
+
+        outletBranchId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The owning outlet branch number"
+            ::= { outletsTableEntry 2 }
+
+        outletResourceId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Outlet module resource ID for the outlet"
+            ::= { outletsTableEntry 3 }
+
+        outletName OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "The user-changeable outlet name"
+            ::= { outletsTableEntry 4 }
+
+        outletType OBJECT-TYPE
+                SYNTAX INTEGER {
+                    unspecified(-1),
+                    c13(1),
+                    c19(2),
+                    nema520r(3)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The outlet type: c13(1), c19(2), nema-5-20r(3) or unspecified(-1)"
+            ::= { outletsTableEntry 5 }
+
+        outletState OBJECT-TYPE
+                SYNTAX INTEGER {
+                    on(1),
+                    off(2)
+                }
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "Outlet state: on(1) or off(2)"
+            ::= { outletsTableEntry 6 }
+
+        outletRelayFault OBJECT-TYPE
+                SYNTAX INTEGER {
+                    off(1),
+                    on(2)
+                }
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates whether relay for the outlet is in the fault state (2) or not (1)"
+            ::= { outletsTableEntry 7 }
+
+        outletVoltageRMS OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Voltage RMS sensor reading for the outlet (volts)"
+            ::= { outletsTableEntry 8 }
+
+        outletCurrentRMS OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Current RMS sensor reading for the outlet (amps)"
+            ::= { outletsTableEntry 9 }
+
+        outletActivePower OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Active Power sensor reading for the outlet (watts)"
+            ::= { outletsTableEntry 10 }
+
+        outletApparentPower OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Apparent Power sensor reading for the outlet (watts)"
+            ::= { outletsTableEntry 11 }
+
+        outletFrequency OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the frequency for the outlet (hz)"
+            ::= { outletsTableEntry 12 }
+
+        outletPowerFactor OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Power Factor for the outlet"
+            ::= { outletsTableEntry 13 }
+
+        outletActiveEnergy OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Active Energy for the outlet"
+            ::= { outletsTableEntry 14 }
+
+        outletPeakCurrentRMS OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Value of the Peak Current RMS sensor for the outlet (amps)"
+            ::= { outletsTableEntry 15 }
+
+        outletClearAccumulatedEnergy OBJECT-TYPE
+                SYNTAX INTEGER {
+                    clear(1),
+                    idle(2)
+                }
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "Set to 1 to clear accumulated energies for the outlet. Value 2 means this counter reset is not requested"
+            ::= { outletsTableEntry 16 }
+
+        outletClearPeakCurrent OBJECT-TYPE
+                SYNTAX INTEGER {
+                    clear(1),
+                    idle(2)
+                }
+                MAX-ACCESS  read-write
+                STATUS      current
+                DESCRIPTION "Set to 1 to clear the peak current counter for the outlet. Value 2 means this counter reset is not requested"
+            ::= { outletsTableEntry 17 }
+
+--  ********* iPDU Counters *********
+
+    inletCount OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of Inlets in iPDU"
+        ::= { ipduPowerManagement 5 }
+
+    plugCount OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of Plugs in iPDU"
+        ::= { ipduPowerManagement 6 }
+
+    phaseCount OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of Phases in iPDU"
+        ::= { ipduPowerManagement 7 }
+
+    branchCount OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of Branch in iPDU"
+        ::= { ipduPowerManagement 8 }
+
+    outletCount OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of Outlets in iPDU"
+        ::= { ipduPowerManagement 9 }
+
+    rcmCount OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of RCMs in iPDU"
+        ::= { ipduPowerManagement 10 }
+
+--  ********* SYSTEM EVENT LOG BRANCH *********
+
+    sel                 OBJECT IDENTIFIER ::= { sgp 7 }
+
+    selEntriesCount     OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The current number of entries in the SEL"
+        ::= { sel 1 }
+        
+    selEntryOldest      OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of the oldest entry in the SEL"
+        ::= { sel 2 }
+        
+    selEntryNewest      OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The number of the newest entry in the SEL"
+        ::= { sel 3 }
+
+    selSize             OBJECT-TYPE
+            SYNTAX      Unsigned32
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "SEL capacity (the maximum number of entries that SEL can contain)"
+        ::= { sel 4 }
+
+    selUpdateTimestamp  OBJECT-TYPE
+            SYNTAX      DateAndTime
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The timestamp of the latest SEL update"
+        ::= { sel 5 }
+
+    selCurrentTime      OBJECT-TYPE
+            SYNTAX      DateAndTime
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The current SEL time"
+        ::= { sel 6 }
+
+    selEnabled          OBJECT-TYPE
+            SYNTAX INTEGER {
+                    enabled(1),
+                    disabled(2)
+                }
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "Indicates if the SEL is enabled (1) or disabled (2)"
+        ::= { sel 7 }
+
+    selOverflowFlag     OBJECT-TYPE
+            SYNTAX      TruthValue
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "Indicates if the SEL is overflown (1) or not (2)"
+        ::= { sel 8 }
+
+    selOverflowAction   OBJECT-TYPE
+            SYNTAX INTEGER {
+                drop(1),
+                overwrite(2)
+            }
+            MAX-ACCESS  read-only
+            STATUS      current
+            DESCRIPTION "The overflow mode action for new entries: drop(1) or overwrite(2)"
+        ::= { sel 9 }
+
+    selClear            OBJECT-TYPE
+            SYNTAX INTEGER {
+                clear(1),
+                idle(2)
+            }
+            MAX-ACCESS  read-write
+            STATUS      current
+            DESCRIPTION "Set to 1 to clear SEL. Value 2 means SEL clear is not in progress"
+        ::= { sel 10 }
+
+    selTable            OBJECT-TYPE
+            SYNTAX      SEQUENCE OF TypeSelTableEntry
+            MAX-ACCESS  not-accessible
+            STATUS      current
+            DESCRIPTION "System Event Log table"
+        ::= { sel 11 }
+
+        selTableEntry       OBJECT-TYPE
+                SYNTAX      TypeSelTableEntry
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "System Event Log table entry"
+                INDEX       { selEntryId }
+            ::= { selTable 1 }
+
+        TypeSelTableEntry ::=
+            SEQUENCE {
+                selEntryId                              Unsigned32,
+                selTimestamp                            DateAndTime,
+                selEventType                            TypeEventType,
+                selResourceId                           Unsigned32,
+                selEventTimestamp                       DateAndTime,
+                selSeverity                             TypeSeverityType,
+                selEventSubType                         Integer32,
+                selSensorNum                            Unsigned32,
+                selSensorType                           TypeSensorType,
+                selEventCategory                        TypeSensorCategory,
+                selAssertionEvent                       TruthValue,
+                selEventState                           Integer32,
+                selTriggerReading                       DisplayString,
+                selTriggerThreshold                     DisplayString,
+                selPreviousStates                       Integer32,
+                selCurrentStates                        Integer32,
+                selFumiNum                              Unsigned32,
+                selBankNum                              Integer32
+            }
+
+        selEntryId OBJECT-TYPE
+                SYNTAX      Unsigned32(1..65536)
+                MAX-ACCESS  not-accessible
+                STATUS      current
+                DESCRIPTION "SEL entry number"
+            ::= { selTableEntry 1 }
+
+        selTimestamp OBJECT-TYPE
+                SYNTAX      DateAndTime
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Time of the entry addition into the log"
+            ::= { selTableEntry 2 }
+
+        selEventType OBJECT-TYPE
+                SYNTAX      TypeEventType
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The event type (data type is described in this MIB)"
+            ::= { selTableEntry 3 }
+
+        selResourceId OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Resource ID of the event source"
+            ::= { selTableEntry 4 }
+
+        selEventTimestamp OBJECT-TYPE
+                SYNTAX      DateAndTime
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Timestamp of the event generation"
+            ::= { selTableEntry 5 }
+
+        selSeverity OBJECT-TYPE
+                SYNTAX      TypeSeverityType
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The event severity (data type is described in this MIB)"
+            ::= { selTableEntry 6 }
+
+        selEventSubType OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Specific event type for resource events, software events, upgrade status for FUMI events"
+            ::= { selTableEntry 7 }
+
+        selSensorNum OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Sensor number of the event source"
+            ::= { selTableEntry 8 }
+
+        selSensorType OBJECT-TYPE
+                SYNTAX      TypeSensorType
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The sensor type (data type is described in this MIB)"
+            ::= { selTableEntry 9 }
+
+        selEventCategory OBJECT-TYPE
+                SYNTAX      TypeSensorCategory
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The event category (data type is described in this MIB)"
+            ::= { selTableEntry 10 }
+
+        selAssertionEvent OBJECT-TYPE
+                SYNTAX      TruthValue
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Indicates if the event is an assertion event (1) or a deassertion event (2)"
+            ::= { selTableEntry 11 }
+
+        selEventState OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The specific state of the sensor that triggered the event"
+            ::= { selTableEntry 12 }
+
+        selTriggerReading OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Sensor reading value that triggered the event"
+            ::= { selTableEntry 13 }
+
+        selTriggerThreshold OBJECT-TYPE
+                SYNTAX      DisplayString
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "Sensor threshold value that was crossed at the event"
+            ::= { selTableEntry 14 }
+
+        selPreviousStates OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The mask of previous sensor states (before the event)"
+            ::= { selTableEntry 15 }
+
+        selCurrentStates OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The mask of current sensor states (after the event)"
+            ::= { selTableEntry 16 }
+
+        selFumiNum OBJECT-TYPE
+                SYNTAX      Unsigned32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The FUMI number (for FUMI events, normally 0)"
+            ::= { selTableEntry 17 }
+
+        selBankNum OBJECT-TYPE
+                SYNTAX      Integer32
+                MAX-ACCESS  read-only
+                STATUS      current
+                DESCRIPTION "The FUMI bank number (for FUMI events, normally 0)"
+            ::= { selTableEntry 18 }
+
+--  ********* TRAPS BRANCH *********
+
+    sgpTrap             OBJECT IDENTIFIER ::= { sgp 8 }
+
+    sgpNotificationRoot OBJECT IDENTIFIER ::= { sgpTrap 0 } -- has to be 0 before notification in SNMPv2
+
+    sgpNotification1 NOTIFICATION-TYPE
+        OBJECTS     { sgpTextTrap }
+        STATUS      current
+        DESCRIPTION "Notification in plain text format"
+        ::= { sgpNotificationRoot 1 }
+
+    sgpTextTrap OBJECT-TYPE
+        SYNTAX      OCTET STRING ( SIZE(256) )
+        MAX-ACCESS  read-only
+        STATUS      current
+        DESCRIPTION "Trap data in plain text format"
+        ::= { sgpTrap 1 }
+
+--
+-- Compatibility section to avoid problems with MIB compilers
+--
+nventMIBCompliance MODULE-COMPLIANCE
+    STATUS      current
+    DESCRIPTION "The compliance statement for the application MIB"
+    MODULE
+        GROUP       sgpUnitComplianceGroup
+        DESCRIPTION "Unit configuration variables"
+        GROUP       sgpConfigurationComplianceGroup
+        DESCRIPTION "Configuration branch variables"
+        GROUP       sgpMeasurementsComplianceGroup
+        DESCRIPTION "Measurements branch variables"
+        GROUP       ipduPowerComplianceGroup
+        DESCRIPTION "Power Management variables"
+        GROUP       sgpSelComplianceGroup
+        DESCRIPTION "Group of SEL variables"
+        GROUP       sgpTrapsComplianceGroup
+        DESCRIPTION "Group of all supported notifications"
+    ::= { nventMIBConformance 4 }
+
+sgpUnitComplianceGroup OBJECT-GROUP
+    OBJECTS {
+        shxCount,
+        unitName,
+        hardwareVersion,
+        firmwareVersion,
+        utcOffset,
+        resourceCount,
+        totalSensorCount,
+        managedSensorCount,
+        externalSensorsZCoordinateUnits,
+        serverCount,
+        model,
+        cascadedDeviceConnected,
+        networkInterfaceName,
+        networkInterfaceMacAddress,
+        networkInterfaceIPv4UseDHCP,
+        networkInterfaceIpV4Address,
+        networkInterfaceIpV4Gateway,
+        networkInterfaceIPv6UseDHCP,
+        networkInterfaceIpV6Addresses,
+        serverIpAddress,
+        serverPingEnabled,
+        serverReachable,
+        serverUnreachable,
+        unitsTemperature,
+        unitsLength,
+        unitsPressure
+    }
+    STATUS      current
+    DESCRIPTION "Unit configuration variables"
+    ::= { nventMIBConformance 5 }
+
+sgpConfigurationComplianceGroup OBJECT-GROUP
+    OBJECTS {
+        shxOperationalState,
+        shxValvePosition,
+        shxCoolerTempSetpoint,
+        shxFanPerformanceSetpoint,
+        shxMaximumCooling,
+        shxAlertState,
+        shxModel,
+        shxFirmwareVersion,
+        shxSensorCount,
+        shxInterface,
+        shxAddress,
+        shxSensorName,
+        shxSensorType,
+        shxSensorCategory,
+        shxSensorEnableControl,
+        shxSensorEventControl,
+        shxSensorAssertEventMask,
+        shxSensorDeassertEventMask,
+        shxSensorIsReadingSupported,
+        shxSensorBaseUnit,
+        shxSensorModifierUnit,
+        shxSensorModifierUse,
+        shxSensorPercentage,
+        shxSensorAccuracy,
+        shxSensorResolution,
+        shxSensorTolerance,
+        shxSensorMaximum,
+        shxSensorMinimum,
+        shxSensorThresholdsIsAccessible,
+        shxSensorLowerCriticalThreshold,
+        shxSensorLowerMajorThreshold,
+        shxSensorLowerMinorThreshold,
+        shxSensorUpperCriticalThreshold,
+        shxSensorUpperMajorThreshold,
+        shxSensorUpperMinorThreshold,
+        shxSensorPositiveHysteresis,
+        shxSensorNegativeHysteresis,
+        shxSensorPollInterval,
+        shxSensorAssertionDelayCount,
+        managedSensorType,
+        managedSensorName,
+        managedSensorDescription,
+        managedSensorXCoordinate,
+        managedSensorYCoordinate,
+        managedSensorZCoordinate,
+        managedSensorSubtype,
+        managedSensorCategory,
+        managedSensorEnableControl,
+        managedSensorEventControl,
+        managedSensorAssertEventMask,
+        managedSensorDeassertEventMask,
+        managedSensorIsReadingSupported,
+        managedSensorBaseUnit,
+        managedSensorModifierUnit,
+        managedSensorModifierUse,
+        managedSensorPercentage,
+        managedSensorAccuracy,
+        managedSensorResolution,
+        managedSensorTolerance,
+        managedSensorMaximum,
+        managedSensorMinimum,
+        managedSensorThresholdsIsAccessible,
+        managedSensorLowerCriticalThreshold,
+        managedSensorLowerMajorThreshold,
+        managedSensorLowerMinorThreshold,
+        managedSensorUpperCriticalThreshold,
+        managedSensorUpperMajorThreshold,
+        managedSensorUpperMinorThreshold,
+        managedSensorPositiveHysteresis,
+        managedSensorNegativeHysteresis,
+        managedSensorPollInterval,
+        managedSensorAssertionDelayCount,
+        managedSensorResourceId,
+        managedSensorExternalSensorNumber,
+        ctrlType,
+        ctrlOutputType,
+        ctrlMaximumValue,
+        ctrlMinimumValue,
+        ctrlDefaultValue,
+        ctrlDefaultMode,
+        ctrlDefaultModeReadOnly,
+        ctrlWriteOnly,
+        ctrlOem,
+        ctrlName,
+        logDataRetrieval,
+        logMeasurementPeriod,
+        logSize,
+        logOldestId,
+        logNewestId,
+        logEntryTimeStamp,
+        logManagedSensorDataAvailable,
+        logManagedSensorDispValue,
+        logManagedSensorAccState,
+        logManagedSensorReadingCount,
+        logManagedSensorEventStateCount,
+        logManagedSensorAvgValue,
+        logManagedSensorMaxValue,
+        logManagedSensorMinValue,
+        externalResourceName,
+        externalSensorName,
+        externalSensorType,
+        externalSensorCategory,
+        externalSensorEnableControl,
+        externalSensorEventControl,
+        externalSensorAssertEventMask,
+        externalSensorDeassertEventMask,
+        externalSensorIsReadingSupported,
+        externalSensorBaseUnit,
+        externalSensorModifierUnit,
+        externalSensorModifierUse,
+        externalSensorPercentage,
+        externalSensorAccuracy,
+        externalSensorResolution,
+        externalSensorTolerance,
+        externalSensorMaximum,
+        externalSensorMinimum,
+        externalSensorThresholdsIsAccessible,
+        externalSensorLowerCriticalThreshold,
+        externalSensorLowerMajorThreshold,
+        externalSensorLowerMinorThreshold,
+        externalSensorUpperCriticalThreshold,
+        externalSensorUpperMajorThreshold,
+        externalSensorUpperMinorThreshold,
+        externalSensorPositiveHysteresis,
+        externalSensorNegativeHysteresis,
+        externalSensorPollInterval,
+        externalSensorAssertionDelayCount,
+        externalSensorIsManaged,
+        externalSensorManagedNumber
+    }
+    STATUS      current
+    DESCRIPTION "Configuration branch variables"
+    ::= { nventMIBConformance 6 }
+
+sgpMeasurementsComplianceGroup OBJECT-GROUP
+    OBJECTS {
+        measurementsManagedSensorIsAvailable,
+        measurementsManagedSensorState,
+        measurementsManagedSensorValue,
+        measurementsManagedSensorTimeStamp,
+        measurementsExternalSensorIsAvailable,
+        measurementsExternalSensorState,
+        measurementsExternalSensorValue,
+        measurementsExternalSensorTimeStamp,
+        ctrlMode,
+        ctrlState,
+        ctrlCachedState
+    }
+    STATUS      current
+    DESCRIPTION "Measurements branch variables"
+    ::= { nventMIBConformance 7 }
+
+ipduPowerComplianceGroup OBJECT-GROUP
+    OBJECTS {
+        plugResourceID,
+        plugClearAccumulatedEnergy,
+        phaseResourceID,
+        phaseVoltageRMS,
+        phaseCurrentRMS,
+        phaseActivePower,
+        phaseApparentPower,
+        phasePowerFactor,
+        phaseActiveEnergy,
+        phaseFrequency,
+        branchPlugId,
+        branchPhaseId,
+        branchInletModuleResourceId,
+        branchOutletModuleResourceId,
+        branchCircuitBreakerOpen,
+        branchVoltageRMS,
+        branchCurrentRMS,
+        branchActivePower,
+        branchApparentPower,
+        branchPowerFactor,
+        branchActiveEnergy,
+        branchClearAccumulatedEnergy,
+        outletBranchId,
+        outletResourceId,
+        outletName,
+        outletType,
+        outletState,
+        outletRelayFault,
+        outletVoltageRMS,
+        outletCurrentRMS,
+        outletActivePower,
+        outletApparentPower,
+        outletFrequency,
+        outletPowerFactor,
+        outletActiveEnergy,
+        outletPeakCurrentRMS,
+        outletClearAccumulatedEnergy,
+        outletClearPeakCurrent,
+        inletCount,
+        plugCount,
+        phaseCount,
+        branchCount,
+        outletCount,
+        rcmCount
+    }
+    STATUS      current
+    DESCRIPTION "Power management branch variables"
+    ::= { nventMIBConformance 8 }
+
+sgpSelComplianceGroup OBJECT-GROUP
+    OBJECTS {
+        selEntriesCount,
+        selEntryOldest,
+        selEntryNewest,
+        selSize,
+        selUpdateTimestamp,
+        selCurrentTime,
+        selEnabled,
+        selOverflowFlag,
+        selOverflowAction,
+        selTimestamp,
+        selEventType,
+        selResourceId,
+        selEventTimestamp,
+        selSeverity,
+        selEventSubType,
+        selSensorNum,
+        selSensorType,
+        selEventCategory,
+        selAssertionEvent,
+        selEventState,
+        selTriggerReading,
+        selTriggerThreshold,
+        selPreviousStates,
+        selCurrentStates,
+        selFumiNum,
+        selBankNum,
+        selClear,
+        sgpTextTrap
+    }
+    STATUS      current
+    DESCRIPTION "SEL branch variables"
+    ::= { nventMIBConformance 9 }
+
+sgpTrapsComplianceGroup NOTIFICATION-GROUP
+    NOTIFICATIONS   { sgpNotification1 }
+    STATUS          current
+    DESCRIPTION     "Event notifications"
+    ::= { nventMIBConformance 10 }
+
+END

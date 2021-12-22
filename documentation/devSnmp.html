@@ -7,9 +7,9 @@
 
 <BODY>
 <H1>EPICS SNMP Device Support Module (NSCL/FRIB)</H1>
-<B>Release 1.0.0.2</B><br>
+<B>Release 1.1.0.3</B><br>
 <B>by John Priller</B><br>
-<B>November 18, 2019</B><br>
+<B>December 9, 2021</B><br>
 
 <h2><u>Contents</u></h2>
 <ul>
@@ -283,7 +283,7 @@ for a helpful little perl script which provides a numeric definition such as:
 
   <dt id="devSnmpSetParam"><b>devSnmpSetParam(parameter,value)</b></dt>
   <dd>
-  <p>Sets a given module paramater, identified by a text string, to the
+  <p>Sets a given module parameter, identified by a text string, to the
   given integer value. Invoking this function without any arguments
   displays the current values of all configurable parameters.</p>
   <p>Unless specifically noted in their description, parameters can be
@@ -414,6 +414,13 @@ for a helpful little perl script which provides a numeric definition such as:
           begun will have any effect.  Feedback appreciated.</p></td>
     </tr>
 
+    <tr>
+      <td>CheckRanges</td>
+      <td align="right">1</td>
+      <td><p>Boolean (0/1), whether NET-SNMP library should check values for range/type legality<br><br>
+          Added as of release 1.1.0.3.  Set to 0 to mimic snmpget -Ir.</p></td>
+    </tr>
+
   </table>
   </dd>
 
@@ -454,6 +461,99 @@ for a helpful little perl script which provides a numeric definition such as:
   <p>This function should be called in IOC startup scripts <u>before</u>
      any record definitions referencing the given host are loaded.</p>
   </dd>
+
+  <dt id="devSnmpSetSnmpV3Param"><b>devSnmpSetSnmpV3Param(hostname,parameter,value)</b></dt>
+  <dd>
+  <p>Sets a given SNMPv3 security parameter for a given host.  Host must already
+     be configured for SNMP_VERSION_3 with a call to <a href="#devSnmpSetSnmpVersion">devSnmpSetSnmpVersion</a>.</p>
+  <p>This function should be called in IOC startup scripts <u>before</u>
+     any record definitions referencing the given host are loaded.</p>
+  <p>Because it's not a good idea to have plain-text passphrases in st.cmd
+     files, calling <a href="#devSnmpSetSnmpV3ConfigFile">devSnmpSetSnmpV3ConfigFile</a>
+     with the file name of a well-secured file of parameter/value pairs is a
+     better approach.</p>
+
+  <p>Not all parameters are required by SNMPv3 devices.  It's strongly
+     recommended that you get 'snmpget -v3' (for inputs) or 'snmpset -v3' (for
+     outputs) to work with your device first, to discover what parameters and
+     values are needed.</p>
+  <p>The following parameters are provided.  Parameter names may be prefixed
+     with 'def' if desired, to match the parameter names used by snmpget in
+     snmp.conf files.  Parameter names are not case-sensitive, but values are.
+     The equivalent arguments for snmpget are given for comparison purposes.</p>
+  <table border="1" cellpadding="10" summary = "devSnmpSetV3Param parameters">
+    <tr>
+       <th>Parameter</th>
+       <th>Default</th>
+       <th>Description</th>
+       <th>snmpget/snmpset parameter</th>
+    </tr>
+
+    <tr>
+      <td>SecurityName</td>
+      <td>(none)</td>
+      <td>Security Name</td>
+      <td>-u NAME</td>
+    </tr>
+
+    <tr>
+      <td>AuthType</td>
+      <td>MD5</td>
+      <td>Authentication Type, MD5 or SHA</td>
+      <td>-a (MD5|SHA)</td>
+    </tr>
+
+    <tr>
+      <td>PrivType</td>
+      <td>AES</td>
+      <td>Privacy Type, AES or DES</td>
+      <td>-x (AES|DES)</td>
+    </tr>
+
+    <tr>
+      <td>AuthPassphrase</td>
+      <td>(none)</td>
+      <td>Authentication pass phrase</td>
+      <td>-A PASSPHRASE</td>
+    </tr>
+
+    <tr>
+      <td>PrivPassphrase</td>
+      <td>(none)</td>
+      <td>Privacy pass phrase</td>
+      <td>-X PASSPHRASE</td>
+    </tr>
+
+    <tr>
+      <td>SecurityLevel</td>
+      <td>noAuthNoPriv</td>
+      <td>Security level, noAuthNoPriv or authNoPriv or authPriv</td>
+      <td>-l (noAuthNoPriv|authNoPriv|authPriv)</td>
+    </tr>
+
+    <tr>
+      <td>Context</td>
+      <td>(none)</td>
+      <td>Context name</td>
+      <td>-n CONTEXTNAME</td>
+    </tr>
+
+  </table>
+  </dd>
+  <br>
+
+  <dt id="devSnmpSetSnmpV3ConfigFile"><b>devSnmpSetSnmpV3ConfigFile(hostname,filename)</b></dt>
+  <dd>
+  <p>Assigns the SNMPv3 security parameter/value pairs in the given file to the
+     given host, just as if <a href="#devSnmpSetSnmpV3Param">devSnmpSetSnmpV3Param</a> had been called for each
+     parameter/value pair.  Host must already be configured for SNMP_VERSION_3
+     with a call to <a href="#devSnmpSetSnmpVersion">devSnmpSetSnmpVersion</a>.</p>
+  <p>See the section above on <a href="#devSnmpSetSnmpV3Param">devSnmpSetSnmpV3Param</a>
+     for what parameters are supported.</p>
+  <p>It is strongly recommended that the permissions of this file be highly restricted,
+     as it may need to contain plain-text passphrases.</p>
+  </dd>
+  <br>
 
   <dt id="snmpr"><b>snmpr(level,match)</b></dt>
   <dd>
@@ -552,6 +652,14 @@ for a helpful little perl script which provides a numeric definition such as:
 </dl>
 
 <h2 id="Versions"><u>Version history</u></h2>
+        <p>1.1.0.3: Incorporate bug-fixes and device support module for nVent Smart Gateway Protect (SGP) devices
+           from <a href="mailto:bazhenov.dn@gmail.com">Dmitry Bazhenov</a>.
+           Add CheckRanges parameter to devSnmpSetParam.</p>
+
+        <p>1.1.0.2: Fix net-snmp assuming callback_magic is pointer to struct synch_state.</p>
+
+        <p>1.1.0.1: Add code to support SNMPv3, IOC shell calls to set SNMPv3 security parameters.</p>
+
         <p>1.0.0.2: Address some minor memory leaks found by valgrind, add sanity check to
         prevent record processing after at-exit called and memory is freed.</p>
 

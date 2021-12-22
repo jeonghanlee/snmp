@@ -149,3 +149,5 @@ configure/CONFIG_APP
 configure/RULES.Db
 WienerCrate/configure/CONFIG_APP
 WienerCrate/configure/RULES.Db
+.cvsignore
+*.zip

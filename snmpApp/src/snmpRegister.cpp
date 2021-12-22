@@ -62,6 +62,41 @@ static const iocshFuncDef iocsh_devSnmpSetSnmpVersion_FuncDef = {"devSnmpSetSnmp
 static const iocshFuncDef iocsh_epicsSnmpSetSnmpVersion_FuncDef = {"epicsSnmpSetSnmpVersion",2,iocsh_devSnmpSetSnmpVersion_Args};
 
 /*--------------------------------------------------------------------*/
+static void iocsh_devSnmpSetSnmpV3Param(const iocshArgBuf *args)
+{
+  char *host  = args[0].sval;
+  char *param = args[1].sval;
+  char *value = args[2].sval;
+
+  devSnmpSetSnmpV3Param(host,param,value);
+}
+
+static const iocshArg iocsh_devSnmpSetSnmpV3Param_Arg0 = { "host", iocshArgString };
+static const iocshArg iocsh_devSnmpSetSnmpV3Param_Arg1 = { "param", iocshArgString };
+static const iocshArg iocsh_devSnmpSetSnmpV3Param_Arg2 = { "value", iocshArgString };
+static const iocshArg * const iocsh_devSnmpSetSnmpV3Param_Args[3] =
+  {&iocsh_devSnmpSetSnmpV3Param_Arg0,
+   &iocsh_devSnmpSetSnmpV3Param_Arg1,
+   &iocsh_devSnmpSetSnmpV3Param_Arg2};
+static const iocshFuncDef iocsh_devSnmpSetSnmpV3Param_FuncDef = {"devSnmpSetSnmpV3Param",3,iocsh_devSnmpSetSnmpV3Param_Args};
+
+/*--------------------------------------------------------------------*/
+static void iocsh_devSnmpSetSnmpV3ConfigFile(const iocshArgBuf *args)
+{
+  char *host  = args[0].sval;
+  char *fname = args[1].sval;
+
+  devSnmpSetSnmpV3ConfigFile(host,fname);
+}
+
+static const iocshArg iocsh_devSnmpSetSnmpV3ConfigFile_Arg0 = { "host", iocshArgString };
+static const iocshArg iocsh_devSnmpSetSnmpV3ConfigFile_Arg1 = { "filename", iocshArgString };
+static const iocshArg * const iocsh_devSnmpSetSnmpV3ConfigFile_Args[2] =
+  {&iocsh_devSnmpSetSnmpV3ConfigFile_Arg0,
+   &iocsh_devSnmpSetSnmpV3ConfigFile_Arg1};
+static const iocshFuncDef iocsh_devSnmpSetSnmpV3ConfigFile_FuncDef = {"devSnmpSetSnmpV3ConfigFile",2,iocsh_devSnmpSetSnmpV3ConfigFile_Args};
+
+/*--------------------------------------------------------------------*/
 static void iocsh_devSnmpSetMaxOidsPerReq(const iocshArgBuf *args)
 {
   char *host = args[0].sval;
@@ -155,18 +190,20 @@ void snmp_Register()
   if (! firstTime) return;
 
   firstTime = false;
-  iocshRegister(&iocsh_devSnmpSetMaxOidsPerReq_FuncDef,   iocsh_devSnmpSetMaxOidsPerReq);
-  iocshRegister(&iocsh_devSnmpSetSnmpVersion_FuncDef,     iocsh_devSnmpSetSnmpVersion);
-  iocshRegister(&iocsh_devSnmpSetParam_FuncDef,           iocsh_devSnmpSetParam);
-  iocshRegister(&iocsh_snmpr_FuncDef,                     iocsh_snmpr);
-  iocshRegister(&iocsh_snmpz_FuncDef,                     iocsh_snmpz);
-  iocshRegister(&iocsh_snmpzr_FuncDef,                    iocsh_snmpzr);
+  iocshRegister(&iocsh_devSnmpSetMaxOidsPerReq_FuncDef,    iocsh_devSnmpSetMaxOidsPerReq);
+  iocshRegister(&iocsh_devSnmpSetSnmpVersion_FuncDef,      iocsh_devSnmpSetSnmpVersion);
+  iocshRegister(&iocsh_devSnmpSetSnmpV3Param_FuncDef,      iocsh_devSnmpSetSnmpV3Param);
+  iocshRegister(&iocsh_devSnmpSetSnmpV3ConfigFile_FuncDef, iocsh_devSnmpSetSnmpV3ConfigFile);
+  iocshRegister(&iocsh_devSnmpSetParam_FuncDef,            iocsh_devSnmpSetParam);
+  iocshRegister(&iocsh_snmpr_FuncDef,                      iocsh_snmpr);
+  iocshRegister(&iocsh_snmpz_FuncDef,                      iocsh_snmpz);
+  iocshRegister(&iocsh_snmpzr_FuncDef,                     iocsh_snmpzr);
   // old function names, still supported for now (mapped to new names)
-  iocshRegister(&iocsh_epicsSnmpSetMaxOidsPerReq_FuncDef, iocsh_devSnmpSetMaxOidsPerReq);
-  iocshRegister(&iocsh_epicsSnmpSetSnmpVersion_FuncDef,   iocsh_devSnmpSetSnmpVersion);
+  iocshRegister(&iocsh_epicsSnmpSetMaxOidsPerReq_FuncDef,  iocsh_devSnmpSetMaxOidsPerReq);
+  iocshRegister(&iocsh_epicsSnmpSetSnmpVersion_FuncDef,    iocsh_devSnmpSetSnmpVersion);
   // deprecated functions
-  iocshRegister(&iocsh_devSnmpSetDebug_FuncDef,           iocsh_devSnmpSetDebug);
-  iocshRegister(&iocsh_epicsSnmpInit_FuncDef,             iocsh_epicsSnmpInit);
+  iocshRegister(&iocsh_devSnmpSetDebug_FuncDef,            iocsh_devSnmpSetDebug);
+  iocshRegister(&iocsh_epicsSnmpInit_FuncDef,              iocsh_epicsSnmpInit);
 }
 /*--------------------------------------------------------------------*/
 epicsExportRegistrar(snmp_Register);

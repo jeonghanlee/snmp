@@ -7,9 +7,9 @@
 */
 
 #define OUR_VERSION_MAJOR       1
-#define OUR_VERSION_MINOR       0
+#define OUR_VERSION_MINOR       1
 #define OUR_VERSION_REVISION    0
-#define OUR_VERSION_PATCHLEVEL  1
+#define OUR_VERSION_PATCHLEVEL  3
 #define _STR_HELPER(x) #x
 #define _STR(x) _STR_HELPER(x)
 #define OUR_VERSION_STRING "devSnmp " \
@@ -38,6 +38,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
+#include <strings.h>
 #include <ctype.h>
 #include <errno.h>
 
@@ -153,6 +154,9 @@ static int snmpThreadSleepMSec = 20;
 static int snmpSessionRetries = 5;
 static int snmpSessionTimeout = 10000000;  // = 1 second
 
+// MIB range checking
+// is on by default in net-snmp, we reflect that here
+static int snmpCheckRanges = 1;
 
 typedef struct {
   const char *paramName;
@@ -163,6 +167,7 @@ typedef struct {
 static void debugLevelChange(void);
 static void sessionRetriesChange(void);
 static void sessionTimeoutChange(void);
+static void checkRangesChange(void);
 
 static setParamItem setParamTable[] = {
   { "DebugLevel",           &snmpDebugLevel,           debugLevelChange     },
@@ -176,6 +181,7 @@ static setParamItem setParamTable[] = {
   { "ThreadSleepMSec",      &snmpThreadSleepMSec,      NULL                 },
   { "SessionRetries",       &snmpSessionRetries,       sessionRetriesChange },
   { "SessionTimeout",       &snmpSessionTimeout,       sessionTimeoutChange },
+  { "CheckRanges",          &snmpCheckRanges,          checkRangesChange    },
   { NULL,                   NULL,                      NULL                 }
 };
 
@@ -200,7 +206,7 @@ static char *tnow(void)
   return(_TimeStr);
 }
 //----------------------------------------------------------------------
-static void copy_string(char *target, int maxsize, char *source)
+static void copy_string(char *target, int maxsize, const char *source)
 {
   int len = strlen(source);
   if (len < maxsize)
@@ -211,6 +217,19 @@ static void copy_string(char *target, int maxsize, char *source)
   }
 }
 //----------------------------------------------------------------------
+static void trimup(char *str)
+{
+  int kk = strlen(str);
+  int ii = 0;
+  while ((ii < kk) && (str[ii] <= ' ')) ii++;
+  if (ii != 0) memmove(str,str+ii,kk-ii+1);
+  ii = strlen(str) - 1;
+  while ((ii >= 0) && (str[ii] <= ' ')) {
+    str[ii] = 0;
+    ii--;
+  }
+}
+//--------------------------------------------------------------------
 static int snmpScanLong(char *str, long *dest, int base = 10)
 {
   char *endp;
@@ -349,11 +368,25 @@ static void sessionTimeoutChange(void)
   if (pManager) pManager->sessionTimeoutChange();
 }
 //----------------------------------------------------------------------
+static void checkRangesChange(void)
+{
+  if (snmpCheckRanges < 0) snmpCheckRanges = 0;
+  if (snmpCheckRanges > 1) snmpCheckRanges = 1;
+  int ival = (snmpCheckRanges) ? 0 : 1;
+  netsnmp_ds_set_boolean(NETSNMP_DS_LIBRARY_ID,NETSNMP_DS_LIB_DONT_CHECK_RANGE,ival);
+}
+//----------------------------------------------------------------------
 static bool checkInit(void)
 {
   if (doingEpicsExit) return(false);
 
   if (! didEpicsInit) {
+#if devSnmp_NETSNMP_VERSION < 50400
+	  init_mib();
+#else
+	  netsnmp_init_mib();
+#endif
+
     // set last-tick
     epicsTimeGetCurrent(&globalLastTick);
 
@@ -407,7 +440,8 @@ static int snmpSendTask(devSnmp_manager *pMgr)
 static int snmpSessionCallback(int op, SNMP_SESSION *sp, int reqId, SNMP_PDU *pdu, void *magic)
 {
   // get pointer to devSnmp_session callback is for, ignore if is NULL
-  devSnmp_session *pSession = (devSnmp_session *) magic;
+  devSnmp_magic *mstruct = (devSnmp_magic *) magic;
+  devSnmp_session *pSession = (devSnmp_session *) mstruct->sessionObject;
   if (! pSession) return(epicsOk);
 
   // tell session to process itself, return its status
@@ -788,7 +822,7 @@ long snmpTimeObject::elapsedMilliseconds(epicsTimeStamp *pnow)
   // calculate nanoseconds diff
   long nsecPart = (pnow->nsec >= lastStarted.nsec) ?
                    pnow->nsec - lastStarted.nsec
-                : (0xFFFFFFFFul - lastStarted.nsec) + pnow->nsec;
+                : (1000000000 - lastStarted.nsec) + pnow->nsec;
 
   return( secPart*1000 + nsecPart/1000000 );
 }
@@ -1032,6 +1066,8 @@ devSnmp_session::devSnmp_session(devSnmp_manager *pMgr, devSnmp_group *pGroup, b
   oidList     = new snmpPointerList();
   timeStarted.start(&globalLastTick);
   timeSent.clear();
+  memset(&ourMagic,0,sizeof(devSnmp_magic));
+  ourMagic.sessionObject = this;
 }
 //--------------------------------------------------------------------
 devSnmp_session::~devSnmp_session(void)
@@ -1118,6 +1154,9 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
           if (pOID) {
             int stat = pOID->replyProcessing(this,op,SNMP_ERR_NOERROR,vars);
             if (stat != epicsOk) badReturns++;
+            if (pOID->hasReading() && pOurGroup)
+              // update PVs waiting for value
+              pOurGroup->updatePVs(pOID);
           }
           vars = vars->next_variable;
           idx++;
@@ -1183,7 +1222,7 @@ bool devSnmp_session::open(SNMP_SESSION *psess)
   session = snmp_open(psess);
   if (! session) return(false);
   session->callback = snmpSessionCallback;
-  session->callback_magic = this;
+  session->callback_magic = &ourMagic;
 
   // create PDU
   pdu = snmp_pdu_create( (is_setting) ? SNMP_MSG_SET : SNMP_MSG_GET );
@@ -1234,6 +1273,7 @@ bool devSnmp_session::send(void)
     pOurMgr->incActiveRequests();
     state = true;
   } else {
+    sent = false;
     state = false;
   }
 
@@ -1505,7 +1545,7 @@ devSnmp_oid::devSnmp_oid
   strcpy(lastError,"(none)");
 
   // set some defaults, PVs that use us will override as appropriate
-  setPollMSec(10000);
+  setPollMSec(snmpPassivePollMSec);
   setDataLength(40);
 
   // init times
@@ -1571,6 +1611,10 @@ void devSnmp_oid::storeData(netsnmp_variable_list *var)
   copy_string(reading.read_string,data_len,buffer);
   reading.valid = true;
 
+  if (snmpDebugLevel >= 4) {
+    printf("%s  devSnmp %s received string data = '%s'\n",tnow(),oidName(),reading.read_string);
+  }
+
   // store double or long value if type returned is acceptable
   reading.has_double = false;
   reading.has_long = false;
@@ -1619,7 +1663,7 @@ bool devSnmp_oid::getValueLong(long *value)
 {
   // if we have no valid long reading, return false
   if (! hasReadingLong()) {
-    strcpy(lastError,"devSnmp_oid::getValueLong: oid has no valid double reading");
+    strcpy(lastError,"devSnmp_oid::getValueLong: oid has no valid long reading");
     return(false);
   }
   epicsMutexLock(valMutex);
@@ -1645,6 +1689,12 @@ bool devSnmp_oid::getRawValueString(char *str, int maxsize)
   copy_string(str,maxsize,reading.read_string);
   epicsMutexUnlock(valMutex);
   return(true);
+}
+//--------------------------------------------------------------------
+void devSnmp_oid::queueUpdate(void)
+{
+  if (lastPollSent.started() && lastPollSent.elapsedMilliseconds(&globalLastTick) >= snmpDoNotPollWeight)
+    lastPollSent.clear();
 }
 //--------------------------------------------------------------------
 void devSnmp_oid::periodicProcessing(epicsTimeStamp *pnow)
@@ -1948,6 +1998,7 @@ void devSnmp_oid::report(int level, char *match)
   printf("    Max data length  : %d\n",      data_len);
 
   char valstr[1024];
+  valstr[0] = '\0';
   if (! getRawValueString(valstr,sizeof(valstr))) strcpy(valstr,"(n/a)");
   printf("    Raw value string : '%s'\n",    valstr);
 
@@ -2199,14 +2250,20 @@ const char *devSnmp_pv::devSnmp_pv::errorString(void)
   return(lastError);
 }
 //--------------------------------------------------------------------
+bool devSnmp_pv::hasValue()
+{
+  return pOurOID && pOurOID->hasReading();
+}
+//--------------------------------------------------------------------
 bool devSnmp_pv::getValueString(char *str, int maxsize)
 {
   // get raw string
   char rawData[ oidExtra.data_len ];
   rawData[0] = '\0';
-   if (snmpDebugLevel >= 100) {
+  if (snmpDebugLevel >= 100) {
     printf("devSnmp_pv::getValueString str-%s-%d, rawdata-%s:%d\n", str, maxsize, rawData, oidExtra.data_len);
   }
+
   if (! getRawValueString(rawData,oidExtra.data_len)) return(false);
 
   // try to locate our mask
@@ -2353,7 +2410,7 @@ bool devSnmp_pv::getValueLong(long *value)
 bool devSnmp_pv::getRawValueString(char *str, int maxsize)
 {
   if (! pOurOID) {
-    sprintf(lastError,"devSnmp_pv::getRawValueString : oid object is NULL");
+    sprintf(lastError,"devSnmp_pv::getRawValueString: oid object is NULL");
     return(false);
   }
   bool retstat = pOurOID->getRawValueString(str,maxsize);
@@ -2364,7 +2421,7 @@ bool devSnmp_pv::getRawValueString(char *str, int maxsize)
 double devSnmp_pv::pollsPerSecond(void)
 {
   if (! pOurOID) {
-    sprintf(lastError,"oid object is NULL");
+    sprintf(lastError,"devSnmp_pv::pollsPerSecond: oid object is NULL");
     return(0.0);
   }
   return( pOurOID->pollsPerSecond() );
@@ -2373,7 +2430,7 @@ double devSnmp_pv::pollsPerSecond(void)
 int devSnmp_pv::getPollMSec(void)
 {
   if (! pOurOID) {
-    sprintf(lastError,"oid object is NULL");
+    sprintf(lastError,"devSnmp_pv::getPollMSec: oid object is NULL");
     return(0);
   }
   return( pOurOID->getPollMSec() );
@@ -2425,7 +2482,7 @@ void devSnmp_pv::set(char *str)
 bool devSnmp_pv::wasSetRecently(void)
 {
   if (! pOurOID) {
-    sprintf(lastError,"devSnmp_pv::wasSetRecently : oid object is NULL");
+    sprintf(lastError,"wasSetRecently: oid object is NULL");
     return(false);
   }
   return( (lastSetSent.elapsedMilliseconds(&globalLastTick) < snmpSetSkipReadbackMSec) ? true : false );
@@ -2436,11 +2493,14 @@ bool devSnmp_pv::doingProcess(void)
   return(in_rec_process);
 }
 //--------------------------------------------------------------------
-void devSnmp_pv::processRecord(void)
+void devSnmp_pv::processRecord(bool asyncUpdate)
 {
   dbScanLock(pOurRecord);
   in_rec_process = true;
-  dbProcess(pOurRecord);
+  if (asyncUpdate)
+    ((RECSUPFUN_VOID_PTR)(pOurRecord->rset->process))(pOurRecord);
+  else
+    dbProcess(pOurRecord);
   in_rec_process = false;
   dbScanUnlock(pOurRecord);
 }
@@ -2563,6 +2623,7 @@ devSnmp_group::devSnmp_group(devSnmp_manager *pMgr, devSnmp_host *host, char *co
   base_session = new SNMP_SESSION;
   if (! base_session) return;
   memset(base_session,0,sizeof(SNMP_SESSION));
+  memset(&v3params,0,sizeof(devSnmp_v3params));
 
   // initialize base session structure
   snmp_sess_init(base_session);
@@ -2573,6 +2634,45 @@ devSnmp_group::devSnmp_group(devSnmp_manager *pMgr, devSnmp_host *host, char *co
   base_session->community_len = strlen(community);
   base_session->version       = pOurMgr->getHostSnmpVersion(base_session->peername);
   base_session->callback      = snmpSessionCallback;
+
+  // apply SNMPv3 params if using that version
+  if (base_session->version == SNMP_VERSION_3) {
+    pOurMgr->getHostSnmpV3Params(base_session->peername,&v3params);
+    base_session->securityAuthProto    = v3params.securityAuthProto;
+    base_session->securityAuthProtoLen = v3params.securityAuthProtoLen;
+    base_session->securityPrivProto    = v3params.securityPrivProto;
+    base_session->securityPrivProtoLen = v3params.securityPrivProtoLen;
+    base_session->securityLevel        = v3params.securityLevel;
+    base_session->securityName         = dup_string(v3params.securityName);
+    base_session->securityNameLen      = strlen(v3params.securityName);
+    base_session->contextName          = dup_string(v3params.context);
+    base_session->contextNameLen       = strlen(v3params.context);
+    long errCode;
+    if (strlen(v3params.authPassPhrase) > 0) {
+      base_session->securityAuthKeyLen = USM_AUTH_KU_LEN;
+      errCode = generate_Ku(base_session->securityAuthProto,
+                            base_session->securityAuthProtoLen,
+                            (u_char *) v3params.authPassPhrase,
+                            strlen(v3params.authPassPhrase),
+                            base_session->securityAuthKey,
+                            &base_session->securityAuthKeyLen);
+      if (errCode != SNMPERR_SUCCESS) {
+        printf("devSnmp ERROR: generate_Ku [authPassPhrase] FAILED: errcode %ld : %s\n",errCode,snmp_errstring(errCode));
+      }
+    }
+    if (strlen(v3params.privPassPhrase) > 0) {
+      base_session->securityPrivKeyLen = USM_PRIV_KU_LEN;
+      errCode = generate_Ku(base_session->securityAuthProto,
+                            base_session->securityAuthProtoLen,
+                            (u_char *) v3params.privPassPhrase,
+                            strlen(v3params.privPassPhrase),
+                            base_session->securityPrivKey,
+                            &base_session->securityPrivKeyLen);
+      if (errCode != SNMPERR_SUCCESS) {
+        printf("devSnmp ERROR: generate_Ku [privPassPhrase] FAILED: errcode %ld %s\n",errCode,snmp_errstring(errCode));
+      }
+    }
+  }
 
   (*okay) = true;
 }
@@ -2613,6 +2713,8 @@ devSnmp_group::~devSnmp_group(void)
   if (base_session) {
     delete [] base_session->peername;
     delete [] base_session->community;
+    if (base_session->securityName) delete [] base_session->securityName;
+    if (base_session->contextName) delete [] base_session->contextName;
     delete base_session;
     base_session = NULL;
   }
@@ -2797,11 +2899,12 @@ void devSnmp_group::processing(epicsTimeStamp *pnow)
     // get next OID to poll
     devSnmp_oid *pOID = weightCollection->topOID();
     if (! pOID) break;
-    if (pOID->getPollWeight() >= snmpDoNotPollWeight) break;
 
     // move to next OID now (so we're pointing at it afterwards
     // even if we fill up our transaction below)
     weightCollection->nextOID();
+
+    if (pOID->getPollWeight() >= snmpDoNotPollWeight) continue;
 
     // add this PV to request, and stop if the request is then full
     pGetTrans->addOID(pOID);
@@ -2967,6 +3070,17 @@ void devSnmp_group::report(int level, char *match)
   printf("\n");
 }
 //--------------------------------------------------------------------
+void devSnmp_group::updatePVs(devSnmp_oid *pOID)
+{
+  int pvCount = pvList->count();
+  for (int ii = 0; ii < pvCount; ii++) {
+    devSnmp_pv *pPV = (devSnmp_pv *) pvList->itemAt(ii);
+    if (!pPV) continue;
+    if (pPV->OID() != pOID) continue;
+    pPV->processRecord(true);
+  }
+}
+//--------------------------------------------------------------------
 // class devSnmp_host
 //--------------------------------------------------------------------
 devSnmp_host::devSnmp_host(devSnmp_manager *pMgr, char *host, bool *okay)
@@ -2982,10 +3096,14 @@ devSnmp_host::devSnmp_host(devSnmp_manager *pMgr, char *host, bool *okay)
   getQueue          = new snmpPointerList();
   setQueue          = new snmpPointerList();
   activeSessionList = new snmpPointerList();
+  memset(&v3params,0,sizeof(devSnmp_v3params));
 
   // set some defaults (user can override later)
   snmpVersion   = SNMP_VERSION_2c;
   maxOidsPerReq = DEFAULT_MAX_OIDS_PER_REQ;
+  setSnmpV3Param("authType",      "MD5",          true);
+  setSnmpV3Param("privType",      "AES",          true);
+  setSnmpV3Param("securityLevel", "noAuthNoPriv", true);
 
   (*okay) = true;
 }
@@ -3135,6 +3253,139 @@ int devSnmp_host::getSnmpVersion(void)
 void devSnmp_host::setSnmpVersion(int version)
 {
   snmpVersion = version;
+}
+//--------------------------------------------------------------------
+void devSnmp_host::setSnmpV3Param(const char *param, const char *value, bool ignoreVersion)
+{
+/*
+  mimics parameters used in snmpget/snmpwalk utilities snmp.conf files
+  (though without 'def' got token name, setSnmpV3ConfigFile strips off 'def' if encountered)
+
+  see: http://net-snmp.sourceforge.net/wiki/index.php/TUT:SNMPv3_Options
+
+  Parameter      Command Line Flag                      snmp.conf token
+  -------------  -----------------                      ---------------
+  securityName   -u NAME                                defSecurityName NAME
+  authProtocol   -a (MD5|SHA)                           defAuthType (MD5|SHA)
+  privProtocol   -x (AES|DES)                           defPrivType DES
+  authKey        -A PASSPHRASE                          defAuthPassphrase PASSPHRASE
+  privKey        -X PASSPHRASE                          defPrivPassphrase PASSPHRASE
+  securityLevel  -l (noAuthNoPriv|authNoPriv|authPriv)  defSecurityLevel (noAuthNoPriv|authNoPriv|authPriv)
+  context        -n CONTEXTNAME                         defContext CONTEXTNAME
+*/
+  if ((! ignoreVersion) && (snmpVersion != SNMP_VERSION_3)) {
+    printf("devSnmp ERROR: host '%s' is not using SNMP_VERSION_3 - set it with devSnmpSetSnmpVersion first\n",hostname);
+    return;
+  }
+
+  if (strcasecmp(param,"securityName") == 0) {
+    // securityName -u NAME
+    copy_string(v3params.securityName,sizeof(v3params.securityName),value);
+    return;
+  }
+
+  if (strcasecmp(param,"authType") == 0) {
+    // authProtocol -a (MD5|SHA)
+    if (strcasecmp(value, "MD5") == 0) {
+      v3params.securityAuthProto    = snmp_duplicate_objid(usmHMACMD5AuthProtocol,USM_AUTH_PROTO_MD5_LEN);
+      v3params.securityAuthProtoLen = USM_AUTH_PROTO_MD5_LEN;
+    } else if (strcasecmp(value, "SHA") == 0) {
+      v3params.securityAuthProto    = snmp_duplicate_objid(usmHMACSHA1AuthProtocol,USM_AUTH_PROTO_SHA_LEN);
+      v3params.securityAuthProtoLen = USM_AUTH_PROTO_SHA_LEN;
+    } else {
+      printf("devSnmp ERROR: unknown SNMPv3 authProtocol selection '%s'\n",value);
+    }
+    return;
+  }
+
+  if (strcasecmp(param,"privType") == 0) {
+    // privProtocol -x (AES|DES)
+    if (strcasecmp(value, "DES") == 0) {
+      v3params.securityPrivProto    = snmp_duplicate_objid(usmDESPrivProtocol,USM_PRIV_PROTO_DES_LEN);
+      v3params.securityPrivProtoLen = USM_PRIV_PROTO_DES_LEN;
+    } else if ((strcasecmp(value, "AES") == 0) || (strcasecmp(value, "AES128") == 0)) {
+      v3params.securityPrivProto    = snmp_duplicate_objid(usmAESPrivProtocol,USM_PRIV_PROTO_AES_LEN);
+      v3params.securityPrivProtoLen = USM_PRIV_PROTO_AES_LEN;
+    } else {
+      printf("devSnmp ERROR: unknown SNMPv3 privProtocol selection '%s'\n",value);
+    }
+    return;
+  }
+
+  if (strcasecmp(param,"authPassPhrase") == 0) {
+    // authKey  -A PASSPHRASE
+    copy_string(v3params.authPassPhrase,sizeof(v3params.authPassPhrase),value);
+    return;
+  }
+
+  if (strcasecmp(param,"privPassPhrase") == 0) {
+    // privKey  -X PASSPHRASE
+    copy_string(v3params.privPassPhrase,sizeof(v3params.privPassPhrase),value);
+    return;
+  }
+
+  if (strcasecmp(param,"securityLevel") == 0) {
+    // securityLevel  -l (noAuthNoPriv|authNoPriv|authPriv)
+    if (strcasecmp(value, "noAuthNoPriv") == 0) {
+      v3params.securityLevel = SNMP_SEC_LEVEL_NOAUTH;
+    } else if (strcasecmp(value, "authNoPriv") == 0) {
+      v3params.securityLevel = SNMP_SEC_LEVEL_AUTHNOPRIV;
+    } else if (strcasecmp(value, "authPriv") == 0) {
+      v3params.securityLevel = SNMP_SEC_LEVEL_AUTHPRIV;
+    } else {
+      printf("devSnmp ERROR: unknown SNMPv3 securityLevel selection '%s'\n",value);
+    }
+    return;
+  }
+
+  if (strcasecmp(param,"context") == 0) {
+    // context  -n CONTEXTNAME
+    copy_string(v3params.context,sizeof(v3params.context),value);
+    return;
+  }
+
+  // nothing we know about...
+  printf("devSnmp ERROR: unknown SNMPv3 parameter '%s'\n",param);
+}
+//--------------------------------------------------------------------
+void devSnmp_host::setSnmpV3ConfigFile(const char *fileName)
+{
+  if (snmpVersion != SNMP_VERSION_3) {
+    printf("devSnmp ERROR: host '%s' is not using SNMP_VERSION_3 - set it with devSnmpSetSnmpVersion first\n",hostname);
+    return;
+  }
+
+  FILE *fi = fopen(fileName,"r");
+  if (! fi) {
+    printf("devSnmp ERROR: unable to open file for read '%s'\n",fileName);
+    return;
+  }
+  char line[1024];
+  while (fgets(line,sizeof(line),fi) != NULL) {
+    trimup(line);
+    if (line[0] == 0) continue;    // skip blank lines
+    if (line[0] == '#') continue;  // skip comments
+    char *value = strchr(line,' ');
+    if (! value) value = strchr(line,'\t');
+    if (! value) {
+      printf("devSnmp ERROR: invalid SNMPv3 config file line '%s'\n",line);
+      continue;
+    }
+    (*value) = 0;
+    value++;
+    trimup(value);
+    char *param = line;
+    // allow 'def' prefix of param name
+    // these are key names snmpwalk / snmpget config files use
+    if (strncasecmp(param,"def",3) == 0) param += 3;
+    setSnmpV3Param(param,value);
+  }
+  fclose(fi);
+}
+//--------------------------------------------------------------------
+void devSnmp_host::getSnmpV3Params(devSnmp_v3params *params)
+{
+  memcpy(params,&v3params,sizeof(devSnmp_v3params));
 }
 //--------------------------------------------------------------------
 void devSnmp_host::setMaxOidsPerReq(int maxoids)
@@ -3312,12 +3563,7 @@ void devSnmp_host::report(int level, char *match)
 //--------------------------------------------------------------------
 devSnmp_manager::devSnmp_manager(void)
 {
-  init_snmp("asynchapp");
-#if devSnmp_NETSNMP_VERSION < 50400
-  init_mib();
-#else
-  netsnmp_init_mib();
-#endif
+  init_snmp("devSnmp");
 
   started               = false;
   sendTask_abort        = false;
@@ -3512,6 +3758,37 @@ void devSnmp_manager::setHostSnmpVersion(char *host, char *versionStr)
 
   // set version for host
   if (pHost) pHost->setSnmpVersion(vers);
+}
+//--------------------------------------------------------------------
+void devSnmp_manager::setHostSnmpV3Param(char *host, char *param, char *value)
+{
+  // locate matching host
+  devSnmp_host *pHost = findHost(host);
+
+  // if host does not exist, create it
+  if (! pHost) pHost = createHost(host);
+
+  // call host object method to set parameter
+  pHost->setSnmpV3Param(param,value);
+}
+//--------------------------------------------------------------------
+void devSnmp_manager::setHostSnmpV3ConfigFile(char *host, char *fileName)
+{
+  // locate matching host
+  devSnmp_host *pHost = findHost(host);
+
+  // if host does not exist, create it
+  if (! pHost) pHost = createHost(host);
+
+  // call host object method to set parameter
+  pHost->setSnmpV3ConfigFile(fileName);
+}
+//--------------------------------------------------------------------
+void devSnmp_manager::getHostSnmpV3Params(char *host, devSnmp_v3params *v3params)
+{
+  memset(v3params,0,sizeof(devSnmp_v3params));
+  devSnmp_host *pHost = findHost(host);
+  if (pHost) pHost->getSnmpV3Params(v3params);
 }
 //--------------------------------------------------------------------
 void devSnmp_manager::setMaxOidsPerReq(char *host, int maxoids)
@@ -4069,6 +4346,20 @@ int devSnmpSetSnmpVersion(char *hostName, char *versionStr)
   return(epicsOk);
 }
 //--------------------------------------------------------------------
+int devSnmpSetSnmpV3Param(char *hostName, char *paramName, char *value)
+{
+  if (! checkInit()) return(epicsError);
+  pManager->setHostSnmpV3Param(hostName,paramName,value);
+  return(epicsOk);
+}
+//--------------------------------------------------------------------
+int devSnmpSetSnmpV3ConfigFile(char *hostName, char *fileName)
+{
+  if (! checkInit()) return(epicsError);
+  pManager->setHostSnmpV3ConfigFile(hostName,fileName);
+  return(epicsOk);
+}
+//--------------------------------------------------------------------
 int devSnmpSetMaxOidsPerReq(char *hostName, int maxoids)
 {
   if (! checkInit()) return(epicsError);
@@ -4192,12 +4483,22 @@ static long snmpAiRead(struct aiRecord *pai)
   else
     pPV = (devSnmp_pv *) pai->dpvt;
 
+  pai->pact = TRUE;
+  if (!pPV->hasValue())
+    // wait until value is read
+    return 0;
+  else if (pai->scan == menuScanPassive)
+    // queue an update if passive record
+    pPV->queueUpdate();
+
+  pai->pact = FALSE;
+
   status = -1;
 
   if (pPV->configFlags() & SPECIAL_FLAG_RVAL) {
     // if RVAL flag is specified, fetch int value to RVAL field
     // record will do scale/conversion
-    long new_val;
+    long new_val = 0.0;
     if (! pPV->getValueLong(&new_val))
       status = -1;
     else {
@@ -4270,12 +4571,22 @@ static long snmpLiRead(struct longinRecord *pli)
 
   devSnmp_pv *pPV;
   epicsStatus status = epicsError;
-  long new_val = 0;
+  long new_val = 0.0;
 
   if (pli->dpvt == NULL)
     return(epicsError);
   else
     pPV = (devSnmp_pv *) pli->dpvt;
+
+  pli->pact = TRUE;
+  if (!pPV->hasValue())
+    // wait until value is read
+    return 0;
+  else if (pli->scan == menuScanPassive)
+    // queue an update if passive record
+    pPV->queueUpdate();
+
+  pli->pact = FALSE;
 
   status = 2;
 
@@ -4338,10 +4649,21 @@ static long snmpSiRead(struct stringinRecord *psi)
   epicsStatus status = epicsError;
   char val[40];
   val[0] = '\0';
+
   if (psi->dpvt == NULL)
     return(epicsError);
   else
     pPV = (devSnmp_pv *) psi->dpvt;
+
+  psi->pact = TRUE;
+  if (!pPV->hasValue())
+    // wait until value is read
+    return 0;
+  else if (psi->scan == menuScanPassive)
+    // queue an update if passive record
+    pPV->queueUpdate();
+
+  psi->pact = FALSE;
 
   status = 2;
 
@@ -4422,6 +4744,16 @@ static epicsStatus snmpWfRead(struct waveformRecord *pwf)
     return(epicsError);
   else
     pPV = (devSnmp_pv *) pwf->dpvt;
+
+  pwf->pact = TRUE;
+  if (!pPV->hasValue())
+    // wait until value is read
+    return 0;
+  else if (pwf->scan == menuScanPassive)
+    // queue an update if passive record
+    pPV->queueUpdate();
+
+  pwf->pact = FALSE;
 
   status = 2;
 
@@ -4714,6 +5046,7 @@ static long snmpLoWrite(struct longoutRecord *plo)
   // fill in set data
   long status = epicsOk;
   char tmp[40];
+  tmp[0] = '\0';
   sprintf(tmp,"%ld", (long) plo->val);
   pPV->set(tmp);
   plo->udf = false;
@@ -4857,10 +5190,12 @@ static long snmpSoReadback(devSnmp_pv *pPV)
   struct stringoutRecord *pso = (struct stringoutRecord *) pPV->record();
   epicsStatus status = epicsError;
   char val[40];
-  char new_val[40];
-  bool process_record = false;
   val[0] = '\0';
+  char new_val[40];
   new_val[0] = '\0';
+
+  bool process_record = false;
+
   status = -1;
 
   if (pPV->getValueString(val,sizeof(val))) {

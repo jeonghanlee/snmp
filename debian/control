@@ -12,7 +12,7 @@ Vcs-Browser: https://stash.frib.msu.edu/projects/EPICS/repos/epics-snmp
 
 Package: epics-snmp-dev
 Architecture: any
-Depends: libdevsnmp1.1.0.3 (= ${binary:Version}), ${shlibs:Depends},
+Depends: libdevsnmp1.1.0.4 (= ${binary:Version}), ${shlibs:Depends},
          ${misc:Depends}, ${epics:Depends},
 Description: EPICS support for SNMP devices
  Device support for SNMP-based hardware.
@@ -20,7 +20,7 @@ Description: EPICS support for SNMP devices
  This package contains dbd, headers, and MIB files required
  for applications.
 
-Package: libdevsnmp1.1.0.3
+Package: libdevsnmp1.1.0.4
 Architecture: any
 Depends: ${shlibs:Depends}, ${misc:Depends}
 Description: EPICS support for SNMP devices

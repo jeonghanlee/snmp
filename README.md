@@ -20,13 +20,7 @@ Privately customization version of the NSCL/FRIB SNMP driver [1] with 1.0.0.2 ve
 ### Practical commands
 Commands
 ```bash
-dos2unix *
-dos2unix */*
-dos2unix */*/*
-dos2unix */*/*/*
-dos2unix */*/*/*/*
-git restore WienerCrate/configure/
-git restore configure/
+bash scripts/clean_frib.sh
 ```
 Then, most changes are in `devsnmp.cpp`
 

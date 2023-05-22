@@ -1,0 +1,9 @@
+.debhelper
+debhelper-build-stamp
+epics-snmp-dev.debhelper.log
+epics-snmp-dev.substvars
+epics-snmp-dev
+files
+libdevsnmp1.*.log
+libdevsnmp1.*.substvars
+libdevsnmp1.*

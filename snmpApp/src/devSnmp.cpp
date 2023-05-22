@@ -1544,8 +1544,13 @@ devSnmp_oid::devSnmp_oid
   setDebugging     = false;
   strcpy(lastError,"(none)");
 
+  //
   // set some defaults, PVs that use us will override as appropriate
-  setPollMSec(snmpPassivePollMSec);
+  //
+  // poll msec is set slower than any PV is ever likely to request
+  // because driver will use fastest rate any PV for this OID requests
+  //
+  setPollMSec(30000);
   setDataLength(40);
 
   // init times

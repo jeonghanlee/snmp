@@ -1,3 +1,9 @@
+epics-snmp (1.1.0.4) unstable; urgency=medium
+  * Bug fix for OID poll rate cannot go slower than 2 second
+  * Bug fix for polling happening too often
+
+ -- John Priller <priller@frib.msu.edu>  Mon, 19 Apr 2022 08:00:00 -0500
+
 epics-snmp (1.1.0.3) unstable; urgency=medium
 
   * Add bug-fix patches from Dmitry Bazhenov <bazhenov.dn@gmail.com>

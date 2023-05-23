@@ -1,6 +1,6 @@
 snmp
 ===
-Privately customization version of the NSCL/FRIB SNMP driver [1] with 1.0.0.2 version. 
+Privately customization version with several patches of the NSCL/FRIB SNMP driver [1] with 1.1.0.4 version. 
 
 
 ## Requirements

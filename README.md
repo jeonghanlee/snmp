@@ -8,7 +8,7 @@ Privately customization version with several patches of the NSCL/FRIB SNMP drive
 * Packages : https://github.com/jeonghanlee/pkg_automation
 * Generic MIB files
   * Debian : aptitude install snmp-mibs-downloader
-  * CentOS : https://github.com/jeonghanlee/centos-mib-downloader
+  * Rocky : https://github.com/jeonghanlee/snmp-mibs-downloader-env
  
 ## Update
 

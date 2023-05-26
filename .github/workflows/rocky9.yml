@@ -19,7 +19,7 @@ jobs:
       - name: Build on rocky9-epics Docker
         run: |
           source /usr/local/setEnv
-          cd $GITHUB_WORKSPACE/src
+          cd $GITHUB_WORKSPACE
           echo "ASYN:=${EPICS_MODULES}/asyn"              > configure/RELEASE.local'
           echo "AUTOSAVE:=${EPICS_MODULES}/autosave"     >> configure/RELEASE.local'
           echo "BUSY:=${EPICS_MODULES}/busy"             >> configure/RELEASE.local'

@@ -1,0 +1,29 @@
+---
+name: debian11-epics
+
+on:
+  push:
+    branches: [ master ]
+
+  pull_request:
+    branches: [ master ]
+
+jobs:
+
+  debian11-epics:
+    runs-on: ubuntu-latest
+    container: jeonghanlee/debian11-epics:latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+      - name: Build on debian11-epics Docker
+        run: |
+          source /usr/local/setEnv
+          cd $GITHUB_WORKSPACE
+          pwd
+          tree
+          echo "EPICS_BASE=${EPICS_BASE}" > ${PWD}/configure/RELEASE.local
+          export LC_CTYPE=C.UTF-8
+          export LC_ALL=C.UTF-8
+          make
+

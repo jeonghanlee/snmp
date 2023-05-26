@@ -4,12 +4,6 @@ name: rocky9-epics
 on:
   push:
     branches: [ master ]
-    paths:
-      - '.github/workflow/rocky9.yml'
-    paths-ignore:
-      - '**.md'
-      - '.github/workflow/debian11.yml'
-
   pull_request:
     branches: [ master ]
 

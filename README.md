@@ -1,14 +1,15 @@
 # snmp
+[![debian12-epics](https://github.com/jeonghanlee/snmp/actions/workflows/debian12.yml/badge.svg)](https://github.com/jeonghanlee/snmp/actions/workflows/debian12.yml)
 [![rocky9-epics](https://github.com/jeonghanlee/snmp/actions/workflows/rocky9.yml/badge.svg)](https://github.com/jeonghanlee/snmp/actions/workflows/rocky9.yml)
 
 Privately customization version with several patches of the NSCL/FRIB SNMP driver [1] with 1.1.0.4 version. 
 
 ## Requirements
 
-* Packages : https://github.com/jeonghanlee/pkg_automation
+* Packages: https://github.com/jeonghanlee/pkg_automation
 * Generic MIB files
-  * Debian : aptitude install snmp-mibs-downloader
-  * Rocky : https://github.com/jeonghanlee/snmp-mibs-downloader-env
+  * Debian: aptitude install snmp-mibs-downloader
+  * Rocky: https://github.com/jeonghanlee/snmp-mibs-downloader-env
  
 ## Update
 

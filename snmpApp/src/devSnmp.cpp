@@ -3482,6 +3482,9 @@ void devSnmp_host::processing(epicsTimeStamp *pnow)
   }
 
   if (pTrans) {
+
+    // protect pSession until the end of if statement (Referece A)
+    pOurMgr->sessionMutexLock();
     // create session from transaction object
     devSnmp_session *pSession = pTrans->createSession();
 
@@ -3497,7 +3500,8 @@ void devSnmp_host::processing(epicsTimeStamp *pnow)
     }
 
     // delete transaction object, we're done with it now
-    delete pTrans;
+    delete pTrans; pTrans=NULL;
+    pOurMgr->sessionMutexUnlock();
   }
 }
 //--------------------------------------------------------------------

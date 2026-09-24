@@ -9,8 +9,8 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: commit the reviewed M8 step 1 fixtures and step 2
-extraction, then begin P803, the thin native session adapter. Step 2 passed
+Next session entry point: begin P803, the thin native session adapter. The
+reviewed M8 step 1 fixtures and step 2 extraction are committed. Step 2 passed
 its regressions on Debian 13 and Rocky 8 under D10 and its independent
 third-person and maintainer reviews on 2026-09-24; the stale-session
 deletion race is carried to step 6. Step 1's corrected baseline and

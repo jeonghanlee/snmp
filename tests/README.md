@@ -8,7 +8,7 @@ real Net-SNMP snmpd for native protocol, USM, GET and SET coverage. Test-only
 FLNK audit support belongs to `snmpRequestTest`, not the production IOC.
 
 Hardware, production operation, the future worker/profile architecture and
-full repetition/pressure acceptance are outside these initial suites. Their
+extended pressure/resource acceptance are outside these suites. Their
 acceptance requirements and observed results remain in
 [the canonical milestone document](../docs/milestone-db9ebf5.md).
 
@@ -79,10 +79,11 @@ native library version, and a fresh instance UUID read through CA. It creates
 owned loopback IOC/CA-repeater processes with private ports and native config
 and state directories. Only processes created by this run are stopped.
 
-The four suites comprise one legacy matrix case, nine sequencing cases, ten
-failure/lifetime cases and five native protocol cases. `--case <name>` selects
-one named case and reports partial coverage; `--repeat N` repeats the selected
-suite with fresh instances. Neither changes the canonical acceptance counts.
+The initial suites comprise one legacy matrix case, nine sequencing cases, ten
+failure/lifetime cases and five native protocol cases. The lifecycle, batch
+and conversion suites below add the full ordinary and immediate repetition
+profiles. `--case <name>` selects one named case and reports partial coverage;
+`--repeat N` repeats the selected suite with fresh instances.
 Missing/skipped cases, absent trace, trace overflow, wrong wire identity,
 wrong FLNK observations, timeout or cleanup failure return nonzero.
 
@@ -103,6 +104,12 @@ failure reason. Startup/configuration failure does not qualify as an observer
 negative-control result. No driver function, internal completion path or
 library authentication operation is replaced by a mock.
 
+The same three negative controls are available with `--suite lifecycle`.
+They exercise `lifecycle.db` and its own generation checker: the external
+peer supplies 909, the delivered DB override routes A to AuditB, or the
+actual IOC trace is disabled. Use `--cycles 1` for these expected failures.
+Both suites retain the normal real acquisition and Base completion path.
+
 ## Evidence And Result Interpretation
 
 Each invocation retains `run.json`, `config.json` and `results.json` under a
@@ -116,7 +123,7 @@ Failed runs remain intact; later runs use new directories.
 | `run.json` | Profile, source/build/fixture hashes, timestamps, OS, versions and process/library identities |
 | `wire.jsonl` | External request and response observations with native wire IDs and numeric OIDs when plaintext |
 | `driver.jsonl` | Actual bounded IOC trace: record/generation, opaque transaction ID, native request ID, OID and event |
-| `flnk.jsonl` | Actual downstream subroutine value, PACT, severity, counter and IOC monotonic time |
+| `flnk.jsonl` | Actual downstream value, PACT, severity, status, UDF, RVAL, string text, counter and IOC monotonic time |
 | `ca.jsonl` | Actual client calls and replies; snapshots include record timestamps through caget -a |
 | `ioc.log`, `st.cmd` | Actual IOC output and exact startup input |
 | `results.json` | Per-case outcomes and complete/incomplete run status |
@@ -164,6 +171,98 @@ the identified unmodified baseline lacks the candidate shutdown marker and is
 exempt from that marker assertion; its owned process exit is still checked.
 Other archived revisions receive the same shutdown check as a working candidate.
 
-Sequencing/failure fixtures retain the initial 19 cases. Full 100/1000-cycle
-ordering, five observed active scans, 20-start shutdown, 60-second pressure,
-final architecture and hardware acceptance are separate canonical criteria.
+## Full Lifecycle, Batch And Conversion Profiles
+
+```bash
+SNMP_PROFILE=tests/profiles/loopback.json
+SNMP_TEST_ARGS=(--ioc "$SNMP_TEST_IOC" --profile "$SNMP_PROFILE")
+python3 tests/run_snmp.py "${SNMP_TEST_ARGS[@]}" --suite lifecycle
+python3 tests/run_snmp.py "${SNMP_TEST_ARGS[@]}" --suite batch
+```
+
+| Suite | Cases | Default repetitions |
+| --- | --- | --- |
+| lifecycle | 15 | 100 ordinary cycles per variant; 1000 immediate responses |
+| batch | 10 | 100 cycles per case, split across four fresh IOCs |
+| conversion | 2 | 100 value cycles per case |
+
+`--cycles N` overrides the cycle count for development and always marks the
+invocation partial, even if N matches the default. Run without this option
+for the declared repetition profile. Every accepted generation is matched
+to its independent expected value, exact event sequence, actual wire identity
+and one downstream audit. FLNK text is read from the actual source VAL through
+Base dbGetField, not reconstructed from the audit's numeric input. Numeric
+CA fields may be queried together; these reads are not an atomic snapshot.
+The completion predicate and the separate FLNK audit both have to pass.
+
+Lifecycle coverage includes a ten-second idle interval, held and unchanged
+values, late same-OID waiters, A-to-B-to-C FLNK, ordinary active PROC/RPRO,
+CA put-notify, five actual active periodic scans, the separate extended
+SCAN alarm, two-host fanout, an invalid fanout link, 100 fresh PINI starts,
+disable before/during acquisition and terminal error recovery. The actual
+record LCNT and put-notify pointer establish the scan and notification
+preconditions; no internal Base or driver call is replaced. Put-notify must
+stay pending through its own acquisition, and client timeout text is a
+failure even when caput returns zero.
+
+Batch coverage queues 1, 20 or 21 distinct OIDs behind a held transaction,
+using maximums 20 and 1, plus pre-dispatch shared waiters and distinct
+community groups. Queued membership is observed before release. Actual wire
+batches must obey the limit, contain no duplicate OID and dispatch within the
+declared healthy bound after host release. Shared waiters must have the same
+transaction; different communities must have distinct wire requests.
+The trace is never reset to fit a repetition run: each 25-cycle chunk uses a
+fresh IOC and retains its complete trace.
+
+The conversion profile checks ai RVAL 123/246 scaling to 12.3/24.6 with
+absolute tolerance 1e-9, supplied VAL without scaling, signed 32-bit longin
+boundaries, changing and truncated stringin values, and mixed legacy input
+and output readback. With the fixture's STRING: mask, the native empty
+OCTET STRING representation does not match that mask: both legacy and request
+stringin report READ/INVALID. The request preserves its last valid value and
+completes once. A later nonempty value clears the alarm. Idle request records
+must not complete during legacy polls, and all these reads must emit no SET.
+
+Waveforms remain legacy records. Test STRING, CHAR and UCHAR at NELM 16 and
+128 against the independently archived baseline using the same fixture and
+native value sequence. Each five-character payload retains the native leading
+blank and quotes; the existing NORD is 8. STRING's existing byte-oriented
+buffer/NORD behavior is preserved, not redefined as new request support.
+
+First capture the complete baseline waveform case in a new directory:
+
+```bash
+SNMP_WAVE_BASELINE=/tmp/snmp-wave-baseline
+SNMP_BASE_ARGS=(--ioc "$SNMP_BASELINE/bin/linux-x86_64/snmp" --profile "$SNMP_PROFILE")
+SNMP_WAVE_ARGS=(--suite conversion --case waveforms --dtyp Snmp --output "$SNMP_WAVE_BASELINE")
+python3 tests/run_snmp.py "${SNMP_BASE_ARGS[@]}" "${SNMP_WAVE_ARGS[@]}"
+python3 tests/run_snmp.py "${SNMP_TEST_ARGS[@]}" --suite conversion --baseline-evidence "$SNMP_WAVE_BASELINE"
+```
+
+The baseline invocation is marked partial because it selects the waveform
+case; that case still runs all 100 cycles. The full candidate conversion run
+requires this independently identified baseline and compares the complete
+observed arrays, lengths, activity, UDF and alarms. A candidate used as its own
+baseline fails provenance validation. Baseline and candidate must use matching
+profile and relevant fixture/observer hashes.
+
+## Outer Socket Failure Fixture
+
+The lifecycle transport case compiles `socket_fault.c` with the system C
+compiler and preloads it only into the owned test IOC. It does not intercept
+Net-SNMP, device support, callbacks or Base record processing. An explicitly
+armed, one-shot AF_INET/SOCK_DGRAM socket creation fails with EMFILE; an
+explicitly armed sendto/sendmsg to the selected loopback peer fails with EIO.
+The file control is inactive for ordinary startup, CA clients and recovery.
+
+Every injected failure must have one logged real socket call between claim
+and terminal result, no corresponding wire request, READ/INVALID at FLNK,
+retained valid value, idle completion and a successful fresh recovery. Open
+failure has no dispatch attempt; send failure has one attempt without wire
+transmission. Unconsumed controls, unused fault events and missing evidence
+fail the test. `socket-build.json` retains compiler arguments, source/library
+hashes and build output; `socket-fault.jsonl` retains the actual fault events.
+
+Twenty-start PTY shutdown, the extended pressure/resource matrix,
+final platforms and hardware acceptance remain separate canonical
+criteria. A full lifecycle pass does not close those requirements.

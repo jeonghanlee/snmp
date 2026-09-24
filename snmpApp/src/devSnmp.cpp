@@ -3778,16 +3778,14 @@ int devSnmp_manager::readTask(void)
 
       snmp_select_info(&readTask_fds, &readTask_fdset, &readTask_timeout, &readTask_block);
       if (readTask_fds > 0) {
-/**/
-        if (readTask_block) {
-          readTask_ignoreBlocks++;
-          readTask_timeout.tv_sec = 2;
-          readTask_timeout.tv_usec = 0;
-          readTask_block = 0;
-        }
-/**/
+        // Poll readiness without waiting under the shared native-session lock.
+        // The outer loop supplies the poll interval and native timeout checks.
+        if (readTask_block) readTask_ignoreBlocks++;
+        readTask_timeout.tv_sec = 0;
+        readTask_timeout.tv_usec = 0;
+        readTask_block = 0;
         readTask_inSelect = true;
-        readTask_stat = select(readTask_fds, &readTask_fdset, NULL, NULL, readTask_block ? NULL : &readTask_timeout);
+        readTask_stat = select(readTask_fds, &readTask_fdset, NULL, NULL, &readTask_timeout);
         readTask_inSelect = false;
 
         if (readTask_stat < 0) {

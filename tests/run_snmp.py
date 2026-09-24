@@ -79,11 +79,12 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ioc", type=Path, required=True)
     parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol"), required=True)
+    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion"), required=True)
     parser.add_argument("--output", type=Path, help="New evidence directory; never overwritten")
     parser.add_argument("--negative-control", choices=("wrong-value", "miswired", "trace-loss"))
     parser.add_argument("--case", help="One case, explicitly reported as partial coverage")
     parser.add_argument("--repeat", type=int, default=1)
+    parser.add_argument("--cycles", type=int, help="Partial lifecycle repetitions for development")
     parser.add_argument("--dtyp", choices=("Snmp", "SnmpRequest"), default="SnmpRequest")
     parser.add_argument("--baseline-evidence", type=Path, help="Successful legacy run to compare")
     args = parser.parse_args()
@@ -94,15 +95,17 @@ def main():
             parser.error("Missing positive acceptance limit: " + name)
     if args.repeat < 1:
         parser.error("--repeat must be positive")
+    if args.cycles is not None and (args.cycles < 1 or args.suite not in ("lifecycle", "batch", "conversion")):
+        parser.error("--cycles must be positive and requires lifecycle, batch or conversion")
     if not args.ioc.is_file():
         parser.error("--ioc must name the actual built executable")
     build = args.ioc.resolve().parents[2] / "build-inputs.json"
     if not build.is_file() or json.loads(build.read_text()).get("build_exit") != 0:
         parser.error("--ioc requires a successful tests/build_fixture.py build manifest")
-    if args.negative_control and args.suite != "sequencing":
-        parser.error("Observer negative controls require --suite sequencing")
-    if args.baseline_evidence and args.suite != "legacy":
-        parser.error("--baseline-evidence requires --suite legacy")
+    if args.negative_control and args.suite not in ("sequencing", "lifecycle"):
+        parser.error("Observer negative controls require sequencing or lifecycle")
+    if args.baseline_evidence and args.suite not in ("legacy", "conversion"):
+        parser.error("--baseline-evidence requires legacy or conversion")
     if args.output:
         work = args.output.resolve()
         work.mkdir(parents=True, exist_ok=False)
@@ -112,6 +115,7 @@ def main():
         work = Path(tempfile.mkdtemp(prefix=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S-"), dir=parent))
     dtype = "Snmp" if args.suite == "legacy" else args.dtyp
     config = {"ioc": str(args.ioc.resolve()), "profile": profile, "output": str(work),
+              "cycles": args.cycles,
               "negative_control": args.negative_control, "dtyp": dtype,
               "baseline_evidence": str(args.baseline_evidence.resolve()) if args.baseline_evidence else None}
     write_json(work / "config.json", config)
@@ -130,7 +134,8 @@ def main():
                 "fixtures": fixtures, "build_manifest": json.loads(build.read_text()) if build.is_file() else None,
                 "build_manifest_path": str(build), "build_manifest_sha256": digest(build),
                 "dtyp": dtype,
-                "partial": bool(args.case or args.negative_control), "repetitions": args.repeat}
+                "partial": bool(args.case or args.negative_control or args.cycles),
+                "repetitions": args.repeat, "cycles_override": args.cycles}
     write_json(work / "run.json", metadata)
     signal.signal(signal.SIGTERM, interrupt)
     result, abort = None, None
@@ -142,11 +147,20 @@ def main():
         elif args.suite == "legacy":
             from test_legacy import LegacyTest
             case_class, names = LegacyTest, ("inputs_and_outputs",)
-        else:
+        elif args.suite == "protocol":
             from test_protocol import ProtocolTest
             case_class, names = ProtocolTest, ("v1", "v2c", "v3_no_auth", "v3_auth", "v3_priv")
+        elif args.suite == "lifecycle":
+            from test_lifecycle import LifecycleTest, CASES
+            case_class, names = LifecycleTest, CASES
+        elif args.suite == "batch":
+            from test_batch import BatchTest, CASES
+            case_class, names = BatchTest, CASES
+        else:
+            from test_conversion import ConversionTest, CASES
+            case_class, names = ConversionTest, CASES
         if args.negative_control:
-            names = ("idle_delayed_and_unchanged",)
+            names = ("idle_and_held_values",) if args.suite == "lifecycle" else ("idle_delayed_and_unchanged",)
         if args.case:
             if args.case not in names:
                 raise ValueError("Case is not in the selected suite: " + args.case)

@@ -5,7 +5,7 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from ioc import IOC, ROOT, BASELINE_COMMIT, digest, is_legacy_baseline, settings, trace_evidence, write_json
+from ioc import IOC, ROOT, digest, is_legacy_baseline, settings, trace_evidence, verified_baseline, write_json
 from snmp_peer import Peer, oid_bytes
 
 
@@ -118,38 +118,10 @@ class LegacyTest(unittest.TestCase):
         baseline = settings().get("baseline_evidence")
         if not baseline:
             return
-        root = Path(baseline)
-        metadata = json.loads((root / "run.json").read_text())
-        result = json.loads((root / "results.json").read_text())
-        self.assertTrue(result["passed"], "Baseline run did not pass")
-        self.assertEqual(metadata["suite"], "legacy")
+        source_dir, metadata = verified_baseline(self, "legacy", "test_inputs_and_outputs", (
+            "tests/legacy_matrix.db", "tests/identity.db", "tests/ioc.py",
+            "tests/test_legacy.py", "tests/snmp_peer.py"))
         build = metadata["build_manifest"]
-        self.assertTrue(is_legacy_baseline(build),
-                        "Baseline provenance must be an unmodified git archive of " + BASELINE_COMMIT)
-        self.assertEqual(build["build_exit"], 0, "Baseline build failed")
-        self.assertEqual(metadata["profile"], settings()["profile"], "Different baseline profile")
-        for name in ("tests/legacy_matrix.db", "tests/identity.db", "tests/ioc.py",
-                     "tests/test_legacy.py", "tests/snmp_peer.py"):
-            self.assertEqual(metadata["fixtures"][name], digest(ROOT / name), "Different baseline fixture: " + name)
-        sources = [row for row in result["rows"] if row["case"].endswith("test_inputs_and_outputs")]
-        self.assertEqual(len(sources), 1, "Baseline comparison needs one complete matrix case")
-        self.assertEqual(sources[0]["outcome"], "passed", "Baseline matrix did not pass")
-        source_dir = Path(sources[0]["evidence"])
-        runtime = json.loads((source_dir / "run.json").read_text())
-        self.assertEqual(runtime["exit_code"], 0, "Baseline IOC did not exit successfully")
-        self.assertIsNone(runtime["cleanup_error"], "Baseline IOC cleanup failed")
-        self.assertEqual(runtime["build_manifest_sha256"], metadata["build_manifest_sha256"],
-                         "Baseline runtime and build provenance differ")
-        executable = Path(runtime["ioc"])
-        top = executable.parents[2]
-        for path, checksum in ((executable, runtime["ioc_sha256"]),
-                               (Path(runtime["dbd"]), runtime["dbd_sha256"])):
-            self.assertEqual(build["artifacts"][str(path.relative_to(top))], checksum,
-                             "Baseline runtime artifact differs from its build")
-        module = top / "lib" / executable.parent.name / "libdevSnmp.so"
-        self.assertEqual(runtime["loaded_libraries"][str(module)],
-                         build["artifacts"][str(module.relative_to(top))],
-                         "Baseline loaded module differs from its build")
         source = source_dir / "legacy-observations.json"
         expected = json.loads(source.read_text())
         observed = json.loads(json.dumps(self.observations))

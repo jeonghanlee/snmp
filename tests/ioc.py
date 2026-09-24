@@ -47,8 +47,45 @@ def write_json(path, value):
     Path(path).write_text(json.dumps(value, indent=2, sort_keys=True) + "\n")
 
 
+def verified_baseline(test, suite, case, fixtures):
+    """Validate archived baseline provenance through its actual IOC execution."""
+    root = Path(settings()["baseline_evidence"])
+    metadata = json.loads((root / "run.json").read_text())
+    result = json.loads((root / "results.json").read_text())
+    test.assertTrue(result["passed"], "Baseline run did not pass")
+    test.assertEqual(metadata["suite"], suite)
+    build = metadata["build_manifest"]
+    test.assertTrue(is_legacy_baseline(build),
+                    "Baseline provenance must be an unmodified git archive of " + BASELINE_COMMIT)
+    test.assertEqual(build["build_exit"], 0, "Baseline build failed")
+    test.assertEqual(metadata["profile"], settings()["profile"], "Different baseline profile")
+    for name in fixtures:
+        test.assertEqual(metadata["fixtures"][name], digest(ROOT / name),
+                         "Different baseline fixture: " + name)
+    sources = [row for row in result["rows"] if row["case"].split(".")[-1] == case]
+    test.assertEqual(len(sources), 1, "Baseline comparison needs one complete matrix case")
+    test.assertEqual(sources[0]["outcome"], "passed", "Baseline matrix did not pass")
+    source_dir = Path(sources[0]["evidence"])
+    runtime = json.loads((source_dir / "run.json").read_text())
+    test.assertEqual(runtime["exit_code"], 0, "Baseline IOC did not exit successfully")
+    test.assertIsNone(runtime["cleanup_error"], "Baseline IOC cleanup failed")
+    test.assertEqual(runtime["build_manifest_sha256"], metadata["build_manifest_sha256"],
+                     "Baseline runtime and build provenance differ")
+    executable = Path(runtime["ioc"])
+    top = executable.parents[2]
+    for path, checksum in ((executable, runtime["ioc_sha256"]),
+                           (Path(runtime["dbd"]), runtime["dbd_sha256"])):
+        test.assertEqual(build["artifacts"][str(path.relative_to(top))], checksum,
+                         "Baseline runtime artifact differs from its build")
+    module = top / "lib" / executable.parent.name / "libdevSnmp.so"
+    test.assertEqual(runtime["loaded_libraries"][str(module)],
+                     build["artifacts"][str(module.relative_to(top))],
+                     "Baseline loaded module differs from its build")
+    return source_dir, metadata
+
+
 class IOC:
-    def __init__(self, work, lines, prefix="SNMPTEST:", require_shutdown=True):
+    def __init__(self, work, lines, prefix="SNMPTEST:", require_shutdown=True, process_env=None):
         self.work = Path(work)
         self.config = settings()
         self.executable = Path(self.config["ioc"]).resolve()
@@ -113,7 +150,7 @@ class IOC:
                         break
                 time.sleep(0.01)
             self.process = subprocess.Popen([str(self.executable), str(self.work / "st.cmd")],
-                                            cwd=self.top, env=self.env, stdin=subprocess.PIPE,
+                                            cwd=self.top, env=dict(self.env, **(process_env or {})), stdin=subprocess.PIPE,
                                             stdout=self.log, stderr=subprocess.STDOUT, text=True)
             self.metadata["pid"] = self.process.pid
             self.wait_for(lambda: self.get("TestInstance") == self.instance, "owned IOC instance readiness")
@@ -176,6 +213,13 @@ class IOC:
 
     def get(self, name, options=()):
         return self.client(["caget", "-w", "0.4", "-t", "-n", *options, self.prefix + name])
+
+    def get_many(self, names):
+        """Read numeric fields through one real CA client, without assuming atomicity."""
+        values = self.client(["caget", "-w", "0.4", "-t", "-n", *[self.prefix + name for name in names]]).splitlines()
+        if len(values) != len(names) or len(set(names)) != len(names):
+            raise AssertionError("CA field count differs from the declared query")
+        return dict(zip(names, values))
 
     def put(self, name, value=1, wait=False):
         return self.client(["caput", "-w", "0.4", "-t", *(["-c"] if wait else []),
@@ -269,10 +313,15 @@ def trace_evidence(work):
         sequence, stamp, record, generation, event, success, extra = match.groups()
         driver.append(dict(sequence=int(sequence), time=int(stamp), record=record,
                            generation=int(generation), event=event, success=bool(int(success)), extra=extra.strip()))
-    for match in re.finditer(r"SNMPAUDIT (\d+) (\S+) (\S+) (\d+) (\d+) (\d+)", log):
-        stamp, record, value, pact, severity, count = match.groups()
-        flnk.append(dict(time=int(stamp), record=record, value=value, pact=int(pact),
-                         severity=int(severity), count=int(count)))
+    for match in re.finditer(r"SNMPAUDIT (\d+) (\S+) (\S+) (\d+) (\d+) (\d+)([^\n]*)", log):
+        stamp, record, value, pact, severity, count, extra = match.groups()
+        row = dict(time=int(stamp), record=record, value=value, pact=int(pact),
+                   severity=int(severity), count=int(count))
+        fields = dict(item.split("=", 1) for item in extra.split() if "=" in item)
+        if fields:
+            row.update(status=int(fields["status"]), undefined=int(fields["undefined"]),
+                       raw=float(fields["raw"]), text=bytes.fromhex(fields["text"]).decode())
+        flnk.append(row)
     for name, rows in (("driver.jsonl", driver), ("flnk.jsonl", flnk)):
         (work / name).write_text("".join(json.dumps(row) + "\n" for row in rows))
     return driver, flnk

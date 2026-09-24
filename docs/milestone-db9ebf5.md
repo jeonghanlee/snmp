@@ -9,8 +9,13 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: finish M2's accepted local handoff and commit, then
-execute the accepted M3 lifecycle and batching plan. M1's source contract and independent third-person
+Next session entry point: finish the M3 handoff/derivative cross-check and
+local commit, then begin the accepted M4 implementation. The M3 implementation
+third-person and second-person reviews passed without a finding; its T5/T10
+successful-generation diagnostics remain assigned to M4.
+The full lifecycle, batch and conversion repetition runs passed; exact input
+versions and remaining acceptance conditions are recorded under M3.
+M2 is locally accepted and committed as e1878bc. M1's source contract and independent third-person
 and second-person reviews are accepted locally; remote landing remains pending.
 Decision Date: 2026-09-24. The owner accepts the current M1-M8 plans and directs
 sequential implementation, review, correction and a commit per milestone.
@@ -88,9 +93,10 @@ start cleanup at Base `initHookAtShutdown`, before callback queues stop.
 The broader plans below remain acceptance checklists. Their unexecuted variants
 are not waived by the 43 original passing local tests. Subsequent M2 native
 protocol evidence does not close final v3/platform qualification.
-20/21-OID boundary variants, extended active scans and put-with-completion,
-three-record serial chains, controlled open/send failures, sanitizers/resource
-soak, independent review, and the per-device pilot remain to be completed.
+M3 now records the 20/21-OID boundary variants, extended active scans and
+put-with-completion, three-record serial chains and controlled open/send
+failures. Sanitizers/resource soak, final implementation review and the
+per-device pilot remain subject to their milestone acceptance conditions.
 
 ## Scope
 
@@ -422,7 +428,7 @@ the canonical result should name the safe evidence artifact.
 | M1 | Processing and configuration contract | Milestone | In progress | No | D1, D3, D4 | Concrete contract and acceptance proposal; [detail](#m1---processing-and-configuration-contract). |
 | G1 | Design acceptance and implementation authority | External gate | Complete | No | M1 | Accepted API, limits, and authorized module scope; [detail](#g1---design-acceptance-and-implementation-authority). |
 | M2 | Real IOC test harness and legacy baseline | Milestone | In progress | No | M1, G1 | Reproducible IOC/peer/client path and baseline evidence; [detail](#m2---real-ioc-test-harness-and-legacy-baseline). |
-| M3 | Request-driven reads and OID batching | Milestone | Not started | No | M1, G1 | Fresh reads complete exactly once through EPICS; [detail](#m3---request-driven-reads-and-oid-batching). |
+| M3 | Request-driven reads and OID batching | Milestone | In progress | No | M1, G1 | Fresh reads complete exactly once through EPICS; [detail](#m3---request-driven-reads-and-oid-batching). |
 | M4 | Failure completion and diagnostics | Milestone | Not started | No | M3, G1 | Faults terminate safely with observable results; [detail](#m4---failure-completion-and-diagnostics). |
 | M5 | Compatibility and candidate acceptance | Milestone | Not started | No | M2, M3, M4, G1 | Final candidate passes the accepted matrix; [detail](#m5---compatibility-and-candidate-acceptance). |
 | G2 | Pilot environment and IOC change authority | External gate | Open | No | M5 | Pilot target, access, scope, and recovery procedure available; [detail](#g2---pilot-environment-and-ioc-change-authority). |
@@ -1085,16 +1091,18 @@ stress, platform, worker or physical-device checks.
 
 - Local harness and baseline verification, independent third-person execution
   review and second-person reader review are accepted on 2026-09-24.
-  The provenance finding is implemented and verified. Local handoff cross-check
-  and commit remain pending; remote landing and physical G2/G3 execution
-  remain open. Local M3 implementation follows the accepted M2 commit.
+  The provenance finding is implemented and verified. Handoff and commit scope
+  passed independent cross-check on 2026-09-24. Local commit
+  `e1878bc6aba94421448a6cc8035906e62716f28b` contains exactly 34 reviewed files;
+  its stat and clean post-commit working tree were verified at
+  2026-09-24T03:35:31-07:00. Remote landing and physical G2/G3 remain open.
 
 #### M3 - Request-driven reads and OID batching
 
 Origin: db9ebf5 / M3
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -1149,20 +1157,127 @@ Superseded Plan Artifacts: none
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| T1 | 2026-09-22T19:26:50-07:00 | M2 request DB, actual IOC/peer/audit path | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T2 | 2026-09-22T19:26:50-07:00 | M2 request/mixed DB and real protocol peers | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T3 | 2026-09-22T19:26:50-07:00 | Real queue/Net-SNMP/DB path | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T4 | 2026-09-22T19:26:50-07:00 | M2 sequence DB and real scanner | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T5 | 2026-09-22T19:26:50-07:00 | Real records and simulated external outputs | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T6 | 2026-09-22T19:26:50-07:00 | Actual CA client, Base dbPutField and M2 sequence DB | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T7 | 2026-09-22T19:26:50-07:00 | Delivered sequence DB and external peer | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T8 | 2026-09-22T19:26:50-07:00 | Real Base fanout and audit records with one SNMP peer per IOC | Partial; planned variants remain | Current Local Candidate and retained request-case logs; the planned distinct-host fanout/audit remains unexecuted. The separate four-peer APC results do not establish that combined case. |
-| T9 | 2026-09-22T19:26:50-07:00 | Actual iocInit/scanner/DB path | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T10 | 2026-09-22T19:26:50-07:00 | Same real lifecycle and error paths as M4 | Partial; planned variants remain | Current Local Candidate and retained case logs |
+| T1 | 2026-09-24T04:23:34-07:00 | Debian 13.7, Base 7.0.10, Net-SNMP 5.9.4.pre2; actual IOC/UDP/CA/FLNK | Executed cases PASS; independent review PASS (2026-09-24) | `m3-lifecycle-full-b`: 10 s idle, 100 held/repeated-value cycles and 1000 immediate cycles; `m3-final-idle-positive`: final harness, 100 cycles. Input-version distinction below. |
+| T2 | 2026-09-24T04:12:53-07:00 | Same candidate; held real host transaction and batch.db | Executed cases PASS; independent review PASS (2026-09-24) | `m3-batch-full-b`: 1/20/21 OIDs, shared waiters and distinct supported communities, each at limits 20 and 1; 100 cycles per case. Exact membership and bounded dispatch checked. Generalized v3 contexts remain M8. |
+| T3 | 2026-09-24T04:21:35-07:00 | Same candidate; held UDP replies and actual request generations | Executed case PASS; independent review PASS (2026-09-24) | `m3-lifecycle-full-b/test_late_waiter-*`: 100 cycles, separate wire identities and values for the dispatched owner and late waiter. |
+| T4 | 2026-09-24T04:21:35-07:00 | Same candidate; actual Base periodic scanner and read-only LCNT observer | Executed cases PASS; independent review PASS (2026-09-24) | `test_five_active_scans-*` and `test_extended_scan_alarm-*`: 100 cycles each, five/eleven observed active scans, no active PROC puts, Base SCAN/INVALID on extended hold and subsequent request recovery. |
+| T5 | 2026-09-24T04:18:01-07:00 | Same candidate; actual ai/longin/stringin, legacy input/output readback and six waveform combinations; separate db9ebf5 IOC | Conversion/value/alarm cases PASS; diagnostic last-valid-generation field remains M4 verification | `m3-conversion-full`: 100 mixed cycles plus initial text request, 100 waveform cycles; independent `m3-wave-baseline-full-c` comparison equal. Current audit records value/alarm/UDF/RVAL/text and request generation, not a dedicated last-valid-generation field. |
+| T6 | 2026-09-24T04:21:35-07:00 | Same candidate; real caput and caput -c, Base dbPutField/dbNotify | Executed cases PASS; independent review PASS (2026-09-24) | Active one-put and ten-put cases, 100 cycles each: RPRO produces one later acquisition. Put completion separately waits for actual PPN ownership, then completes its own held acquisition; 100 cycles. |
+| T7 | 2026-09-24T04:21:35-07:00 | Same candidate; lifecycle.db and actual serial FLNK chain | Executed case PASS; independent review PASS (2026-09-24) | `test_serial_chain-*`: 100 A/auditA/B/auditB/C/auditC cycles, held responses, values and ordered wire/FLNK observations. |
+| T8 | 2026-09-24T04:21:35-07:00 | Same candidate; real Base fanout, two distinct UDP peers and actual audit records | Executed cases PASS; independent review PASS (2026-09-24) | `test_two_host_fanout-*` and `test_invalid_fanout_link-*`: 100 cycles each; B completes while A is held. Pre-correction failure and receive-lock correction evidence below. |
+| T9 | 2026-09-24T04:21:35-07:00 | Same candidate; actual iocInit/PINI, scanner and DISA | Executed cases PASS; independent review PASS (2026-09-24) | `test_pini-*`: 100 fresh IOCs with held startup responses; `test_disable-*`: 100 cycles, disable before and during work; active/idle SCAN changes in scanner cases. |
+| T10 | 2026-09-24T04:21:35-07:00 | Same candidate; real UDP loss/missing/type-invalid responses and outer libc socket failure | Error/value/order cases PASS; diagnostic last-valid-generation field remains M4 verification | `test_terminal_errors-*`: 100 prime/error/recovery cycles per fault; `test_transport_failures-*`: 100 cycles each for socket-open/send failure. Last value and failed application are checked; dedicated diagnostic field is not yet exposed. |
+
+##### M3 Local Verification Evidence
+
+Evidence root: `work/snmp-tests/`. Each run contains its invocation metadata,
+start/end times, source and fixture hashes, expected case list and outcome in
+`run.json`/`results.json`, with raw IOC, peer, CA and runtime-exit evidence
+under the named case. The aggregate `m3-acceptance-summary.json` is derived
+from those files; it is not another execution. The public reproduction path
+is `tests/run_snmp.py`, documented in `tests/README.md`.
+
+The isolated candidate build is `/tmp/snmp-m3-candidate-20260924-b`;
+build-manifest SHA-256 is
+`412ea20a548abf500fcbb3cb87073dad9129212678818e7027094fe5246135db`.
+Its actual IOC, DBD and module hashes are respectively
+`be5714ae8503967c53f7360b7feabc5dedc634e7c173c6816e82c42b0d24f5ca`,
+`25a12fc46a7fa5519ddb6598b32bf1e3898222c27052c7b340b568b2e1649de0`
+and `5c32582451948d6bd26454a777538cde8f948c176b02e75cc4b58352e55e13b8`.
+The baseline is a separate unmodified archive of the full source-baseline
+commit, built at `/tmp/snmp-m2-baseline-20260924-a`; manifest SHA-256
+`660f6ea6ad936b193328e48c192f4a1324d15b637a81bf362f1413d4eed2196a`.
+Both builds use the selected installed Base 7.0.10 without writing it.
+
+| Run | Cases | Request generations / FLNK audits | Owned IOCs with exit 0 and no cleanup error | Result |
+| --- | ---: | ---: | ---: | --- |
+| `m3-lifecycle-full-b` | 15 | 4802 / 4802 | 114 | PASS; default 100 ordinary / 1000 immediate repetitions, 954.636 s |
+| `m3-batch-full-b` | 10 | 10200 / 10200 | 40 | PASS; 100 repetitions per case, 364.202 s |
+| `m3-conversion-full` | 2 | 401 / 401 | 2 | PASS; 100 repetitions per case, 241.932 s |
+| `m3-final-idle-positive` | 1 selected | 100 / 100 | 1 | PASS; final harness, 100 repetitions; selected-case metadata is partial |
+| `m3-wave-baseline-full-c` | 1 selected | legacy path | 1 | PASS; six waveform combinations over 100 cycles; selected-case metadata is partial |
+| `m3-legacy-baseline`, `m3-legacy-candidate` | 1 each | legacy path | 2 | PASS; independent observations compare equal |
+| `m3-sequencing`, `m3-failures`, `m3-protocol` | 9 / 10 / 5 | suite-specific assertions | 24 | PASS; existing real-path regressions |
+
+The three full new suites account for 15403 accepted generations and 15403
+FLNK observations, including 500 terminal-fault INVALID observations and 17
+empty-string mask failures. Every generation is matched to its actual wire
+transaction or uniquely observed outer socket failure. Each matching FLNK
+observes PACT=1 after application, followed by completion with PACT=0. The
+largest individual IOC trace contains 6000 events, below the 8192-event
+capacity; the acceptance checker requires no loss or overflow. All 184 IOCs
+in the table have recorded exit 0 and no cleanup error. The five native
+protocol agents also exited 0 without forced termination.
+
+Waveform equality covers STRING/CHAR/UCHAR at NELM 16 and 128, including
+the first STRING element, complete CHAR/UCHAR arrays, existing byte-oriented
+NORD, PACT, UDF and alarm fields for 100 cycles. The baseline
+observations SHA-256 is
+`4ff3bbc037d411f9c462004d6b746429f41259928f17a97be6e9ae12dfdc9fab`.
+The empty string's READ/INVALID result preserves existing mask behavior and
+last value; both real legacy and request stringin paths agree, and the next
+nonempty result recovers. The native `snmpget` result in
+`m3-native-empty-i452dss5/result.json` confirms the absent `STRING:` prefix.
+
+Input versions are explicit: lifecycle-full-b started before the three final
+negative-control branches were added to the public harness. Its recorded
+fixture hashes therefore differ in README, request_cases.py, run_snmp.py and
+test_lifecycle.py. The final positive idle branch was subsequently executed
+for 100 cycles, and all three final negative controls were executed. The
+batch run differs only in README; conversion, baseline comparisons and the
+listed regression runs identify the final frozen harness. Independent review
+executes that frozen harness separately; these runs are not relabeled as the
+same input version.
+
+`m3-negative-wrong-value`, `m3-negative-miswired` and
+`m3-negative-trace-loss` each returned 1 for the intended value, missing
+AuditA or missing trace assertion. The five real runner invocations in
+`m3-provenance-et3_jr3g/execution.json` reject candidate-as-baseline and
+corrupted runtime manifest/IOC/DBD/module identity, each for its intended
+reason; the actual IOCs still exited cleanly. No driver, Base or Net-SNMP
+internal function was replaced.
+
+The pre-correction `m3-lifecycle-full-a` failed the two-host fanout case:
+B could not dispatch until A's approximately two-second native wait ended.
+The receive task held the global native-session mutex while waiting in
+`select`. It now polls readiness without blocking under that mutex and
+sleeps outside it. Both distinct-host fanout variants passed their complete
+100-cycle profile afterward. Blocking native session-open/discovery remains
+an M8 isolation requirement. The interrupted `m3-batch-full-a` has tool exit
+130 and no final runner result; it is not accepted evidence and is not
+classified as graceful cleanup.
+
+Independent third-person execution and second-person maintainer review passed
+on 2026-09-24 at 04:43:46 -0700 without a new finding. Fresh isolated builds
+of the candidate, exact db9ebf5 baseline and exact e1878bc M2 revision are
+recorded under `/tmp/snmp-m3-review-opriy0my/`. The public runner passed 37
+positive cases: lifecycle/batch/conversion at 3/3/6 cycles, legacy comparisons,
+native v1/v2c/v3 profiles, and separate default-count immediate (1000) and
+two-host fanout (100) cases. Selected and cycle-override runs remain partial;
+the full ordinary repetition evidence above remains separately identified.
+Four intended negative executions returned 1 for wrong value, missing audit,
+missing trace and candidate-as-baseline rejection. The same real fanout test
+against e1878bc failed before A's response was released, with a measured
+2.001586214 s delay before B dispatch. This comparison did not replace any
+internal driver path. The review's `execution-results.json`,
+`fanout-execution.json`, `protocol-execution.json` and `evidence-audit.json`
+retain commands, times, results and runtime/build associations. All 45 newly
+started IOCs and the 184 retained positive-run IOCs have exit 0 and no cleanup
+error; five newly started native agents exited 0 without forced termination.
+All 18 reviewed implementation/document hashes remained unchanged.
+Handoff cross-check and local commit remain pending at this observation.
+The dedicated last-valid-generation/age diagnostics are assigned to M4;
+the observed M3 value and event assertions do not claim those fields exist.
+No final platform, resource-soak, physical-device or deployment acceptance
+follows from this local evidence.
 
 ##### Closure Evidence
 
-- None.
+- Local M3 implementation and its stated verification boundary passed
+  independent third-person and second-person review on 2026-09-24.
+  Handoff cross-check, local commit and remote landing remain pending.
+  The T5/T10 dedicated successful-generation diagnostics remain M4 work;
+  M3 is not marked Complete and no required check is waived.
 
 #### M4 - Failure completion and diagnostics
 

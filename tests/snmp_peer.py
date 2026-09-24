@@ -95,6 +95,7 @@ class Handler(socketserver.BaseRequestHandler):
                     reply += reply[:1]
                 entry = {"time": time.monotonic_ns(), "event": "request", "pdu": request[0],
                          "version": int.from_bytes(version[1], "big"), "oids": names,
+                         "community": community[1].decode(),
                          "numeric_oids": numeric, "sets": sets,
                          "id": int.from_bytes(fields[0][1], "big", signed=True)}
                 peer.requests.append(entry)

@@ -56,6 +56,12 @@ Pending requests are selected first using a rotating OID cursor. Remaining
 packet capacity may serve legacy polling; request readiness does not depend on
 the legacy poll-period bin's current tail.
 
+The shared native-session lock protects nonblocking readiness checks and
+Net-SNMP operations. Waiting for the next receive poll occurs outside that
+lock, so an unanswered UDP read does not hold it until the session timeout.
+This does not isolate blocking native session opening or SNMPv3 discovery;
+the separate worker architecture addresses that boundary.
+
 The network callback finds each expected OID by identity and accepts exactly
 one matching varbind. Missing, duplicate, exception, and PDU-error results
 terminate the corresponding acquisition as an error. A private buffer retains

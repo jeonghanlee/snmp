@@ -263,6 +263,76 @@ transmission. Unconsumed controls, unused fault events and missing evidence
 fail the test. `socket-build.json` retains compiler arguments, source/library
 hashes and build output; `socket-fault.jsonl` retains the actual fault events.
 
-Twenty-start PTY shutdown, the extended pressure/resource matrix,
-final platforms and hardware acceptance remain separate canonical
-criteria. A full lifecycle pass does not close those requirements.
+## Failure, Diagnostics And Process Lifetime
+
+```bash
+python3 tests/run_snmp.py "${SNMP_TEST_ARGS[@]}" --suite robustness
+python3 tests/run_snmp.py "${SNMP_TEST_ARGS[@]}" --suite pressure
+python3 tests/run_snmp.py "${SNMP_TEST_ARGS[@]}" --suite teardown
+python3 tests/run_snmp.py "${SNMP_TEST_ARGS[@]}" --suite accounting
+```
+
+The robustness suite has 16 cases: two absolute-deadline boundary regressions,
+old/duplicate packet replay, native retry exhaustion, and twelve response
+variants. Each response variant runs 100 prime/fault/recovery cycles using
+21 real input records; fresh 20-cycle IOC chunks retain the complete trace.
+Reordered/extra OIDs preserve requested results; missing, duplicate and wrong
+OIDs fail only affected records. Exceptions, wrong types, oversized values,
+malformed BER and a mixed per-OID failure batch check retained values and
+subsequent recovery. Packet replay and retry exhaustion run 100 cycles each.
+The native retry case observes exactly an initial GET and two retransmissions
+with the same wire ID. All accepted generations have one FLNK audit and a
+matching actual wire transaction, except explicitly proven pre-send failures.
+
+The two deadline regressions each use a 400 ms request deadline and suspend
+only the owned IOC's `snmpComplete` Linux thread with ptrace. Driver code,
+Net-SNMP, Base callbacks and the monotonic clock remain unchanged. After a
+600 ms external hold, the real reply is processed before that thread resumes.
+The late request must fail; an expired queued record must emit no GET.
+`thread-*.json` records ownership, actual stop/resume timestamps and cleanup.
+The host must permit ptrace of this child thread. A permission failure is an
+incomplete execution, not a passing regression. `--cycles` changes ordinary
+robustness repetition counts and marks the invocation partial; it does not
+repeat these two scheduling-boundary cases.
+
+Diagnostics at each real FLNK are matched to the request trace and source
+record audit. They must report application before completion, exact accepted/
+valid/failed counts, and unchanged last-valid generation/time on errors.
+The final idle snapshot checks completed counts and latency decomposition.
+The accounting suite additionally checks queued age, useful reports with
+tracing disabled, and 1000 healthy-host reads both alone and with a silent
+second host. It retains every latency sample and applies the profile's maximum
+and p99 difference limits. Timings measure acceptance to callback completion.
+
+The pressure suite holds the actual Base low-priority callback queue for
+60 seconds, after ten warmup acquisitions of 21 records. It observes the full
+two-entry queue, actual callback insertion rejection, and 21 occupied record
+slots. Active CA PROC puts must coalesce into one later acquisition per record.
+The already-ready result remains immutable past its acquisition deadline;
+release consumes it once and then acquires the new value. `/proc` observations
+record FD count, RSS and threads throughout pressure and after draining. FD and
+thread counts must return to baseline; RSS growth is bounded to 4 MiB for this
+short test. This does not replace the separate one-hour resource acceptance.
+
+The teardown suite runs 20 fresh owned PTY starts for each of four graceful
+variants: terminal EOF and explicit IOC exit, each with network work or a real
+completion callback pending. It requires the ordered module shutdown markers,
+exit zero and no FLNK after shutdown entry. Twenty separate forced-kill cases
+require signal termination without a graceful marker and successful fresh-IOC
+recovery. Terminal identity and the child's actual fd 0 are retained. Base's
+real `atExitDebug` output compares EOF and explicit exit on both the candidate
+and the exact archived baseline; select `base_exit_observer` with the baseline
+`snmp` executable. On POSIX Base, its registered C `atexit` handler runs cleanup
+even when the old main's version check selects the empty local epicsExit.
+That source-level defect alone does not establish missing runtime cleanup.
+The PTY helper waits for the actual prompt before sending EOF, keeping terminal
+readiness separate from CA readiness and report completion.
+
+The isolated builder accepts `--sanitizer address` and records compiler/linker
+flags, source identity and artifacts. This instruments this module and its IOC;
+the installed Base and system Net-SNMP libraries remain their original builds.
+Use the same public suites against that executable. Sanitizer failures, runtime
+restrictions and unavailable diagnostics remain explicit failures or incomplete
+coverage; they are not suppressed into a passing resource claim.
+
+Final platforms and hardware acceptance remain separate canonical criteria.

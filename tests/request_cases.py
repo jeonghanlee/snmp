@@ -21,7 +21,7 @@ PREFIX = "SNMPTEST:"
 class Scenario:
     def __init__(self, test, label, fixture="lifecycle.db", peers=1, hold=False,
                  macros="", timeout_us=None, max_oids=None, extra=(), writable=False, values=None,
-                 transport_fault=None):
+                 transport_fault=None, ioc_options=None):
         self.test = test
         self.work = Path(tempfile.mkdtemp(prefix=label + "-", dir=test.work))
         self.peers = []
@@ -59,7 +59,7 @@ class Scenario:
             if config.get("negative_control") == "miswired":
                 lines += [f'dbLoadRecords("{ROOT}/tests/sequence_miswired.db", "P={PREFIX}")']
             process_env = transport_fault.environment(self.peer.server_address[1]) if transport_fault else None
-            self.runtime = IOC(self.work, lines, process_env=process_env)
+            self.runtime = IOC(self.work, lines, process_env=process_env, **(ioc_options or {}))
         except BaseException:
             for peer in self.peers:
                 peer.close()
@@ -118,6 +118,22 @@ class Scenario:
             self.test.assertAlmostEqual(float(observed[record]), value, delta=1e-9)
             self.expect(record, count, value)
 
+    def done_results(self, values, count, failed):
+        fields = [field for record in values for field in
+                  ("Audit" + record, record + ".PACT", record + ".SEVR", record + ".STAT", record)]
+        observed = {}
+        def sample():
+            observed.update(self.runtime.get_many(fields))
+            return all(observed["Audit" + record] == str(count) and observed[record + ".PACT"] == "0"
+                       for record in values)
+        self.wait(sample, "all mixed results completed")
+        for record, value in values.items():
+            severity, status = (3, 1) if record in failed else (0, 0)
+            self.test.assertEqual(observed[record + ".SEVR"], str(severity))
+            self.test.assertEqual(observed[record + ".STAT"], str(status))
+            self.test.assertAlmostEqual(float(observed[record]), value, delta=1e-9)
+            self.expect(record, count, value, severity, status)
+
     @contextmanager
     def completion_put(self, record):
         """Own an actual CA put-notify client through both held acquisitions."""
@@ -175,14 +191,24 @@ class Scenario:
             names = ["accepted", "claimed", "dispatch", "result", "applied", "complete"]
             if expected["failure"] == "open":
                 names.remove("dispatch")
+            elif expected["failure"] == "queued":
+                names.remove("claimed")
+                names.remove("dispatch")
             test.assertEqual([r["event"] for r in events], names, key)
             stamps = [row["time"] for row in events]
             test.assertEqual(stamps, sorted(stamps), key)
-            identity = dict(field.split("=", 1) for field in events[2]["extra"].split())
-            test.assertGreater(int(identity["tx"]), 0)
+            terminal = next(row for row in events if row["event"] == "result")
+            identity = dict(field.split("=", 1) for field in terminal["extra"].split())
+            if expected["failure"] == "queued":
+                test.assertEqual((int(identity["tx"]), int(identity["wire"])), (0, 0))
+                test.assertFalse(terminal["success"])
+            else:
+                test.assertGreater(int(identity["tx"]), 0)
             matches = [entry for entry in wire if entry["id"] == int(identity["wire"]) and
                        identity["oid"] in entry["numeric_oids"]]
-            if expected["failure"]:
+            if expected["failure"] == "queued":
+                test.assertEqual(matches, [])
+            elif expected["failure"]:
                 test.assertEqual(matches, [], "Failed outer transport unexpectedly transmitted")
                 candidates = [i for i, fault in enumerate(faults)
                               if events[1]["time"] <= fault["time"] <= events[-3]["time"]]

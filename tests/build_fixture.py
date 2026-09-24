@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import shutil
 import subprocess
+import sys
 import tarfile
 
 
@@ -25,6 +26,7 @@ def main():
     parser.add_argument("--base", type=Path, required=True)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--revision", help="Git revision for an unmodified baseline")
+    parser.add_argument("--sanitizer", choices=("address",), help="Instrument the isolated module and IOC")
     args = parser.parse_args()
     base, output = args.base.resolve(), args.output.resolve()
     if not (base / "configure/CONFIG_BASE_VERSION").is_file():
@@ -57,13 +59,17 @@ def main():
     files = {str(p.relative_to(output)): digest(p) for p in sorted(output.rglob("*")) if p.is_file()}
     manifest = {
         "started_at": datetime.now(timezone.utc).isoformat(), "source_commit": commit,
+        "argv": [sys.executable] + sys.argv, "cwd": os.getcwd(), "sanitizer": args.sanitizer,
         "source_kind": "git-archive" if args.revision else "working-copy",
         "dirty_diff_sha256": hashlib.sha256(diff).hexdigest(), "sources": files,
         "epics_base": str(base), "base_config_sha256": digest(base / "configure/CONFIG_BASE_VERSION"),
     }
     (output / "configure/RELEASE.local").write_text(f"EPICS_BASE={base}\n")
-    (output / "configure/CONFIG_SITE.local").write_text(
-        "CHECK_RELEASE=NO\nPROD_LDFLAGS += -Wl,--enable-new-dtags\n")
+    configuration = "CHECK_RELEASE=NO\nPROD_LDFLAGS += -Wl,--enable-new-dtags\n"
+    if args.sanitizer:
+        flags = "-fsanitize=address -fno-omit-frame-pointer"
+        configuration += f"USR_CFLAGS += {flags}\nUSR_CXXFLAGS += {flags}\nUSR_LDFLAGS += -fsanitize=address\n"
+    (output / "configure/CONFIG_SITE.local").write_text(configuration)
     evidence = output / "work"
     evidence.mkdir(exist_ok=True)
     environment = dict(os.environ)

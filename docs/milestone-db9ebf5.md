@@ -9,12 +9,11 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: finish the M3 handoff/derivative cross-check and
-local commit, then begin the accepted M4 implementation. The M3 implementation
-third-person and second-person reviews passed without a finding; its T5/T10
-successful-generation diagnostics remain assigned to M4.
-The full lifecycle, batch and conversion repetition runs passed; exact input
-versions and remaining acceptance conditions are recorded under M3.
+Next session entry point: complete the M4 handoff cross-check, commit its
+reviewed files, then execute the accepted M5 platform/compatibility plan.
+M4 local tests and independent third-person/second-person review passed.
+M3 is committed as 68294c2; its T5/T10 dedicated successful-generation
+diagnostic checks have now passed on the later M4 source, as recorded below.
 M2 is locally accepted and committed as e1878bc. M1's source contract and independent third-person
 and second-person reviews are accepted locally; remote landing remains pending.
 Decision Date: 2026-09-24. The owner accepts the current M1-M8 plans and directs
@@ -429,7 +428,7 @@ the canonical result should name the safe evidence artifact.
 | G1 | Design acceptance and implementation authority | External gate | Complete | No | M1 | Accepted API, limits, and authorized module scope; [detail](#g1---design-acceptance-and-implementation-authority). |
 | M2 | Real IOC test harness and legacy baseline | Milestone | In progress | No | M1, G1 | Reproducible IOC/peer/client path and baseline evidence; [detail](#m2---real-ioc-test-harness-and-legacy-baseline). |
 | M3 | Request-driven reads and OID batching | Milestone | In progress | No | M1, G1 | Fresh reads complete exactly once through EPICS; [detail](#m3---request-driven-reads-and-oid-batching). |
-| M4 | Failure completion and diagnostics | Milestone | Not started | No | M3, G1 | Faults terminate safely with observable results; [detail](#m4---failure-completion-and-diagnostics). |
+| M4 | Failure completion and diagnostics | Milestone | In progress | No | M3, G1 | Faults terminate safely with observable results; [detail](#m4---failure-completion-and-diagnostics). |
 | M5 | Compatibility and candidate acceptance | Milestone | Not started | No | M2, M3, M4, G1 | Final candidate passes the accepted matrix; [detail](#m5---compatibility-and-candidate-acceptance). |
 | G2 | Pilot environment and IOC change authority | External gate | Open | No | M5 | Pilot target, access, scope, and recovery procedure available; [detail](#g2---pilot-environment-and-ioc-change-authority). |
 | M6 | Downstream IOC migration and pilot | Milestone | Blocked | No | M5, G2 | Actual IOC DB passes laboratory and device pilot checks; [detail](#m6---downstream-ioc-migration-and-pilot). |
@@ -1161,12 +1160,12 @@ Superseded Plan Artifacts: none
 | T2 | 2026-09-24T04:12:53-07:00 | Same candidate; held real host transaction and batch.db | Executed cases PASS; independent review PASS (2026-09-24) | `m3-batch-full-b`: 1/20/21 OIDs, shared waiters and distinct supported communities, each at limits 20 and 1; 100 cycles per case. Exact membership and bounded dispatch checked. Generalized v3 contexts remain M8. |
 | T3 | 2026-09-24T04:21:35-07:00 | Same candidate; held UDP replies and actual request generations | Executed case PASS; independent review PASS (2026-09-24) | `m3-lifecycle-full-b/test_late_waiter-*`: 100 cycles, separate wire identities and values for the dispatched owner and late waiter. |
 | T4 | 2026-09-24T04:21:35-07:00 | Same candidate; actual Base periodic scanner and read-only LCNT observer | Executed cases PASS; independent review PASS (2026-09-24) | `test_five_active_scans-*` and `test_extended_scan_alarm-*`: 100 cycles each, five/eleven observed active scans, no active PROC puts, Base SCAN/INVALID on extended hold and subsequent request recovery. |
-| T5 | 2026-09-24T04:18:01-07:00 | Same candidate; actual ai/longin/stringin, legacy input/output readback and six waveform combinations; separate db9ebf5 IOC | Conversion/value/alarm cases PASS; diagnostic last-valid-generation field remains M4 verification | `m3-conversion-full`: 100 mixed cycles plus initial text request, 100 waveform cycles; independent `m3-wave-baseline-full-c` comparison equal. Current audit records value/alarm/UDF/RVAL/text and request generation, not a dedicated last-valid-generation field. |
+| T5 | 2026-09-24T04:18:01-07:00 | Same candidate; actual ai/longin/stringin, legacy input/output readback and six waveform combinations; separate db9ebf5 IOC | Conversion/value/alarm cases PASS; dedicated last-valid-generation checks passed under M4 on 2026-09-24 | `m3-conversion-full`: 100 mixed cycles plus initial text request, 100 waveform cycles; independent `m3-wave-baseline-full-c` comparison equal. The original M3 audit did not expose the dedicated diagnostic field. Later m4-conversion-diagnostics-a verifies it for 401 real generations, including failed empty-mask conversions. |
 | T6 | 2026-09-24T04:21:35-07:00 | Same candidate; real caput and caput -c, Base dbPutField/dbNotify | Executed cases PASS; independent review PASS (2026-09-24) | Active one-put and ten-put cases, 100 cycles each: RPRO produces one later acquisition. Put completion separately waits for actual PPN ownership, then completes its own held acquisition; 100 cycles. |
 | T7 | 2026-09-24T04:21:35-07:00 | Same candidate; lifecycle.db and actual serial FLNK chain | Executed case PASS; independent review PASS (2026-09-24) | `test_serial_chain-*`: 100 A/auditA/B/auditB/C/auditC cycles, held responses, values and ordered wire/FLNK observations. |
 | T8 | 2026-09-24T04:21:35-07:00 | Same candidate; real Base fanout, two distinct UDP peers and actual audit records | Executed cases PASS; independent review PASS (2026-09-24) | `test_two_host_fanout-*` and `test_invalid_fanout_link-*`: 100 cycles each; B completes while A is held. Pre-correction failure and receive-lock correction evidence below. |
 | T9 | 2026-09-24T04:21:35-07:00 | Same candidate; actual iocInit/PINI, scanner and DISA | Executed cases PASS; independent review PASS (2026-09-24) | `test_pini-*`: 100 fresh IOCs with held startup responses; `test_disable-*`: 100 cycles, disable before and during work; active/idle SCAN changes in scanner cases. |
-| T10 | 2026-09-24T04:21:35-07:00 | Same candidate; real UDP loss/missing/type-invalid responses and outer libc socket failure | Error/value/order cases PASS; diagnostic last-valid-generation field remains M4 verification | `test_terminal_errors-*`: 100 prime/error/recovery cycles per fault; `test_transport_failures-*`: 100 cycles each for socket-open/send failure. Last value and failed application are checked; dedicated diagnostic field is not yet exposed. |
+| T10 | 2026-09-24T04:21:35-07:00 | Same candidate; real UDP loss/missing/type-invalid responses and outer libc socket failure | Error/value/order cases PASS; dedicated last-valid-generation checks passed under M4 on 2026-09-24 | `test_terminal_errors-*`: 100 prime/error/recovery cycles per fault; `test_transport_failures-*`: 100 cycles each for socket-open/send failure. The original M3 checks covered last value and failed application. Later m4-lifecycle-final-a also checks the dedicated successful-generation field across the complete 100-cycle fault/recovery cases. |
 
 ##### M3 Local Verification Evidence
 
@@ -1265,9 +1264,11 @@ retain commands, times, results and runtime/build associations. All 45 newly
 started IOCs and the 184 retained positive-run IOCs have exit 0 and no cleanup
 error; five newly started native agents exited 0 without forced termination.
 All 18 reviewed implementation/document hashes remained unchanged.
-Handoff cross-check and local commit remain pending at this observation.
-The dedicated last-valid-generation/age diagnostics are assigned to M4;
-the observed M3 value and event assertions do not claim those fields exist.
+Handoff correction cross-check passed at 2026-09-24T05:07:56-07:00.
+The two derivative findings were corrected without a runtime change.
+The original M3 value/event assertions did not expose dedicated valid-generation
+or age diagnostics. Later M4 conversion/lifecycle runs verify these fields on
+the final M4 source; these are distinct executions.
 No final platform, resource-soak, physical-device or deployment acceptance
 follows from this local evidence.
 
@@ -1275,16 +1276,19 @@ follows from this local evidence.
 
 - Local M3 implementation and its stated verification boundary passed
   independent third-person and second-person review on 2026-09-24.
-  Handoff cross-check, local commit and remote landing remain pending.
-  The T5/T10 dedicated successful-generation diagnostics remain M4 work;
-  M3 is not marked Complete and no required check is waived.
+  Handoff cross-check passed on 2026-09-24. Local commit
+  `68294c2a91e74b7559aea0aa1e1ae0fb87e2aa8a` contains exactly the 19 reviewed files;
+  commit scope and a clean working tree were verified at 2026-09-24T05:09:25.103891-07:00.
+  Remote landing remains pending.
+  T5/T10 dedicated successful-generation checks passed under M4 on 2026-09-24.
+  M3 is not marked Complete without remote landing; no required check is waived.
 
 #### M4 - Failure completion and diagnostics
 
 Origin: db9ebf5 / M4
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -1338,17 +1342,123 @@ Superseded Plan Artifacts: none
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| T1 | 2026-09-22T19:26:50-07:00 | Real IOC, Net-SNMP, fault injector | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T2 | 2026-09-22T19:26:50-07:00 | Real transport parser and input support | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T3 | 2026-09-22T19:26:50-07:00 | Real transport and generation tracking | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T4 | 2026-09-22T19:26:50-07:00 | Isolated IOC under bounded stress | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T5 | 2026-09-22T19:26:50-07:00 | Real IOC with available memory/thread diagnostics | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T6 | 2026-09-22T19:26:50-07:00 | Same real path | Partial; planned variants remain | Current Local Candidate and retained case logs |
-| T7 | 2026-09-22T19:26:50-07:00 | Built snmpMain.cpp/Base/driver path with stdin pipe and owned processes | Partial; planned variants remain | Current Local Candidate and retained EOF/explicit-exit case logs; the executed input path is subprocess.PIPE. The planned PTY variant remains unexecuted. |
+| T1 | 2026-09-24T06:06:09-07:00 | Debian 13.7, Base 7.0.10, Net-SNMP 5.9.4.pre2; real IOC/UDP/CA/FLNK | Executed cases PASS | m4-lifecycle-final-a: 100 cycles each of socket-open/send failure and recovery. m4-robustness-full-b: 100 retry-exhaustion cycles, initial plus two native retries. Real outer transport faults, no internal substitute. |
+| T2 | 2026-09-24T05:57:58-07:00 | Debian 13.7, Base 7.0.10, Net-SNMP 5.9.4.pre2; real IOC/UDP/CA/FLNK | Executed cases PASS | 12 response variants, 100 prime/fault/recovery cycles each over 21 records. Wire identities, per-record value/alarm, one FLNK and valid-generation preservation checked. Largest trace is 7680 events, below 8192. |
+| T3 | 2026-09-24T05:57:58-07:00 | Debian 13.7, Base 7.0.10, Net-SNMP 5.9.4.pre2; real IOC/UDP/CA/FLNK; owned-thread OS suspension | Executed cases PASS; real M3 regressions FAIL as expected | 100 old/duplicate-reply cycles and two absolute-deadline boundary cases pass. Same real M3 path fails late-result SEVR and expired-queued-GET assertions. |
+| T4 | 2026-09-24T05:50:35-07:00 | Debian 13.7, Base 7.0.10, Net-SNMP 5.9.4.pre2; real IOC/UDP/CA/FLNK | Executed case PASS | 60 s real Base callback pressure with queue size 2 and 21 record slots; immutable ready result, actual overflow/retry, active-PROC/RPRO recovery. 252 accepted generations and 252 FLNK audits. Current record-slot capacity, not future M8 queue limits. |
+| T5 | 2026-09-24T06:09:22-07:00 | Debian 13.7, Base 7.0.10, Net-SNMP 5.9.4.pre2; real IOC/UDP/CA/FLNK; ASan module/IOC, owned PTY | Executed local cases PASS; one-hour and thread-sanitizer qualification remain M8 | Final ordinary lifecycle/robustness/pressure/accounting and final ASan protocol/failures/teardown/legacy/waveform runs pass. No sanitizer report or cleanup error in accepted runs. Module/IOC instrumented; installed Base/native libraries are not. |
+| T6 | 2026-09-24T05:53:52-07:00 | Debian 13.7, Base 7.0.10, Net-SNMP 5.9.4.pre2; real IOC/UDP/CA/FLNK | Executed cases PASS | Trace-on/off counters, queued/active totals and age, valid-generation preservation, phase latencies and 1000 healthy requests alone and with a silent peer. m4-conversion-diagnostics-a checks failed conversion cannot advance valid state. |
+| T7 | 2026-09-24T05:54:26-07:00 | Debian 13.7, Base 7.0.10, Net-SNMP 5.9.4.pre2; real IOC/UDP/CA/FLNK; ASan module/IOC, owned PTY | Executed cases PASS; forced termination separately classified | 20 starts for each EOF/explicit-exit x network/callback-pending variant: 80 graceful, 20 intentional SIGKILL plus 20 fresh recoveries, and two candidate ASan Base-exit observations. Separate archived-baseline observations are in m4-eof-baseline-d. Ordered shutdown markers, real PTY and no post-entry FLNK checked. POSIX baseline EOF interpretation resolved below. |
+
+##### M4 Local Verification Evidence
+
+Evidence root: `work/snmp-tests/`. Each run retains actual argv/cwd,
+start/end times, source/harness identity and results in `run.json` and
+`results.json`, with raw IOC, wire, trace, FLNK and runtime-exit records.
+`work/m4-acceptance-summary.json` derives counts/hashes from these executions;
+it is not another execution. Public reproduction uses `tests/run_snmp.py`
+with the suites documented in `tests/README.md`.
+
+The final ordinary build is `/tmp/snmp-m4-candidate-20260924-g`, manifest
+SHA-256 `9655fc4db741e48eb4dc3c5e9914d0766718055d6f99357cca38a2f1955c9e43`.
+Test IOC, production IOC and module SHA-256 values are respectively
+`d6241ea6a5a8156f6a844f6c108b560603ecb42ff8ca8cfcc8e50baae48d661d`,
+`1d37db10bdc5ab139ed7142024327273c30349ea6ba37b431c89173a53c26d16` and
+`aa1a93ed723ab9beceddb3ef7fa7df2dbc14e8d49a5d89691774a9eaa29592ed`.
+The final ASan build is `/tmp/snmp-m4-asan-20260924-d`, manifest SHA-256
+`bb0d53923762c9776f8d14db3f88a9d90efdb36600285a525459fbaa89ccc3df`;
+test IOC and module hashes are
+`f6d3d91619a646a2f634c984807f42298654e7fc1c95965de2f6ed1260d113e2` and
+`e6b291583db23d19df9fe35a8aa2fe6d40c171ccc24b8ccd3341050ad128922e`.
+Both use test DBD SHA-256
+`25a12fc46a7fa5519ddb6598b32bf1e3898222c27052c7b340b568b2e1649de0`.
+The accounting total assertion changed after these builds without a production
+source change. Runtime manifests identify the exact harness; earlier runs
+are not claimed to have identical complete fixture hashes.
+
+| Run | Cases | Persisted accepted trace events / FLNK audits | IOC exits 0 / intentional SIGKILL | Result |
+| --- | ---: | ---: | ---: | --- |
+| `m4-lifecycle-final-a` | 15 | 4802 / 4802 | 114 / 0 | PASS; 100 ordinary / 1000 immediate repetitions |
+| `m4-robustness-full-b` | 16 | 77509 / 77509 | 64 / 0 | PASS; 100 ordinary repetitions; two OS deadline cases |
+| `m4-pressure-final-a` | 1 | 252 / 252 | 1 / 0 | PASS; 60-second pressure |
+| `m4-accounting-final-b` | 3 | 2012 / 2015 | 22 / 0 | PASS; 1000 requests per timing mode; three trace-disabled FLNK audits |
+| `m4-conversion-diagnostics-a` | 1 | 401 / 401 | 1 / 0 | PASS; selected mixed case, 100 cycles |
+| `m4-asan-protocol-b` | 5 | 10 / 0 | 5 / 0 | PASS; real native v1/v2c/v3 |
+| `m4-asan-failures-a` | 10 | 17 / 15 | 10 / 0 | PASS; two requests abandoned by shutdown |
+| `m4-asan-teardown-a` | 6 | 100 / 20 | 102 / 20 | PASS; shutdown abandons pending work; twenty recovery FLNK audits |
+| `m4-asan-legacy-a` | 1 | 0 / 0 | 1 / 0 | PASS; actual db9ebf5 comparison |
+| `m4-asan-wave-a` | 1 | 0 / 0 | 1 / 0 | PASS; selected waveform case, 100 cycles |
+| `m4-legacy-baseline-a` | 1 | 0 / 0 | 1 / 0 | PASS; separate db9ebf5 IOC |
+| `m4-wave-baseline-a` | 1 | 0 / 0 | 1 / 0 | PASS; separate db9ebf5 IOC, selected 100-cycle case |
+| `m4-eof-baseline-d` | 1 | 0 / 0 | 2 / 0 | PASS; separate db9ebf5 IOC, two terminal routes |
+
+Selected-case metadata remains partial. Graceful shutdown abandons pending
+acquisitions without new FLNK callbacks; its persisted accepted-event/FLNK
+counts do not claim completion equality. The trace counts omit three
+trace-disabled accounting acquisitions and twenty forced-exit pending
+acquisitions. Final accounting diagnostics record 2015 accepted acquisitions,
+matching its 2015 FLNK audits; only 2012 accepts appear in the trace.
+Intentional SIGKILL is crash evidence only. All accepted
+runtime records have no cleanup error. Earlier `m4-teardown-full-b` passed
+six cases against candidate-f, before the final atomic fields; it is not
+final candidate-g evidence. Final-source teardown is covered by final ASan
+and the independent fresh ordinary/ASan builds.
+
+The 62 pressure samples span 61.756470277 s: FD count stays 8, threads stay 23,
+RSS ranges 18284-18292 KiB. This passes the declared short-test bound, not a
+one-hour plateau. For 1000 healthy requests alone, p99 is 0.044152264 s and
+maximum 0.048467193 s. With a silent peer, p99 is 0.045753093 s and maximum
+0.053442885 s. The p99 increase of 0.001600829 s is below 0.1 s and the maximum
+is below 1 s. Value/alarm/wire/FLNK checks run independently of timing limits.
+Blocking native discovery isolation remains M8 work.
+
+The real committed M3 archive at `/tmp/snmp-m4-baseline-20260924-a` fails
+`m4-deadline-baseline-b`: a response after the 400 ms record deadline yields
+SEVR=0 instead of INVALID while the OS suspends the completion worker.
+`m4-queued-baseline-a` observes requests `[[1], [2]]` instead of `[[1]]`:
+expired queued OID 2 was transmitted. Both regressions pass on final source.
+Pre-fix unsuppressed `m4-asan-development-b` reports 992 bytes leaked in twelve
+allocations and IOC exit 1; final ASan runs report none. Sandbox process
+inspection failures remain separate and do not count as defect evidence.
+
+Final ASan legacy and six waveform STRING/CHAR/UCHAR x NELM 16/128 paths
+compare equal to separate actual db9ebf5 executions. The legacy comparison
+explicitly excludes timeout-input STAT/SEVR because Base active-scan alarm
+timing varies. No broader equivalence is claimed. Waveform comparison covers
+100 cycles without that exclusion.
+
+The historical main's empty version-selected epicsExit shim does not itself
+invoke Base hooks. On this POSIX build, osdThread registers
+`atexit(epicsExitCallAtExits)`, so returning from main still invokes them.
+`m4-eof-baseline-d` observes real PTY EOF and iocsh exit both reaching the
+historical module shutdown hook. This resolves the EOF interpretation; it is
+not a claim that historical EOF lacked cleanup. Candidate tests additionally
+observe request-worker, callback and network shutdown order.
+
+Independent third-person execution and second-person reader review passed
+at 2026-09-24T06:15:35-07:00 with no new finding, report rev20260924_061535.
+Fresh candidate, ASan and exact M3 builds are under
+`/tmp/snmp-m4-review-lmpns1b8/`. Fresh ordinary and ASan teardown each passed
+six cases over 122 owned PTY IOCs. Fresh pressure, accounting, native protocol,
+ASan failures and actual legacy comparison passed; shorter lifecycle,
+conversion and robustness repetitions remain explicitly partial.
+The two M3 deadline cases failed for the intended behavior and current
+candidate passed them. The complete author repetition profiles were
+independently recounted against raw evidence, not described as new executions.
+An additional actual Base HIHI/MAJOR test verifies acquisition-valid still
+advances for successfully consumed values with a Base value alarm and does
+not advance on transport failure. Its actual trace has 60 unique events and
+ten FLNK audits. All twenty frozen file hashes remained unchanged.
+
+No final platform matrix, one-hour soak, TSan/UBSan qualification, physical
+pilot, firmware change, production deployment or remote landing is claimed.
 
 ##### Closure Evidence
 
-- None.
+- Local implementation and its stated verification boundary passed independent
+  third-person and second-person review on 2026-09-24. Handoff cross-check
+  and local commit remain pending. Remote landing is not performed; no
+  required check is waived.
 
 #### M5 - Compatibility and candidate acceptance
 

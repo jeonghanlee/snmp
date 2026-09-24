@@ -69,9 +69,9 @@ typedef struct {
   char   authPassPhrase[V3_TXT_LEN];
   char   privPassPhrase[V3_TXT_LEN];
   char   context[V3_TXT_LEN];
-  oid   *securityAuthProto;
+  oid   *securityAuthProto;  // Library-owned static protocol identifier.
   size_t securityAuthProtoLen;
-  oid   *securityPrivProto;
+  oid   *securityPrivProto;  // Library-owned static protocol identifier.
   size_t securityPrivProtoLen;
   int    securityLevel;
 } devSnmp_v3params;
@@ -246,7 +246,7 @@ class devSnmp_session
     snmpTimeObject   timeSent;
     snmpPointerList *oidList;
     bool             is_setting;
-    bool             completed;
+    std::atomic<bool> completed;
     bool             sent;
     bool             tried_send;
     unsigned long long transactionId;
@@ -647,7 +647,7 @@ class devSnmp_manager
     snmpPointerList *snmpHostList;
     bool             started;
     epicsMutexId     sessionMutex;
-    int              activeRequests;
+    std::atomic<int> activeRequests;
 
     epicsThreadId    sendTask_id;
     snmpTimeObject   sendTask_start;

@@ -43,6 +43,10 @@ deadline does not cancel an already started Net-SNMP session. Old responses
 cannot satisfy a later request. Callback queue or DB lock contention can delay
 EPICS completion after the acquisition deadline; this is not a hard real-time
 completion guarantee. Site timing acceptance requires device measurements.
+Deadline checks use the absolute monotonic timestamp under the request mutex
+when inspecting queued work, claiming it, accepting a reply and servicing the
+request. A reply received after expiry fails even if the completion worker has
+not run. Once a terminal result is ready, callback delay cannot change it.
 
 ## Ownership and ordering
 
@@ -90,11 +94,38 @@ Existing legacy networking and record-lock interactions remain in legacy code.
 
 ## Diagnostics and shutdown
 
-`snmpr` reports each non-idle request's record, generation, state, and callback
-pending flag even when tracing is disabled. The trace holds at most 8192 events;
+`snmpr` prints a `SNMPDIAG` snapshot for every request record, followed by
+`SNMPDIAG_TOTAL`. These diagnostics work with tracing disabled and retain only
+bounded per-record state. Each record snapshot is copied under its request
+mutex; totals combine sequential snapshots and are not a globally atomic view.
+
+| Fields | Definition |
+| --- | --- |
+| `generation`, `state`, `callback`, `stopping` | Current generation, lifecycle state, callback ownership and shutdown admission state. State can be idle while its finishing callback still owns the record lock. |
+| `accepted`, `rejected` | Accepted generations and rejected device-support admission attempts. Base coalescing of active PROC puts is not an admission attempt or a rejection here. |
+| `valid`, `failed` | Successful and failed device-support consumptions. A decoded transport reply is not counted until mask/type/buffer conversion and device-support application succeed. |
+| `completed` | Record-support calls that returned through the owned completion callback. |
+| `callback_retries` | Rejected calls to the real Base callback queue, retried by the completion worker. This differs from Base's overflow-event counter. |
+| `last_valid_generation`, `last_valid_ns`, `last_valid_age_ms` | Last successful device-support consumption and its current monotonic age; errors preserve these values. No success is represented by generation/time zero and age -1. |
+| `accepted_ns`, `claimed_ns`, `dispatched_ns`, `terminal_ns`, `applied_ns`, `completed_ns` | Current-generation monotonic timestamps. Zero means that phase has not occurred. Claim selects session membership; dispatch is the native send attempt, not proof of transmission. |
+| `queue_age_ms` | Time since acceptance while queued; zero in other states. |
+| `queue_ms`, `network_ms` | Acceptance to dispatch and dispatch to terminal result. Queue time includes native session opening. |
+| `callback_ms`, `processing_ms`, `total_ms` | Terminal result to application, application to record-support return, and acceptance to return. |
+| Totals `records`, `queued`, `active` | Registered request records, queued states, and non-idle states or outstanding callbacks. Remaining totals sum their corresponding per-record counters. |
+
+Latencies are -1 until both endpoints exist. At FLNK, device-support
+application has occurred but `completed_ns` is still zero. `valid` measures
+acquisition and device-support conversion; it does not assert that Base's
+configured value alarms have zero severity. Base ai conversion and final alarm
+handling follow application, so observe final VAL/SEVR through a downstream
+record when needed. Shutdown abandonment does not increment valid/failed or
+completed counters. All counters and timestamps are unsigned 64-bit values.
+
+The trace holds at most 8192 events;
 overflow is reported and invalidates a
 complete sequencing audit. Each entry contains monotonic time, record name,
-generation, event, and success flag. `accepted`, optional `claimed`, `result`,
+generation, event, success flag, transaction ID, native request ID and OID.
+`accepted`, optional `claimed` and `dispatch`, `result`,
 `applied`, and `complete` describe one request. `claimed` is session membership
 selection, not proof of wire transmission. `applied` marks device-support
 consumption before Base conversion and final alarm handling; FLNK audit records
@@ -109,6 +140,8 @@ If a worker or callback cannot stop within its shutdown wait, storage is retaine
 until process exit and `shutdown incomplete` is reported. This is a failure to
 drain, not successful cleanup. Both explicit IOC exit and stdin EOF invoke Base
 cleanup. Process kill does not establish graceful cleanup.
+The log reports request shutdown entry, completion-worker exit, drained request
+callbacks, stopped network workers and final storage cleanup separately.
 
 ## Validation boundary
 

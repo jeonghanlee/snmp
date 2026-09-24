@@ -11,6 +11,7 @@ from pathlib import Path
 import platform
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 import unittest
@@ -79,7 +80,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ioc", type=Path, required=True)
     parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion"), required=True)
+    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion", "robustness", "pressure", "teardown", "accounting"), required=True)
     parser.add_argument("--output", type=Path, help="New evidence directory; never overwritten")
     parser.add_argument("--negative-control", choices=("wrong-value", "miswired", "trace-loss"))
     parser.add_argument("--case", help="One case, explicitly reported as partial coverage")
@@ -95,8 +96,8 @@ def main():
             parser.error("Missing positive acceptance limit: " + name)
     if args.repeat < 1:
         parser.error("--repeat must be positive")
-    if args.cycles is not None and (args.cycles < 1 or args.suite not in ("lifecycle", "batch", "conversion")):
-        parser.error("--cycles must be positive and requires lifecycle, batch or conversion")
+    if args.cycles is not None and (args.cycles < 1 or args.suite not in ("lifecycle", "batch", "conversion", "robustness")):
+        parser.error("--cycles must be positive and requires lifecycle, batch, conversion or robustness")
     if not args.ioc.is_file():
         parser.error("--ioc must name the actual built executable")
     build = args.ioc.resolve().parents[2] / "build-inputs.json"
@@ -124,7 +125,8 @@ def main():
     fixtures = {str(path.relative_to(ROOT)): digest(path) for path in sorted((ROOT / "tests").rglob("*"))
                 if path.is_file() and "__pycache__" not in path.parts}
     dirty_diff = subprocess.run(["git", "-C", str(ROOT), "diff", "HEAD", "--binary"], capture_output=True)
-    metadata = {"started_at": now(), "suite": args.suite, "profile": profile,
+    metadata = {"started_at": now(), "argv": [sys.executable] + sys.argv, "cwd": os.getcwd(),
+                "suite": args.suite, "profile": profile,
                 "profile_path": str(args.profile.resolve()), "profile_sha256": digest(args.profile),
                 "seed": 0, "platform": platform.platform(), "architecture": platform.machine(),
                 "os_release": Path("/etc/os-release").read_text(), "python": platform.python_version(),
@@ -156,6 +158,18 @@ def main():
         elif args.suite == "batch":
             from test_batch import BatchTest, CASES
             case_class, names = BatchTest, CASES
+        elif args.suite == "robustness":
+            from test_robustness import RobustnessTest, CASES
+            case_class, names = RobustnessTest, CASES
+        elif args.suite == "pressure":
+            from test_pressure import PressureTest, CASES
+            case_class, names = PressureTest, CASES
+        elif args.suite == "teardown":
+            from test_teardown import TeardownTest, CASES
+            case_class, names = TeardownTest, CASES
+        elif args.suite == "accounting":
+            from test_accounting import AccountingTest, CASES
+            case_class, names = AccountingTest, CASES
         else:
             from test_conversion import ConversionTest, CASES
             case_class, names = ConversionTest, CASES

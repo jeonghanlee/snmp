@@ -45,6 +45,7 @@
 
 #include "devSnmp.h"
 #include "snmpRequest.h"
+#include <memory>
 
 #include <alarm.h>
 #include <cvtTable.h>
@@ -103,7 +104,7 @@ static epicsTimeStamp globalLastTick;
 
 // internal function prototypes
 static bool checkInit(void);
-static char *dup_string(char *str);
+static char *dup_string(const char *str);
 static char *snmpVersionString(long version);
 static int snmpSessionCallback(int op, SNMP_SESSION *sp, int reqId, SNMP_PDU *pdu, void *magic);
 static char *snmpStrStr(char *str, char *mask);
@@ -336,6 +337,7 @@ static void snmpAtExit(void *arg)
   if (pManager) {
     bool callbacksStopped = devSnmp_request::shutdown();
     bool networkStopped = pManager->stop();
+    if (networkStopped) printf("devSnmp: network workers stopped\n");
     if (!callbacksStopped || !networkStopped) {
       fprintf(stderr, "devSnmp: shutdown incomplete; retaining storage at exit\n");
       return;
@@ -344,6 +346,7 @@ static void snmpAtExit(void *arg)
     delete pManager;
     pManager = NULL;
     printf("devSnmp: shutdown complete\n");
+    fflush(stdout);
   }
 }
 //--------------------------------------------------------------------
@@ -427,7 +430,7 @@ static bool checkInit(void)
   return(true);
 }
 //--------------------------------------------------------------------
-static char *dup_string(char *str)
+static char *dup_string(const char *str)
 {
   char *retval = new char[strlen(str)+1];
   strcpy(retval,str);
@@ -1580,6 +1583,7 @@ devSnmp_oid::devSnmp_oid
   pOurGroup = pGroup;
   memcpy(&oidBase,pOidBase,sizeof(configDataOid));
   memcpy(&oid,pOid,sizeof(OID));
+  oid.Name = dup_string(pOid->Name);
 
   // init variables
   memset(&reading,0,sizeof(_oid_reading));
@@ -1624,6 +1628,7 @@ devSnmp_oid::~devSnmp_oid(void)
     settingToSend = NULL;
   }
   term_OID_struct(&oid);
+  delete [] reading.read_string;
   epicsMutexDestroy(setMutex);
   epicsMutexDestroy(valMutex);
 }
@@ -3407,10 +3412,10 @@ void devSnmp_host::setSnmpV3Param(const char *param, const char *value, bool ign
   if (strcasecmp(param,"authType") == 0) {
     // authProtocol -a (MD5|SHA)
     if (strcasecmp(value, "MD5") == 0) {
-      v3params.securityAuthProto    = snmp_duplicate_objid(usmHMACMD5AuthProtocol,USM_AUTH_PROTO_MD5_LEN);
+      v3params.securityAuthProto    = usmHMACMD5AuthProtocol;
       v3params.securityAuthProtoLen = USM_AUTH_PROTO_MD5_LEN;
     } else if (strcasecmp(value, "SHA") == 0) {
-      v3params.securityAuthProto    = snmp_duplicate_objid(usmHMACSHA1AuthProtocol,USM_AUTH_PROTO_SHA_LEN);
+      v3params.securityAuthProto    = usmHMACSHA1AuthProtocol;
       v3params.securityAuthProtoLen = USM_AUTH_PROTO_SHA_LEN;
     } else {
       printf("devSnmp ERROR: unknown SNMPv3 authProtocol selection '%s'\n",value);
@@ -3422,13 +3427,13 @@ void devSnmp_host::setSnmpV3Param(const char *param, const char *value, bool ign
     // privProtocol -x (AES|DES)
     if (strcasecmp(value, "DES") == 0) {
       #if defined(USM_PRIV_PROTO_DES_LEN) && !defined(NETSNMP_DISABLE_DES)
-      v3params.securityPrivProto    = snmp_duplicate_objid(usmDESPrivProtocol,USM_PRIV_PROTO_DES_LEN);
+      v3params.securityPrivProto    = usmDESPrivProtocol;
       v3params.securityPrivProtoLen = USM_PRIV_PROTO_DES_LEN;
       #else
       printf("devSnmp ERROR: DES is no longer supported on this system");
       #endif
     } else if ((strcasecmp(value, "AES") == 0) || (strcasecmp(value, "AES128") == 0)) {
-      v3params.securityPrivProto    = snmp_duplicate_objid(usmAESPrivProtocol,USM_PRIV_PROTO_AES_LEN);
+      v3params.securityPrivProto    = usmAESPrivProtocol;
       v3params.securityPrivProtoLen = USM_PRIV_PROTO_AES_LEN;
     } else {
       printf("devSnmp ERROR: unknown SNMPv3 privProtocol selection '%s'\n",value);
@@ -3941,7 +3946,9 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bo
     *mp = '$';
     cp = mp;
     }
-  instioStr = macEnvExpand(instioStr);
+  std::unique_ptr<char, void (*)(void *)> expanded(macEnvExpand(instioStr), free);
+  instioStr = expanded.get();
+  if (!instioStr) return NULL;
   if (! snmpParseInOut(instioStr,&base,&extra)) return(NULL);
   extra.request_mode = requestMode;
   if (requestMode && (extra.data_len < 2 || extra.data_len > 65536)) return NULL;
@@ -3969,6 +3976,7 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bo
 
   // add PV to this host
   devSnmp_pv *pPV = pHost->addPV(&base,&extra,&oid,pRec);
+  term_OID_struct(&oid);
 
   // point record's dpvt at created PV object
   pRec->dpvt = pPV;
@@ -4077,6 +4085,7 @@ bool devSnmp_manager::reportMatchAny(char *match)
 //--------------------------------------------------------------------
 void devSnmp_manager::report(int level, char *match)
 {
+  devSnmp_request::report();
   devSnmp_request::dumpTrace();
   if ((! snmpHostList) || (snmpHostList->count() == 0)) {
     printf("no devSnmp hosts defined\n");
@@ -4104,7 +4113,7 @@ void devSnmp_manager::report(int level, char *match)
   printf("version         : %s\n",OUR_VERSION_STRING);
   printf("read task loops : %ld (%.1lf per sec)\n",readTask_loops,r_loopps);
   printf("send task loops : %ld (%.1lf per sec)\n",sendTask_loops,s_loopps);
-  printf("active requests : %d\n",activeRequests);
+  printf("active requests : %d\n",activeRequests.load());
   printf("\n");
 
   // roll through each host, having it report if it matches

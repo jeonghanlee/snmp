@@ -2,6 +2,7 @@
 
 import time
 
+from diagnostics import verify as verify_diagnostics
 from request_cases import ScenarioTest
 
 
@@ -241,6 +242,7 @@ class LifecycleTest(ScenarioTest):
                     s.put("A.PROC")
                     count += 1
                     s.done("A", count, value + 5000)
+        verify_diagnostics(s)
 
     def test_transport_failures(self):
         from socket_fault import SocketFault
@@ -265,3 +267,4 @@ class LifecycleTest(ScenarioTest):
                     s.put("A.PROC")
                     count += 1
                     s.done("A", count, value + 5000)
+        verify_diagnostics(s)

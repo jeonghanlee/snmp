@@ -6,11 +6,13 @@ import errno
 import hashlib
 import json
 import os
+import pty
 from pathlib import Path
 import re
 import shutil
 import socket
 import subprocess
+import termios
 import time
 import uuid
 
@@ -85,7 +87,7 @@ def verified_baseline(test, suite, case, fixtures):
 
 
 class IOC:
-    def __init__(self, work, lines, prefix="SNMPTEST:", require_shutdown=True, process_env=None):
+    def __init__(self, work, lines, prefix="SNMPTEST:", require_shutdown=True, process_env=None, terminal=False):
         self.work = Path(work)
         self.config = settings()
         self.executable = Path(self.config["ioc"]).resolve()
@@ -95,6 +97,8 @@ class IOC:
         self.instance = uuid.uuid4().hex
         self.require_shutdown = require_shutdown
         self.process = None
+        self.terminal = terminal
+        self.terminal_master = None
         self.repeater = None
         self.closed = False
         self.log = self.commands = None
@@ -149,12 +153,29 @@ class IOC:
                             raise
                         break
                 time.sleep(0.01)
-            self.process = subprocess.Popen([str(self.executable), str(self.work / "st.cmd")],
-                                            cwd=self.top, env=dict(self.env, **(process_env or {})), stdin=subprocess.PIPE,
-                                            stdout=self.log, stderr=subprocess.STDOUT, text=True)
+            slave = None
+            try:
+                if terminal:
+                    self.terminal_master, slave = pty.openpty()
+                    attributes = termios.tcgetattr(slave)
+                    attributes[3] &= ~termios.ECHO
+                    termios.tcsetattr(slave, termios.TCSANOW, attributes)
+                    self.metadata["terminal"] = {"path": os.ttyname(slave), "isatty": os.isatty(slave)}
+                self.process = subprocess.Popen([str(self.executable), str(self.work / "st.cmd")],
+                                                cwd=self.top, env=dict(self.env, **(process_env or {})),
+                                                stdin=slave if terminal else subprocess.PIPE,
+                                                stdout=self.log, stderr=subprocess.STDOUT, text=True)
+                if terminal:
+                    self.process.stdin = os.fdopen(os.dup(self.terminal_master), "w", buffering=1)
+                    self.metadata["terminal"]["child_fd0"] = os.readlink(f"/proc/{self.process.pid}/fd/0")
+            finally:
+                if slave is not None:
+                    os.close(slave)
             self.metadata["pid"] = self.process.pid
             self.wait_for(lambda: self.get("TestInstance") == self.instance, "owned IOC instance readiness")
             self.verify_runtime()
+            if terminal:
+                self.wait_for(lambda: self.terminal_prompts() > 0, "interactive terminal prompt")
         except BaseException:
             self.close(check=False)
             raise
@@ -242,10 +263,16 @@ class IOC:
             time.sleep(0.02)
         raise AssertionError(f"Wait expired: {description}; last error: {last}; evidence: {self.work}")
 
-    def close(self, check=True):
+    def terminal_prompts(self):
+        return len(re.findall(r"\d+\.\d+\.\d+ > ", (self.work / "ioc.log").read_text()))
+
+    def close(self, check=True, mode="eof"):
+        if mode not in ("eof", "explicit", "forced"):
+            raise ValueError("Unknown IOC close mode: " + mode)
         if self.closed:
             return
         self.closed = True
+        self.metadata["exit_route"] = mode
         error = None
         try:
             if self.process is not None:
@@ -257,19 +284,38 @@ class IOC:
                     except FileNotFoundError:
                         self.metadata["resource_snapshot"] = "process exited during collection"
                     try:
-                        self.process.communicate("snmpr(0)\n", timeout=self.deadline)
+                        if mode == "forced":
+                            self.process.kill()
+                            self.process.wait(timeout=self.deadline)
+                        elif self.terminal:
+                            prompts = self.terminal_prompts()
+                            self.process.stdin.write("snmpr(0)\n")
+                            self.process.stdin.flush()
+                            self.wait_for(lambda: self.terminal_prompts() > prompts, "terminal report completed")
+                            self.process.stdin.write("exit\n" if mode == "explicit" else "\x04")
+                            self.process.stdin.flush()
+                            self.metadata["terminal"]["exit_input_ns"] = time.monotonic_ns()
+                            self.process.wait(timeout=self.deadline)
+                        else:
+                            self.process.communicate("snmpr(0)\n" + ("exit\n" if mode == "explicit" else ""),
+                                                     timeout=self.deadline)
                     except subprocess.TimeoutExpired:
                         self.process.kill()
                         self.process.wait()
-                        error = "IOC did not exit on stdin EOF"
+                        error = "IOC did not exit through " + mode
                 self.metadata["exit_code"] = self.process.returncode
-                if self.process.returncode != 0:
+                if self.process.returncode != ( -9 if mode == "forced" else 0):
                     error = error or f"IOC exit code {self.process.returncode}"
         finally:
             if self.process is not None and self.process.poll() is None:
                 self.process.kill()
                 self.process.wait()
                 error = error or "Forced owned-process cleanup"
+            if self.terminal_master is not None:
+                if self.process is not None and self.process.stdin is not None:
+                    self.process.stdin.close()
+                os.close(self.terminal_master)
+                self.terminal_master = None
             if self.repeater is not None:
                 if self.repeater.poll() is None:
                     self.repeater.terminate()
@@ -300,7 +346,7 @@ class IOC:
         if check:
             if error:
                 raise AssertionError(error)
-            if self.require_shutdown and "devSnmp: shutdown complete" not in log:
+            if mode != "forced" and self.require_shutdown and "devSnmp: shutdown complete" not in log:
                 raise AssertionError("Missing module shutdown confirmation")
 
 

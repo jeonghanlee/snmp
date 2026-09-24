@@ -84,8 +84,13 @@ class Handler(socketserver.BaseRequestHandler):
                                      "type": field_value[0], "value": value})
                     value = peer.values[name]
                     encoded = integer(value) if isinstance(value, int) else tlv(4, value.encode())
-                    if peer.mode == "exception":
-                        encoded = tlv(0x80, b"")
+                    fault = peer.faults.get(name, peer.mode)
+                    if fault in ("exception", "no_instance", "end_view"):
+                        encoded = tlv({"exception": 0x80, "no_instance": 0x81, "end_view": 0x82}[fault], b"")
+                    elif fault == "wrong_type":
+                        encoded = tlv(4, b"not-a-number")
+                    elif fault == "oversized":
+                        encoded = tlv(4, b"x" * 256)
                     reply.append(tlv(0x30, tlv(6, oid) + encoded))
                 if peer.mode == "reverse":
                     reply.reverse()
@@ -93,6 +98,10 @@ class Handler(socketserver.BaseRequestHandler):
                     reply = reply[1:]
                 elif peer.mode == "duplicate":
                     reply += reply[:1]
+                elif peer.mode == "extra":
+                    reply.append(tlv(0x30, tlv(6, oid_bytes((1, 3, 6, 1, 4, 1, 55555, 100, 0))) + integer(999)))
+                elif peer.mode == "wrong_oid":
+                    reply[0] = tlv(0x30, tlv(6, oid_bytes((1, 3, 6, 1, 4, 1, 55555, 100, 0))) + integer(999))
                 entry = {"time": time.monotonic_ns(), "event": "request", "pdu": request[0],
                          "version": int.from_bytes(version[1], "big"), "oids": names,
                          "community": community[1].decode(),
@@ -108,6 +117,8 @@ class Handler(socketserver.BaseRequestHandler):
                 response = tlv(0xA2, fields[0][2] + integer(error) + integer(0)
                                + tlv(0x30, b"".join(reply)))
                 packet = tlv(0x30, version[2] + community[2] + response)
+                if peer.mode == "malformed":
+                    packet = packet[:-1]
                 if peer.mode == "drop":
                     return
                 if peer.hold:
@@ -115,6 +126,7 @@ class Handler(socketserver.BaseRequestHandler):
                     return
                 sock.sendto(packet, self.client_address)
                 peer.record(dict(entry, time=time.monotonic_ns(), event="response", error=error))
+                peer.sent.append((packet, self.client_address, entry))
         except Exception as error:
             with peer.lock:
                 peer.errors.append(repr(error))
@@ -129,6 +141,7 @@ class Peer(socketserver.ThreadingUDPServer):
         self.values = {1: 101, 2: 202, 3: "hello", 4: 123}
         self.names = {oid_bytes((1, 3, 6, 1, 4, 1, 55555, n, 0)): n for n in self.values}
         self.requests, self.held, self.errors = [], [], []
+        self.sent, self.faults = [], {}
         self.hold, self.mode = False, "normal"
         self.log = (evidence / "wire.jsonl").open("w")
         super().__init__(("127.0.0.1", 0), Handler)
@@ -140,6 +153,14 @@ class Peer(socketserver.ThreadingUDPServer):
             packet, address, entry = self.held.pop(0)
             self.socket.sendto(packet, address)
             self.record(dict(entry, time=time.monotonic_ns(), event="response"))
+            self.sent.append((packet, address, entry))
+
+    def resend(self, response):
+        """Replay an observed boundary packet without changing its transaction."""
+        with self.lock:
+            packet, address, entry = response
+            self.socket.sendto(packet, address)
+            self.record(dict(entry, time=time.monotonic_ns(), event="duplicate_response"))
 
     def record(self, entry):
         self.log.write(json.dumps(entry) + "\n")

@@ -36,6 +36,7 @@ public:
     static bool configurationOpen();
     static bool shutdown();
     static void dumpTrace();
+    static void report(const char *recordName = NULL);
 
 private:
     enum State { Idle, Queued, InFlight, Ready, Scheduled, Consuming };
@@ -52,7 +53,15 @@ private:
     unsigned long long transaction;
     long wireId;
     char numericOid[1537];
-    epicsTimeStamp accepted;
+    epicsUInt64 accepted, deadline;
+    struct Statistics {
+        unsigned long long acceptedCount, rejectedCount, validCount, failedCount;
+        unsigned long long completedCount, callbackRetries, lastValidGeneration;
+        unsigned long long acceptedAt, claimedAt, dispatchedAt, terminalAt;
+        unsigned long long appliedAt, completedAt, lastValidAt;
+    } statistics;
+    bool expire();
+    void ready(bool success);
     void event(const char *name, bool success);
     static void complete(epicsCallback *callback);
     static void worker(void *argument);

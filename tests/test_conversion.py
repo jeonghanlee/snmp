@@ -3,6 +3,7 @@
 import json
 from pathlib import Path
 
+from diagnostics import verify as verify_diagnostics
 from ioc import IOC, ROOT, digest, is_legacy_baseline, settings, verified_baseline, write_json
 from request_cases import ScenarioTest
 from snmp_peer import Peer
@@ -50,6 +51,7 @@ class ConversionTest(ScenarioTest):
                 s.wait(lambda: s.get("LegacyText") == ca_text and
                        s.get("LegacyText.SEVR") == str(severity) and
                        s.get("LegacyText.STAT") == str(status), "legacy and request text contract")
+        verify_diagnostics(s)
 
     def test_waveforms(self):
         config = settings()

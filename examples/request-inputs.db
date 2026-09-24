@@ -1,0 +1,30 @@
+# Numeric OIDs default to the shipped loopback peer. Supply device OIDs at startup.
+record(ai, "$(P)Analog") {
+    field(DESC, "Requested analog input")
+    field(DTYP, "SnmpRequest")
+    field(SCAN, "Passive")
+    field(INP, "@$(HOST) $(COMM=public) $(AI_OID=.1.3.6.1.4.1.55555.1.0) INTEGER: 128")
+}
+record(longin, "$(P)Integer") {
+    field(DESC, "Requested integer input")
+    field(DTYP, "SnmpRequest")
+    field(SCAN, "Passive")
+    field(INP, "@$(HOST) $(COMM=public) $(LI_OID=.1.3.6.1.4.1.55555.2.0) INTEGER: 128")
+}
+record(stringin, "$(P)Text") {
+    field(DESC, "Requested text input")
+    field(DTYP, "SnmpRequest")
+    field(SCAN, "Passive")
+    field(INP, "@$(HOST) $(COMM=public) $(SI_OID=.1.3.6.1.4.1.55555.3.0) STRING: 128")
+    field(FLNK, "$(P)TextAtCompletion")
+}
+record(stringin, "$(P)TextAtCompletion") {
+    field(DESC, "Text observed through forward link")
+    field(INP, "$(P)Text NPP")
+}
+record(ai, "$(P)Legacy") {
+    field(DESC, "Legacy cached analog input")
+    field(DTYP, "Snmp")
+    field(SCAN, ".1 second")
+    field(INP, "@$(HOST) $(COMM=public) $(LEGACY_OID=.1.3.6.1.4.1.55555.4.0) INTEGER: 128")
+}

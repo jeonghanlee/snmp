@@ -52,6 +52,83 @@ The baseline does not provide SnmpRequest or request trace support.
 
 ## Execute
 
+### Complete platform matrix
+
+Run the same matrix once on each declared Linux platform with the selected
+Base clients, native tools and development packages in PATH:
+
+```bash
+SNMP_MATRIX_OUTPUT=/absolute/path/to/new-matrix-directory
+python3 tests/run_matrix.py --base "$SNMP_TEST_BASE" --output "$SNMP_MATRIX_OUTPUT"
+```
+
+The output directory must not already exist. This command builds the exact
+working source, an ASan candidate, the original db9ebf5 comparison baseline,
+the selected operational rollback commit
+30d8b81fb10ff1940d9ff29d46d6954679a1f5ba, and the committed pre-deadline-fix
+source. It runs all suites at their full default
+counts, both native acquisition modes, actual legacy and waveform comparisons,
+registration/examples, observer/provenance negative controls and the two real
+deadline regressions on the defective build. Expected failures must contain
+their intended assertion; an infrastructure error does not satisfy them.
+ASan runs native protocol, failures, full teardown, legacy and waveform tests.
+The selected waveform and rollback terminal subcases complement the complete
+candidate suites; their individual result files remain marked partial.
+
+Operational rollback uses its production snmp executable with legacy Snmp
+DB/startup. Its legacy equivalence, waveform, native protocol and EOF/explicit
+terminal tests are required acceptance steps. The original baseline remains
+required for legacy/waveform comparison and the registration mismatch tests.
+Its native protocol suite is a historical observation with
+acceptance_required=false: each real failure and exit code remains recorded,
+but it does not qualify or reject the selected operational rollback. No other
+step is exempt from acceptance. matrix.json's passed field covers required
+steps; all_steps_passed includes the historical observation and
+historical_failures names any failing observation. A successful matrix with
+historical_failures does not mean every executed test passed.
+
+matrix.json records each command, result, log hash and actual OS/compiler/
+native/crypto identity. artifact-pairs.json locates the complete isolated build
+trees, binary/library/DBD hashes, database inputs and actual startup files.
+Keep those trees and evidence together for review and rollback reproduction.
+Candidate startup uses the shipped example; operational rollback and historical
+comparison use the actual legacy fixtures. artifact-pairs.json identifies
+candidate, operational_rollback, historical_comparator and sanitized_candidate
+roles separately. Only the original comparison baseline lacks SnmpRequest
+support; the selected rollback intentionally uses legacy DB/startup. No package install,
+deployment, tag or publication is performed by this command.
+
+For containers, mount source and dependency inputs read-only and a new owned
+output directory read-write; run as the source owner. Use an immutable image
+ID, private PID namespace and loopback-only networking. Supply --image-id with
+that ID and retain the actual container invocation/inspection separately.
+The two scheduling faults require ptrace of owned child threads; use only the
+necessary container capability, without host PID access. Missing snmpd or
+snmpget, denied tracing and sanitizer failures leave the matrix failed.
+
+### Known Base callback limitation
+
+Actual two-entry queue tests on the recorded Debian 12 Base 7.0.10 build
+demonstrated rejected callback admission after the ring became empty. Terminal
+SNMP results can remain Ready with increasing callback retries, PACT set and
+missing FLNK completion. The controlled reproduction and earlier natural
+failures remain distinct: the earlier failures did not capture the internal
+overflow flag. Passing repeats or other-platform runs do not prove immunity.
+Production-size failure frequency has not been measured.
+
+The pressure assertion remains required. A failed pressure test still makes
+the matrix's `passed` false and returns exit 1; there is no automatic timeout
+waiver. The [Base callback limitation decision](../docs/decisions/ADR-20260924-base-callback-limitation.md)
+permits a manually reviewed, explicitly recorded local development exception
+for this identified limitation after every remaining required check runs.
+Inspect actual trace, diagnostics and failure context before applying that
+exception. Unrelated failures still block acceptance. Do not enlarge the
+queue, relax assertions or relabel a failure to obtain a passing result.
+This exception neither verifies a Base correction nor authorizes production
+operation. Preserve the failed evidence and state the exception in the handoff.
+
+### Individual suites
+
 ```bash
 python3 tests/run_snmp.py --ioc "$SNMP_TEST_IOC" --profile tests/profiles/loopback.json --suite legacy
 python3 tests/run_snmp.py --ioc "$SNMP_TEST_IOC" --profile tests/profiles/loopback.json --suite sequencing
@@ -310,9 +387,17 @@ two-entry queue, actual callback insertion rejection, and 21 occupied record
 slots. Active CA PROC puts must coalesce into one later acquisition per record.
 The already-ready result remains immutable past its acquisition deadline;
 release consumes it once and then acquires the new value. `/proc` observations
-record FD count, RSS and threads throughout pressure and after draining. FD and
-thread counts must return to baseline; RSS growth is bounded to 4 MiB for this
+record FD count/targets, RSS and threads throughout pressure and after draining.
+The initial FD count must remain unchanged for 100 ms. After record completion,
+the FD count must return to that baseline and remain there for 100 ms within
+the profile action timeout; record completion alone does not synchronize native
+session or CA connection disposal. Immediate and settled counts, plus all
+settlement samples, are retained; a persistent increase still fails. Thread
+counts must remain at baseline; RSS growth is bounded to 4 MiB for this
 short test. This does not replace the separate one-hour resource acceptance.
+User/system CPU ticks and clock frequency are sampled from the same owned
+process. resource-summary.json derives elapsed CPU time and percentage of one
+core; it is an observation, with no unapproved site CPU threshold.
 
 The teardown suite runs 20 fresh owned PTY starts for each of four graceful
 variants: terminal EOF and explicit IOC exit, each with network work or a real
@@ -336,3 +421,25 @@ restrictions and unavailable diagnostics remain explicit failures or incomplete
 coverage; they are not suppressed into a passing resource claim.
 
 Final platforms and hardware acceptance remain separate canonical criteria.
+
+## Registration And Examples
+
+The registration suite runs examples/request-inputs.iocsh and its exact DB
+in both snmp and snmpRequestTest. Actual peer reads cover ai, longin and
+stringin SnmpRequest plus legacy Snmp; exported dsets, expanded DBD and generated
+registration identities support the runtime evidence. Invalid SCAN, missing or
+malformed INP, buffer lengths, flags/OIDs and request parameters fail visibly.
+Post-iocInit parameter changes leave the configured 400 ms deadline unchanged,
+verified by a real unanswered acquisition. Both old/new binary/DBD mismatch
+directions execute actual IOC startup and must produce the expected binding
+error. A manifest rejection alone is not this test.
+
+```bash
+SNMP_BASELINE_IOC="$SNMP_BASELINE/bin/linux-x86_64/snmp"
+SNMP_PROFILE=tests/profiles/loopback.json
+SNMP_REGISTRATION=(--profile "$SNMP_PROFILE" --suite registration)
+python3 tests/run_snmp.py --ioc "$SNMP_TEST_IOC" "${SNMP_REGISTRATION[@]}" --baseline-ioc "$SNMP_BASELINE_IOC"
+```
+
+These commands use a Bash array for the shared arguments. Evidence is retained
+even when Base continues startup after a configuration error.

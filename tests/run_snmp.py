@@ -80,7 +80,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ioc", type=Path, required=True)
     parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion", "robustness", "pressure", "teardown", "accounting"), required=True)
+    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion", "robustness", "pressure", "teardown", "accounting", "registration"), required=True)
     parser.add_argument("--output", type=Path, help="New evidence directory; never overwritten")
     parser.add_argument("--negative-control", choices=("wrong-value", "miswired", "trace-loss"))
     parser.add_argument("--case", help="One case, explicitly reported as partial coverage")
@@ -88,6 +88,7 @@ def main():
     parser.add_argument("--cycles", type=int, help="Partial lifecycle repetitions for development")
     parser.add_argument("--dtyp", choices=("Snmp", "SnmpRequest"), default="SnmpRequest")
     parser.add_argument("--baseline-evidence", type=Path, help="Successful legacy run to compare")
+    parser.add_argument("--baseline-ioc", type=Path, help="Original archived IOC for actual registration mismatch tests")
     args = parser.parse_args()
     profile = json.loads(args.profile.read_text())
     for name in LIMITS:
@@ -107,6 +108,10 @@ def main():
         parser.error("Observer negative controls require sequencing or lifecycle")
     if args.baseline_evidence and args.suite not in ("legacy", "conversion"):
         parser.error("--baseline-evidence requires legacy or conversion")
+    if args.suite == "registration" and not args.baseline_ioc:
+        parser.error("--suite registration requires --baseline-ioc")
+    if args.baseline_ioc and (args.suite != "registration" or not args.baseline_ioc.is_file()):
+        parser.error("--baseline-ioc requires registration and an actual executable")
     if args.output:
         work = args.output.resolve()
         work.mkdir(parents=True, exist_ok=False)
@@ -118,6 +123,7 @@ def main():
     config = {"ioc": str(args.ioc.resolve()), "profile": profile, "output": str(work),
               "cycles": args.cycles,
               "negative_control": args.negative_control, "dtyp": dtype,
+              "baseline_ioc": str(args.baseline_ioc.resolve()) if args.baseline_ioc else None,
               "baseline_evidence": str(args.baseline_evidence.resolve()) if args.baseline_evidence else None}
     write_json(work / "config.json", config)
     os.environ["SNMP_TEST_RUN_CONFIG"] = str(work / "config.json")
@@ -170,6 +176,9 @@ def main():
         elif args.suite == "accounting":
             from test_accounting import AccountingTest, CASES
             case_class, names = AccountingTest, CASES
+        elif args.suite == "registration":
+            from test_registration import RegistrationTest, CASES
+            case_class, names = RegistrationTest, CASES
         else:
             from test_conversion import ConversionTest, CASES
             case_class, names = ConversionTest, CASES

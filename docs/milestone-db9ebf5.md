@@ -9,9 +9,26 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: complete the M4 handoff cross-check, commit its
-reviewed files, then execute the accepted M5 platform/compatibility plan.
-M4 local tests and independent third-person/second-person review passed.
+Next session entry point: finish the M5 handoff cross-check and local commit,
+then begin M8 step 1 with real IOC v3 and writable SET baselines.
+The complete final M5 matrices and independent third-person/second-person
+review are accepted locally under the documented Base limitation. All 35
+required steps pass on each of Debian 13, Debian 12 and Rocky 9; the original
+Debian 12 comparator's three v3 shutdown failures remain recorded as failed.
+The deferred Base correction proposal has completed static and maintainer
+review, and its corrected limitation documents passed independent review;
+no corrected Base has been built or executed.
+Decision Date: 2026-09-24; continue
+module development with this documented limitation while Base repair remains
+deferred. Preserve every failed test as failed; this permits development
+progress, not an unconditional completion guarantee or deployment acceptance.
+The selected M4 plus legacy DB operational rollback is implemented in the
+matrix and instructions; its affected-path and final full-matrix verification
+completed on 2026-09-24. Earlier failed matrices and all natural/controlled
+Base callback failures remain retained. Final handoff derivatives still require
+their cross-check before the local commit; remote landing remains pending.
+M4 local tests, independent third-person/second-person reviews and handoff
+cross-check passed; its reviewed 21 paths are committed as 30d8b81.
 M3 is committed as 68294c2; its T5/T10 dedicated successful-generation
 diagnostic checks have now passed on the later M4 source, as recorded below.
 M2 is locally accepted and committed as e1878bc. M1's source contract and independent third-person
@@ -429,7 +446,7 @@ the canonical result should name the safe evidence artifact.
 | M2 | Real IOC test harness and legacy baseline | Milestone | In progress | No | M1, G1 | Reproducible IOC/peer/client path and baseline evidence; [detail](#m2---real-ioc-test-harness-and-legacy-baseline). |
 | M3 | Request-driven reads and OID batching | Milestone | In progress | No | M1, G1 | Fresh reads complete exactly once through EPICS; [detail](#m3---request-driven-reads-and-oid-batching). |
 | M4 | Failure completion and diagnostics | Milestone | In progress | No | M3, G1 | Faults terminate safely with observable results; [detail](#m4---failure-completion-and-diagnostics). |
-| M5 | Compatibility and candidate acceptance | Milestone | Not started | No | M2, M3, M4, G1 | Final candidate passes the accepted matrix; [detail](#m5---compatibility-and-candidate-acceptance). |
+| M5 | Compatibility and candidate acceptance | Milestone | In progress | No | M2, M3, M4, G1 | Final candidate passes the accepted matrix; [detail](#m5---compatibility-and-candidate-acceptance). |
 | G2 | Pilot environment and IOC change authority | External gate | Open | No | M5 | Pilot target, access, scope, and recovery procedure available; [detail](#g2---pilot-environment-and-ioc-change-authority). |
 | M6 | Downstream IOC migration and pilot | Milestone | Blocked | No | M5, G2 | Actual IOC DB passes laboratory and device pilot checks; [detail](#m6---downstream-ioc-migration-and-pilot). |
 | G3 | Production deployment window and acceptance limits | External gate | Open | No | M6 | Operator approves exact candidate, window, and rollback; [detail](#g3---production-deployment-window-and-acceptance-limits). |
@@ -1455,17 +1472,18 @@ pilot, firmware change, production deployment or remote landing is claimed.
 
 ##### Closure Evidence
 
-- Local implementation and its stated verification boundary passed independent
-  third-person and second-person review on 2026-09-24. Handoff cross-check
-  and local commit remain pending. Remote landing is not performed; no
-  required check is waived.
+- Local implementation, third-person and second-person reviews, and corrected
+  handoff passed on 2026-09-24. Commit 30d8b81fb10ff1940d9ff29d46d6954679a1f5ba
+  contains exactly the 21 reviewed paths. Committed SHA-256 identities and a
+  clean worktree were verified after commit. Remote landing remains pending;
+  no required check is waived.
 
 #### M5 - Compatibility and candidate acceptance
 
 Origin: db9ebf5 / M5
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -1479,7 +1497,7 @@ Out of scope: Production changes, a release/tag action, or declaring hardware co
 
 ##### Completion Criteria
 
-- All required M2-M4 checks pass on the final candidate; changed shared paths trigger the relevant reruns.
+- All required M2-M4 checks run on the final candidate; changed shared paths trigger the relevant reruns. All checks must pass except the explicitly retained Base callback admission limitation below, accepted for continued local development on 2026-09-24. This exception does not mark its failed tests as passing or authorize deployment.
 - Legacy default and new mode pass the accepted input/protocol matrix; simulated output behavior remains compatible.
 - Documentation examples load with the delivered DBD/IOC, including rejection of invalid configurations.
 - The candidate and rollback binary/DB pairs are identified, rebuildable, and independently reviewed.
@@ -1487,13 +1505,14 @@ Out of scope: Production changes, a release/tag action, or declaring hardware co
 ##### Dependencies And Decisions
 
 - M2 supplies executable evidence; M3 and M4 supply behavior and failure coverage. G1 is Complete as of 2026-09-24; local implementation is authorized.
+- Decision Date: 2026-09-24. Defer Base source/installation changes, review the proposed correction separately, document the demonstrated callback overflow limitation, and continue module milestones. The exception covers that known dependency limitation only; any other required failure remains blocking. M5 local handoff and subsequent implementation must carry the limitation explicitly; G2/G3 and hardware acceptance remain unchanged.
 
 ##### Implementation Plan
 
 Plan Status: accepted
-Plan Acceptance: 2026-09-24; current plans accepted by the instruction to implement every milestone sequentially
-Implementation Authorization: 2026-09-24; implement the current plan, obtain third-person and second-person reviews and apply findings; physical execution remains subject to G2/G3
-Superseded Plan Artifacts: none
+Plan Acceptance: 2026-09-24; current M5 plan plus the explicit decision to document the Base limitation and continue development
+Implementation Authorization: 2026-09-24; document the limitation, review the Base correction proposal and proceed with module milestones; Base modification remains deferred and physical execution remains subject to G2/G3
+Superseded Plan Artifacts: original M5 mapping is extended only for the dated dependency-limitation decision
 
 1. Run a clean build and the real integration runner on declared Debian 12 and Rocky 9 targets; record Base, Net-SNMP, compiler, and architecture rather than relying on a latest container tag.
 2. Exercise default legacy, all-new-mode, and mixed-mode fixtures, including supported SNMP versions and security contexts.
@@ -1502,13 +1521,14 @@ Superseded Plan Artifacts: none
 5. Update documentation/devSnmp.html and relevant examples for the implemented API, units, timing, limitations, and rollback compatibility.
 6. Review the final diff and state/lock contract. Package the exact candidate and old artifact pair for M6; do not publish or deploy under this work item.
 7. Verify devSnmp.dbd device declarations, the matching exported dsets, expanded snmp.dbd, generated snmp_registerRecordDeviceDriver.cpp, linked library and actual IOC registration. Regenerate downstream DBD/registration before loading the new DTYP. Do not add DBDINC for existing Base record types.
+8. Document the Base callback overflow limitation in the user guide, test guide and a durable decision. Independently review the proposed Base correction without applying it. Preserve matrix exit codes and failed assertions, identify the bounded development exception in the handoff, and rerun the required final matrix. No broader failure exemption is introduced.
 
 ##### Test Plan
 
 | Label | Layer | Method | Environment | Expected Result |
 | --- | --- | --- | --- | --- |
 | T1 | Build matrix | Build the actual support library and IOC on both declared platform targets. | Debian 12 and Rocky 9 with recorded versions | Both builds succeed and load the intended device-support registrations. |
-| T2 | Integration matrix | Run all required M2-M4 scenarios against the final candidate binaries. | Actual shipped fixtures and protocol peers | All required cells pass; skipped/unavailable cells remain explicit and cannot count as accepted. |
+| T2 | Integration matrix | Run all required M2-M4 scenarios against the final candidate binaries. | Actual shipped fixtures and protocol peers | All required cells pass, subject to the dated Base callback limitation accepted for local development only. Its actual failure remains failed; skipped/unavailable cells and unrelated failures cannot count as accepted. |
 | T3 | Backward compatibility | Compare legacy input/output/readback runs against the baseline using identical peer inputs. | Baseline and candidate actual IOCs | Existing defaults and accepted observable behavior are preserved. |
 | T4 | Examples/documentation | Load delivered example DB/startup files and exercise valid and invalid mode syntax. | Candidate executable/DBD | Documented configuration works; invalid configuration fails visibly as specified. |
 | T5 | Candidate traceability | Reproduce startup with candidate and rollback binary/DB pairs and compare recorded identifiers. | Isolated test IOC | The running module is the intended build, and the rollback pair is usable. |
@@ -1518,16 +1538,319 @@ Superseded Plan Artifacts: none
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| T1 | Not run | Debian 12 and Rocky 9 with recorded versions | Pending | none |
-| T2 | Not run | Actual shipped fixtures and protocol peers | Pending | none |
-| T3 | Not run | Baseline and candidate actual IOCs | Pending | none |
-| T4 | Not run | Candidate executable/DBD | Pending | none |
-| T5 | Not run | Isolated test IOC | Pending | none |
-| T6 | Not run | Final built production and test IOC products | Pending | none |
+| T1 | 2026-09-24T17:46:12.026634+00:00 | Debian 13, Debian 12 image abcca0a934ef, Rocky 9 image 517e43ac402b; Base 7.0.10; recorded compiler/native/crypto inputs | PASS: all 15 final builds and matching production/test registration paths | /tmp/snmp-m5-matrix-20260924-c; five build manifests per platform and actual candidate-registration results |
+| T2 | 2026-09-24T17:46:12.026634+00:00 | Final exact-source candidates and shipped default fixtures on all three OSes | Final required matrix PASS: 35 required steps per OS; earlier Base callback failures remain failed and unresolved under the dated local-development exception | Three complete matrix.json files, raw suite/IOC/peer/CA evidence and final pressure holds; the preserved failure observations below remain applicable |
+| T3 | 2026-09-24T17:46:12.026634+00:00 | Original db9, selected M4 rollback, candidate and ASan candidate with identical comparison inputs | PASS: 18 actual legacy/waveform comparisons; both candidate native modes pass 5/5 per OS; three Debian 12 historical v3 shutdown failures remain failed | Per-platform baseline-comparison.json and protocol results; original protocol is a historical observation, not rollback acceptance |
+| T4 | 2026-09-24T17:46:12.026634+00:00 | Final production and test IOCs, exact delivered example DB/loader and real peer | PASS: ordinary registration suite 5/5 per OS, including both examples and invalid configuration; the earlier extra ASan loader leak remains failed | candidate-registration/results.json and registration-inputs.json; additional dependency observation retained below |
+| T5 | 2026-09-24T11:25:35.690358-07:00 | Four identified artifact roles per OS; final full matrix and independent source/runtime/dependency audit | PASS: actual identities match and selected M4 legacy/protocol/terminal runs pass; independent third-person/second-person review supports local handoff preparation | artifact-pairs.json; platform audits; /tmp/snmp-m5-final-review-20260924-reader/audit.json and external results; final handoff cross-check remains pending |
+| T6 | 2026-09-24T17:46:12.026634+00:00 | Final matching production/test DBD, generated registration and libraries; both deliberate mismatch directions on each OS | PASS: supported types complete actual reads; six mismatch startups show required binding errors without peer requests | candidate-registration results, exported symbols, generated registration identities, mismatch.json and actual IOC logs |
+
+##### Final Local Qualification
+
+The final public Matrix.run executions completed on 2026-09-24 using the
+unreduced shipped profiles: 100 ordinary cycles, 1000 immediate responses,
+the full 60-second pressure hold and 20 starts per declared teardown variant.
+Evidence root: /tmp/snmp-m5-matrix-20260924-c. launch-specs.json,
+`<platform>-launch.json` and `<platform>/matrix.json` preserve the exact public command,
+environment and immutable image identity. No installed dependency was changed.
+
+| Platform | Started UTC | Finished UTC | Required steps | Historical protocol | Matrix exit |
+| --- | --- | --- | --- | --- | --- |
+| Debian 13 | 16:35:22.482834 | 17:42:09.967270 | 35/35 PASS | PASS | 0 |
+| Debian 12 | 16:35:20.547536 | 17:41:39.546212 | 35/35 PASS | Three v3 shutdown failures, IOC exit -11 | 0 |
+| Rocky 9 | 16:35:21.894900 | 17:46:12.026634 | 35/35 PASS | PASS | 0 |
+
+Each complete matrix has 36 steps and partial=false. The sole non-required
+step is the original comparator's native protocol observation. Debian 12
+therefore retains all_steps_passed=false and historical_failures containing
+baseline-protocol. The six intended negative attempts per OS fail their real
+assertions and are correctly detected; they are not successful positive tests.
+Declared selected-case subcommands retain their individual partial=true.
+
+Across all platforms, the executions contain 15 builds, 93 public suite
+invocations, 396 test attempts and 1707 IOC startups: 1701 ordinary runtime
+records plus six deliberate mismatch startups. There are 375 passing attempts,
+18 intended failing attempts and three historical failing attempts. The
+miswired control records two failure events for one attempt, so event counts
+are not attempt counts. All 18 legacy/waveform comparisons are equal.
+
+The exact original, M3 and M4 source archives, candidate/ASan copied inputs,
+executables, libraries, expanded DBD, fixtures and actual startup files are
+identified by the build manifests and artifact-pairs.json. The two C3 document
+corrections made after launch affect only the canonical milestone and Base
+limitation ADR; every runtime and fixture input remains the launched version.
+Original snapshots and failed results are unchanged. The selected rollback
+is exact M4 plus legacy DB/startup, with nine ordinary production IOC starts
+per OS covering legacy, waveform, native protocol and both terminal exits.
+
+| Platform | Pressure hold seconds | Initial/final FDs | RSS increase KiB | Observed CPU seconds | Healthy p99 alone / with silent peer, seconds | Loaded maximum seconds |
+| --- | --- | --- | --- | --- | --- | --- |
+| Debian 13 | 60.000727862 | 8/8 | 8 | 0.48 | 0.044216250 / 0.044833129 | 0.047792007 |
+| Debian 12 | 60.001146026 | 8/8 | 4 | 0.46 | 0.043129065 / 0.042787989 | 0.045311771 |
+| Rocky 9 | 60.002140725 | 8/8 | 4 | 0.49 | 0.046320842 / 0.045278899 | 0.048854983 |
+
+Resource data comes from actual owned IOC samples. CPU has no selected site
+threshold. Each healthy timing condition contains 1000 measured v2c reads;
+these results do not qualify v3 discovery isolation or one-hour resources.
+All three final pressure cases pass; they do not close the demonstrated Base
+callback limitation or identify the original failed Rocky descriptor.
+
+Independent final review completed at 2026-09-24T11:25:35.690358-07:00 with
+third-person and second-person PASS and no new demonstrated in-scope defect.
+Its new audits verify retained real executions, not newly executed IOC suites.
+The audit rederives 843 accepted scenario directories and 285648 completed
+generations from original IOC events, including one FLNK per accepted key and
+PACT set during FLNK. This is the trace-bearing subset, not every startup.
+It independently checks 4527 host-side file digests and 82 platform-local
+dependency/client/compiler files with no identity error. Evidence:
+/tmp/snmp-m5-final-review-20260924-reader/{audit.json,workloads.json,external-launches.json}
+and the three external result files; official review fup20260924_112535.
+
+The final source and completed matrix support local M5 handoff preparation
+under D007/D008. F009, F011 and F012 are implemented and independently verified.
+F010 remains deferred and unresolved; its natural and controlled failures
+below stay failed. The additional ASan loader leak also remains failed and
+outside any claim of passing ASan registration. Final handoff derivatives,
+local commit and remote landing are separate remaining steps. No Base repair,
+M8 worker qualification, hardware acceptance or deployment follows.
+
+##### Earlier Qualification Observations
+
+Observed at 2026-09-24T07:30:35.605265-07:00. Full acceptance is pending; completed subset results
+above do not waive unfinished matrix cases or the usable rollback condition.
+
+The unmodified db9ebf5 archive on Debian 12 passes the v1/v2c native cases
+but all three v3 security-level cases fail during EOF cleanup after successful
+GET, SET and readback observations. The public runner reports IOC exit -11.
+An independent reviewer reproduced all three failures three times; the
+candidate passed both modes in that independent repetition. An additional
+owned-PTY diagnostic with the same shipped protocol.db, IOC helper and real
+snmpd/UDP proxy also fails all three v3 levels on explicit exit.
+
+The preserved cores show native USM work in the module's send/read threads
+reaching OpenSSL and pthread_rwlock_rdlock with a null lock. In the authPriv
+core, the main thread is in C exit/library finalization, epicsExitCallAtExits
+and snmpAtExit. The archived snmpMain.cpp selects its dummy epicsExit on
+Base 7.0.10 and its executable has no epicsExit import. Commit e1878bc
+already corrects that version condition in the candidate. These observations
+identify the old shutdown path and actual fault location; they do not turn the
+archive's failure into a passing rollback result.
+
+Core stack evidence is under /tmp/snmp-m5-debugger-os92sr1c/, with matching
+Debian 12 libraries copied from the recorded immutable image. Original cores
+remain in /tmp/snmp-m5-matrix-20260924-b/debian12/rollback/. The separate explicit-exit diagnostic
+is /tmp/snmp-m5-matrix-20260924-b/debian12-rollback-explicit/results.json, with its source and launch
+record retained at the matrix root. No original binary or core was modified.
+
+An additional independent ASan registration run observed a 129-byte,
+one-allocation leak in each loader example. The full observed stack is
+malloc -> macParseDefns -> iocshBody -> iocshLoadCallFunc -> iocshBody ->
+snmpMain.cpp; the selected Base 7.0.10 source allocates the defines array
+and does not free it. Evidence:
+ /tmp/snmp-m5-review-j3e481_k/asan-registration/results.json and
+ /tmp/snmp-m5-review-j3e481_k/asan-example-stack/.
+This extra run failed and is retained as a Base dependency observation;
+it is not part of a passing ASan-registration claim. No Base patch or broad
+sanitizer suppression is applied.
+
+The archived comparison baseline remains db9ebf5. Selection of a separately
+qualified operational rollback pair remains open after the archive failures;
+the candidate matrix continues without substituting a new baseline.
+
+Additional observation at 2026-09-24T08:05:29.923216-07:00: the Rocky 9 full pressure case fails its
+single final FD equality check (initial 8, final 9); the sixty-second held
+interval remains at 8. The original run remains failed. Three unchanged
+public repetitions by the Implementer and three independent repetitions by
+the Reviewer pass with 8 initially and finally. External observations show
+temporary additional UDP sockets near completion, but the original failed
+run did not record descriptor targets/inodes, so its additional FD is not
+identified. No leak-free or resolved-failure conclusion is drawn.
+
+The original failure is under
+/tmp/snmp-m5-matrix-20260924-b/rocky9-runtime/candidate-pressure/.
+Additional public results and partial FD observations are under
+/tmp/snmp-m5-matrix-20260924-b/rocky9-pressure-fd-observer/;
+its public runner exits zero, but the separate external observer records one
+PermissionError and its wrapper exits one. The observation is not a complete
+passing observer run. Independent results are under
+/tmp/snmp-m5-pressure-review-a72905s0/public-repeat/.
+This unresolved measurement requires disposition before T2 acceptance.
+
+The unchanged M4 commit 30d8b81fb10ff1940d9ff29d46d6954679a1f5ba was separately
+archived and built on all three platforms as a concrete optional rollback
+pair. Each actual production IOC with legacy fixtures passes one legacy
+comparison case, fifteen native protocol cases (three repetitions), the
+selected legacy EOF/explicit-exit observer case, and three explicit v3
+security-level exit diagnostics. The selected terminal run remains marked
+partial; it is not the complete teardown suite. All actual IOC exits are
+zero. The build artifacts and 21 runtime identity records per OS were
+rehashed and associated with the matching executable/DBD/module.
+
+Evidence: /tmp/snmp-m5-rollback-option-20260924-a/qualification.json, original
+per-suite results, execution records and launch identities. This prepares an
+owner-reviewable option; it does not select or replace the original comparison
+baseline, waive F009, or close M5/T5.
+
+Additional completed evidence at 2026-09-24T08:27:22.748402-07:00: all original full matrices
+finished with exit 1. Debian 13 failed the miswired-FLNK and trace-loss
+negative-control classifications because their expected message patterns
+did not match the actual intended assertion failures. Debian 12 had the same
+two classification failures plus the archived v3 shutdown failures. Rocky 9
+had the same two classification failures plus the original FD 8-to-9 result.
+Required ordinary candidate and ASan suites otherwise passed. The full run
+manifests retain exact default counts, commands, source/build identities,
+raw results and failure records.
+
+The two message patterns now identify the actual assertion failures. Fresh
+targeted executions of the shipped Matrix methods and public runner pass
+wrong-value, miswired-FLNK and trace-loss controls on all three OSes.
+Those manifests are explicitly partial method qualifications. The original
+full matrices were built from the original eleven frozen source hashes;
+the three changed test/documentation files are separately identified.
+No production source or original result was changed.
+
+Resource observations now record FD targets and require an unchanged initial
+count for 100 ms, then return to that count for 100 ms within the existing
+10-second action timeout after record completion. All intermediate samples
+and the immediate post-completion count remain retained. Three full pressure
+repetitions pass on Debian 13 and Rocky 9. One Debian 13 repetition observes
+8 initially, 9 at record completion, and 8 after a 0.126-second settling
+observation. This new observation does not identify the original Rocky FD.
+
+A temporary OS-close fault retains real UDP descriptors in the owned Rocky
+test IOC. The unmodified public pressure case fails with
+Wait expired: stable final FD count, and the shipped matrix correctly
+classifies that intended failure. Native APIs, record callbacks and protocol
+fixtures are not substituted. Evidence is under
+/tmp/snmp-m5-matrix-20260924-b/rocky9-runtime-retained-udp/.
+
+Debian 12 corrected pressure repetitions produce PASS, FAIL, PASS. The failed
+repetition stops in the initial ordinary warmup, before the new resource
+sampler or sustained callback blocker runs. Actual wire and driver traces
+show all 21 generation-6 responses; ten records apply and complete, while
+eleven remain Ready with PACT 1. Final diagnostics show callbackPending false
+and more than 1000 callback admission retries for each unfinished record.
+The runner expires after ten seconds and the IOC subsequently exits zero.
+This is an unresolved completion failure, not a resource-sampler failure
+or a passed repetition. Evidence is under
+/tmp/snmp-m5-matrix-20260924-b/debian12-correction/pressure/
+test_callback_queue_sixty_seconds-vj8wfw7u/sustained-acq1k102/.
+No load-only explanation or Base root cause is established by this record.
+
+All corrected-method raw results are under the platform-correction directories
+at the same root. The retained identity audit
+audit-full-matrix-corrected.json verifies the original frozen charter hashes,
+build artifacts, logs, suite associations and pair inputs without mismatch.
+The earlier audit-full-matrix.json is preserved: its one counting error per OS
+assumed one unittest outcome event per test attempt, whereas the miswired case
+records separate body and cleanup failures for one attempt. The corrected
+audit separates attempt count from outcome events and changes no test verdict.
+
+Operational rollback decision, 2026-09-24: use the verified M4 source
+30d8b81fb10ff1940d9ff29d46d6954679a1f5ba with legacy DB/startup. The unmodified
+db9ebf51bc81d6f63d9395513d94d60b3b7eda83 remains the comparison baseline.
+This supersedes the pending-selection statements above. The selected pair's
+actual three-platform qualification is retained in the cited qualification.json.
+The current matrix and public instructions now implement separate candidate,
+operational rollback, historical comparator and ASan candidate identities.
+The actual db9 native protocol outcome is retained as a non-acceptance
+historical observation; its failed rows are never changed to passing rows.
+All other steps remain required, including db9 legacy/waveform comparisons,
+old/new registration mismatch and the selected M4 legacy/protocol/terminal
+checks. Independent affected-path verification remains in progress; no fresh
+complete matrix acceptance is claimed. The callback failure still blocks T2.
+
+Independent method review finalized at 2026-09-24T08:42:31.684370-07:00:
+the corrected assertion matching and bounded FD observation pass both the
+execution and maintainer-reading checks. Six actual public invocations contain
+eight test attempts, including intended negative failures and one new natural
+Debian 12 warmup failure. That failure has 189 actual results but only 170
+applications/completions/FLNK audits; generation 9 leaves nineteen records
+Ready with PACT 1 and more than 1000 admission retries. All three full original
+matrices remain failed. The independent identity audit covers their 1680 IOC
+records. Evidence: /tmp/snmp-m5-correction-review-w2cl_z3v/.
+
+Bounded cause diagnostic executed from 2026-09-24T15:52:57.480344+00:00 to
+15:53:09.544637+00:00 using the actual Debian 12 candidate and shipped pressure
+fixture. A hardware execution breakpoint stops only its owned snmpComplete
+thread before callbackRequest stores queueOverflow after a failed ring push.
+Other IOC threads continue. The queue is already empty and overflow is clear
+at the stop and after a 200 ms scheduling delay. Debug registers are restored
+and the unchanged instruction resumes. Every one of 1003 subsequent raw
+memory samples over 10.20 seconds shows used=0 and overflow=1. The actual public
+runner fails the original warmup completion assertion, exit 1; the diagnostic
+wrapper exits 0 and records no diagnostic error. No source instruction, queue
+data or internal function was replaced.
+
+Base R7.0.10 callbackRequest rejects a set overflow flag before attempting a
+push; the consumer clears the flag only after a successful pop. The observed
+empty-queue/overflow condition therefore prevents subsequent callback
+admission. This demonstrates that interleaving in the actual dependency and
+matches the module's repeated-rejection symptom. The two prior natural
+failures did not capture queue memory, so their exact interleaving remains
+unobserved. Three preceding read-only queue-observer runs passed and do not
+waive the failures. No production-size failure rate or indefinite runtime
+duration is inferred from this bounded test.
+
+Diagnostic evidence is /tmp/snmp-m5-matrix-20260924-b/debian12-queue-schedule/,
+with schedule_base_queue.py and the exact container launch JSON at its parent.
+The verified Debian 12 libdbCore SHA-256 is
+9f2fc56ba76e7ac72019c301f1cc138cc31c6eb0ccdd94bb8e1ffe921c51d3b6.
+Dependency repair is outside the current M5 implementation boundary. The
+proposed remedy is to make admission depend on the actual synchronized ring
+push, retaining overflow reporting separately. Decision Date: 2026-09-24;
+defer that repair, review the proposal, document the limitation and continue
+module development. This supersedes the pending repair-scope question and
+the earlier assertion that this specific limitation blocks all subsequent
+implementation. It does not establish an all-tests-pass result, a completed
+repair or a production acceptance. No Base patch, installed-tree change or
+completion workaround is applied; the known failed observations remain failed.
+
+Independent selected-pair review finalized at 2026-09-24T09:25:37.643694-07:00.
+Its 33 public invocations contain 72 attempts: 66 passes, three retained
+Debian 12 original-baseline v3 failures and three intended wrong-baseline
+rejections. All required positive affected paths pass on Debian 13, Debian 12
+and Rocky 9. The audit covers 90 normal runtime records and six old/new
+registration mismatch startups with no identity errors. These are fresh
+executions of the shipped Matrix methods, not a fresh complete Matrix.run.
+Evidence: /tmp/snmp-m5-selected-review-32eqly78/, including final-audit.json.
+This supersedes the pending affected-path verification statement above.
+
+That reviewer also independently reran the original scheduling diagnostic:
+1008 post-resume samples over 10.238178212 seconds show the empty ring with
+overflow set. The actual pressure test fails with 21 results, two completions
+and nineteen records still Ready with PACT set. This adds one diagnostic IOC;
+it does not supply a completed sixty-second pressure phase. Evidence:
+/tmp/snmp-m5-selected-review-32eqly78/diagnosis/ and diagnosis-audit.json.
+
+Independent Base proposal review finalized at 2026-09-24T09:31:49.554565-07:00.
+Source and retained raw-evidence checks find no demonstrated contradiction
+in making admission depend on the locked ring push and keeping callback
+ownership unchanged. This is a static conclusion; no corrected Base was
+built or executed. The proposed overflow counter counts reported diagnostics
+after suppression; suppressed diagnostics and the total number of rejected
+requests are different quantities. Consumer progress resets suppression;
+it is not a time limit. Existing Base callback tests each make 169 initial
+submissions and expect 338 callback invocations with a 2000-entry default
+queue; separate actual full-queue,
+concurrent ownership and diagnostic tests are required before adoption.
+Atomic/interrupt behavior requires target-specific verification; Linux
+process observations do not qualify other interrupt environments.
+
+The durable [Base callback limitation decision](decisions/ADR-20260924-base-callback-limitation.md)
+and public guides record these operating and verification limits. The
+unapplied proposal remains separate from the implemented module. The static
+and maintainer reviews do not claim corrected runtime behavior or remove
+the retained failures. The final complete M5 matrix and source review are
+recorded above; the handoff derivative cross-check remains pending.
 
 ##### Closure Evidence
 
-- None.
+- Final local source and matrix review: fup20260924_112535, 2026-09-24,
+  third-person and second-person PASS under D007/D008. F010 remains deferred
+  and unresolved; original failed observations are retained.
+- Final handoff cross-check and local commit pending. No remote landing or
+  production acceptance; Status remains In progress.
 
 #### G2 - Pilot environment and IOC change authority
 
@@ -1612,6 +1935,27 @@ Superseded Plan Artifacts: none
 | T4 | Hardware pilot | Observe the approved read subset using request/completion diagnostics, valid-sample age, client/alarm checks, and resource deltas. | One G2-approved PDU and IOC | Agreed timing/error/resource limits hold for the full window; parser errors remain separately counted and investigated. |
 | T5 | Recovery rehearsal | Use the laboratory fault peer and restore the retained old module/IOC/DB pair. | Same downstream deployment layout in a safe environment | Both error recovery and rollback work without control writes or stale new-mode configuration. |
 | T6 | Three-device coverage | Observe approved read subsets separately on T000398, T000525 and T001374, then concurrently. Record actual protocol/firmware/IOC/DB and correlate request/result/FLNK traces; physical values need not change on demand. | G2-approved devices and test IOC | Each device preserves per-record sequencing and meets accepted timing/resource limits. A combined run cannot hide an individual failure. No production fault injection or outlet SET is used. |
+
+##### Configuration Discovery
+
+Read-only observation at 2026-09-24T08:59:49.209142-07:00: the apcpdu checkout is clean on
+refactor/snmp-db-processing at 6bedd223117f55b253c5834bdc50c013df1a9010,
+matching its fetched tracking branch. The active iocar08-pdu startup has three
+PDU loaders, but iocBoot/iocar08-pdu/ver3.txt is absent. The iocap7800b-apcpdu,
+ioctestLab-apcpdu and iocarrf-apcpdu directories each contain ver3.txt with
+SNMPv3 identity/authentication/privacy fields. Credential values are neither
+copied into this record nor supplied to a device by this inspection.
+The pdu_ap7800b.iocsh and pdu_pdu3ev.iocsh loaders default to SNMPv3 and resolve
+ver3.txt relative to IOC working directory. The active AR08 native timeout is
+2000000 microseconds. The Tripp Lite loader enables its write DB unless
+WRITE_EN disables that load; an approved read-only subset must therefore be
+prepared before running a physical pilot.
+
+The checkout does not establish the three asset-to-address associations.
+The same-session normal-token AMS network lookups for the three inventory IDs
+returned HTTP 401, so no asset mapping was inferred. This is configuration
+inspection only: no IOC startup, device GET/SET, installed-tree change or G2
+acceptance occurred. The T1-T6 verification rows remain unexecuted.
 
 ##### Verification Results
 
@@ -2188,8 +2532,9 @@ conditional interval sum (2R+3) times T, or 130 s at the inherited defaults.
 This is source-derived accounting, not an executed combined 130 s scenario,
 an accepted watchdog value, or a bound for every native path. The separate
 numeric decision below selects the operating allowance and checked limits;
-it does not turn that allowance into measured evidence. Debian 12, Rocky 9, explicit engine
-IDs, other security settings and the actual worker path remain unverified.
+it does not turn that allowance into measured evidence. The Debian 12 and Rocky 9
+native-only extensions are recorded below; explicit engine IDs, other security
+settings and the actual worker path remain unverified.
 No native settings or record deadlines were changed by this experiment.
 
 Evidence root: `/tmp/snmp-native-budget-20260923/evidence/`.
@@ -2217,6 +2562,42 @@ on restart and verify the boots increase from real packets.
 | Patched snmplib/snmp_api.c | 9e3f9931b84575b75365429cf18f114fe47a1bbd6852f5379514ff922cd3bf1e |
 | Patched snmplib/snmpusm.c | 797860e7df485a0a82ffe5127fe19d9bc19b149eb43fdf90bb65ccd6484bd154 |
 | Patched snmplib/snmp_client.c | 88819c4157b726c4d2f345b801093540ed29aa2fd70c5664a86fe135aae13f2b |
+
+##### Additional Native Platform Observations
+
+Observed from 2026-09-24T07:45:02-07:00 through
+2026-09-24T07:53:29.152947-07:00. The same native C probe was compiled and
+executed in the immutable Debian 12 and Rocky 9 images used by M5. Debian 12
+uses Net-SNMP 5.9.3/GCC 12.2.0; Rocky 9 uses Net-SNMP 5.9.1/GCC 11.5.0.
+Each platform passes all 26 short cases and all six default-setting cases
+against real native snmpd and the external UDP proxy. Each platform's seven
+agent lifetimes exit zero. This is native API evidence, not IOC, adapter,
+large-FD, persistent-worker or hardware acceptance.
+
+| Default-setting scenario | Debian 12 elapsed, ms | Rocky 9 elapsed, ms | Outgoing packets |
+| --- | ---: | ---: | ---: |
+| Cold discovery: all requests dropped | 60053.814 | 60049.395 | 6 |
+| Warm GET: requests dropped | 60001.197 | 60001.193 | 6 |
+| Warm GET: replies dropped | 60001.455 | 60001.136 | 6 |
+| Late discovery, then application requests dropped | 118054.313 | 118052.145 | 12 |
+| Late timeliness REPORT after agent restart | 68003.063 | 68003.532 | 7 |
+| Warm SET: replies dropped after application | 60001.457 | 60001.246 | 6 |
+
+Source SHA-256 remains
+bc90d70b538293627f7153881c8c7db431955751d293edc14e804c7f1a70a177.
+The Debian runner is unchanged; the Rocky runner changes only the native
+library path used for artifact identity. Native logic and assertions are
+unchanged. Rocky compilation requires -fPIE with its native RPM linker specs;
+the initial failed non-PIE build is retained and does not count as a run.
+
+Evidence root: /tmp/snmp-native-platform-20260924-a/. verified-results.json
+records all four result hashes, source/runner/binary identities and exact
+result paths. Each combined result was compared with its per-case file, and
+retained source/runner/binary snapshots were rehashed. Launch records identify
+the immutable images and mounts; build/loaded-library/version records and
+per-case native packets/callbacks are preserved. The observed late-discovery
+duration does not prove a universal 150 s wall-clock guarantee. No M8 runtime
+test label or watchdog implementation is accepted by these observations.
 
 ##### Finalized Watchdog Contract
 

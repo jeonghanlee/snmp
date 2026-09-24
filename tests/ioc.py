@@ -87,10 +87,11 @@ def verified_baseline(test, suite, case, fixtures):
 
 
 class IOC:
-    def __init__(self, work, lines, prefix="SNMPTEST:", require_shutdown=True, process_env=None, terminal=False):
+    def __init__(self, work, lines, prefix="SNMPTEST:", require_shutdown=True, process_env=None, terminal=False,
+                 executable=None):
         self.work = Path(work)
         self.config = settings()
-        self.executable = Path(self.config["ioc"]).resolve()
+        self.executable = Path(executable or self.config["ioc"]).resolve()
         self.top = self.executable.parents[2]
         self.dbd = self.top / "dbd" / (self.executable.name + ".dbd")
         self.prefix = prefix

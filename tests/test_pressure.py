@@ -1,6 +1,7 @@
 """Sustain real Base callback contention and observe owned IOC resources."""
 
 from pathlib import Path
+import os
 import re
 import time
 
@@ -13,15 +14,48 @@ CASES = ("callback_queue_sixty_seconds",)
 PRESSURE_SECONDS = 60.0
 SAMPLE_SECONDS = 1.0
 RSS_ALLOWANCE_KIB = 4096
+FD_STABLE_NS = 100000000
 
 
 def resources(runtime):
     proc = Path("/proc") / str(runtime.process.pid)
     status = (proc / "status").read_text()
+    fields = (proc / "stat").read_text().rsplit(")", 1)[1].split()
+    descriptors = {}
+    for descriptor in (proc / "fd").iterdir():
+        try:
+            descriptors[descriptor.name] = os.readlink(descriptor)
+        except FileNotFoundError:
+            descriptors[descriptor.name] = "closed during observation"
     return {"time": time.monotonic_ns(), "pid": runtime.process.pid,
-            "fds": len(list((proc / "fd").iterdir())),
+            "user_ticks": int(fields[11]), "system_ticks": int(fields[12]),
+            "ticks_per_second": os.sysconf("SC_CLK_TCK"),
+            "fds": len(descriptors), "fd_targets": descriptors,
             "rss_kib": int(re.search(r"^VmRSS:\s+(\d+)", status, re.M)[1]),
             "threads": int(re.search(r"^Threads:\s+(\d+)", status, re.M)[1])}
+
+
+def settled_resources(scenario, phase, expected_fds=None):
+    observations = []
+    stable_since = None
+    previous = None
+
+    def stable():
+        nonlocal stable_since, previous
+        row = resources(scenario.runtime)
+        observations.append(row)
+        if expected_fds is not None and row["fds"] != expected_fds:
+            stable_since = None
+        elif stable_since is None or row["fds"] != previous:
+            stable_since = row["time"]
+        previous = row["fds"]
+        return stable_since is not None and row["time"] - stable_since >= FD_STABLE_NS
+
+    try:
+        scenario.wait(stable, "stable " + phase + " FD count")
+    finally:
+        write_json(scenario.work / ("resource-" + phase + "-settlement.json"), observations)
+    return observations
 
 
 class PressureTest(ScenarioTest):
@@ -47,7 +81,7 @@ class PressureTest(ScenarioTest):
                 s.wait(ready, "all 21 record slots ready with actual callback rejection")
                 self.assertEqual(sum(len(r["oids"]) for r in s.peer.requests[first:]), 21)
                 initial = {name: snapshots[name] for name in records}
-                evidence = [resources(s.runtime)]
+                evidence = [settled_resources(s, "initial")[-1]]
                 start = time.monotonic()
                 for _ in range(3):
                     s.put("Many21.PROC")
@@ -56,6 +90,7 @@ class PressureTest(ScenarioTest):
                 while time.monotonic() - start < PRESSURE_SECONDS:
                     time.sleep(max(0, min(SAMPLE_SECONDS, PRESSURE_SECONDS - (time.monotonic() - start))))
                     evidence.append(resources(s.runtime))
+                pressure_end_ns = evidence[-1]["time"]
                 held = sample(s)
                 for name in records:
                     row = held[name]
@@ -84,7 +119,22 @@ class PressureTest(ScenarioTest):
             s.done_many({"R" + str(n): 300 + n for n in range(1, 22)}, 12)
             evidence.append(resources(s.runtime))
             write_json(s.work / "resources.json", evidence)
-            self.assertGreaterEqual(evidence[-2]["time"] - evidence[0]["time"], int(PRESSURE_SECONDS * 1e9))
+            at_completion = evidence[-1]
+            evidence.extend(settled_resources(s, "final", evidence[0]["fds"]))
+            write_json(s.work / "resources.json", evidence)
+            elapsed = (evidence[-1]["time"] - evidence[0]["time"]) / 1e9
+            ticks = sum(evidence[-1][name] - evidence[0][name] for name in ("user_ticks", "system_ticks"))
+            write_json(s.work / "resource-summary.json", {
+                "elapsed_seconds": elapsed, "cpu_seconds": ticks / evidence[0]["ticks_per_second"],
+                "cpu_percent_one_core": 100 * ticks / evidence[0]["ticks_per_second"] / elapsed,
+                "cpu_limit": None, "cpu_interpretation": "Measured observation; no site limit selected",
+                "fd_initial": evidence[0]["fds"], "fd_final": evidence[-1]["fds"],
+                "fd_at_completion": at_completion["fds"],
+                "fd_settlement_seconds": (evidence[-1]["time"] - at_completion["time"]) / 1e9,
+                "pressure_end_ns": pressure_end_ns,
+                "rss_initial_kib": evidence[0]["rss_kib"], "rss_max_kib": max(r["rss_kib"] for r in evidence),
+            })
+            self.assertGreaterEqual(pressure_end_ns - evidence[0]["time"], int(PRESSURE_SECONDS * 1e9))
             self.assertEqual(evidence[-1]["fds"], evidence[0]["fds"], "File descriptors did not return to baseline")
             self.assertEqual({row["threads"] for row in evidence}, {evidence[0]["threads"]})
             self.assertLessEqual(max(row["rss_kib"] for row in evidence) - evidence[0]["rss_kib"], RSS_ALLOWANCE_KIB)

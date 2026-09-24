@@ -1,0 +1,4 @@
+# Load after the matching DBD registration and before iocInit.
+# SNMP is the module root; P includes its desired trailing separator.
+devSnmpSetSnmpVersion("$(HOST)", "SNMP_VERSION_2c")
+dbLoadRecords("$(SNMP)/examples/request-inputs.db", "P=$(P),HOST=$(HOST),COMM=$(COMM=public),AI_OID=$(AI_OID=.1.3.6.1.4.1.55555.1.0),LI_OID=$(LI_OID=.1.3.6.1.4.1.55555.2.0),SI_OID=$(SI_OID=.1.3.6.1.4.1.55555.3.0),LEGACY_OID=$(LEGACY_OID=.1.3.6.1.4.1.55555.4.0)")

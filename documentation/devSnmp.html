@@ -117,6 +117,62 @@ The following EPICS record types are supported:
 
 <h3 id="RecordSpec">Record specification</h3>
 
+<p>The existing <code>Snmp</code> device support retains cached polling for all
+listed record types. <code>SnmpRequest</code> supports ai, longin and stringin:
+record processing starts an acquisition, keeps PACT set while waiting, consumes
+one terminal result, and lets Base finish conversion, alarms, monitors and
+FLNK before clearing PACT. Waveform and output records continue to use
+<code>Snmp</code>.</p>
+
+<p>A request input uses the same INP format below, with a buffer length of
+2 through 65536 bytes. Passive inputs require a processing trigger. I/O Intr
+is rejected. PassivePollMSec does not schedule request inputs. A local FLNK
+chain starts its next record after the source result is consumed; a fanout
+submits its targets without waiting for their asynchronous completions.
+Acquisition errors preserve the previous value and report READ/INVALID.</p>
+
+<p>See <a href="../examples/request-inputs.iocsh">request-inputs.iocsh</a> and
+<a href="../examples/request-inputs.db">request-inputs.db</a> for a loader and
+Base-only example covering all three request types plus legacy input. The
+default numeric OIDs and community are for the shipped loopback test peer;
+provide the device-specific macros before use. Load after DBD registration
+and before iocInit. The example contains no output record.</p>
+
+<p>The consumer must rebuild its expanded DBD and generated
+registerRecordDeviceDriver source against devSnmp.dbd and the matching library.
+These are existing Base record types, so no DBDINC entry is needed. Mixing old
+and new DBD/executable products produces registration errors even when IOC
+startup returns zero. Operational rollback selects commit
+<code>30d8b81fb10ff1940d9ff29d46d6954679a1f5ba</code> with legacy Snmp
+DB/startup. Restore its library, executable, expanded DBD/registration and
+startup together. That module supports SnmpRequest, but the selected rollback
+uses legacy records. The original db9ebf5 archive remains a historical
+comparator and cannot load SnmpRequest. Runtime DTYP, INP and protocol
+rebinding require a restart.</p>
+
+<p><code>snmpr</code> reports bounded SNMPDIAG per-record state and totals:
+accepted, rejected, valid, failed and completed counts, callback retries,
+last-valid generation and age, and queue/network/callback/processing latency.
+Valid counts successful device-support consumption, not the final Base value
+alarm state. Counters work with tracing disabled; totals combine sequential
+snapshots and are not globally atomic. RequestTrace adds at most 8192 events;
+overflow invalidates a complete sequencing audit. The
+<a href="../docs/snmp-request.md">request contract</a> defines timestamps,
+counter meaning, absolute deadlines, shutdown ordering and validation limits.</p>
+
+<p><strong>Known Base callback limitation:</strong> the observed Debian 12
+Base 7.0.10 build can retain its overflow flag after the callback ring empties
+and continue rejecting callback requests. Actual two-entry queue tests left
+terminal SNMP results Ready with increasing callback retries, PACT set and
+missing FLNK completion. A response or acquisition deadline therefore does
+not guarantee record completion in this condition. Module retries and the
+planned transport-worker watchdog do not repair it. Other-platform passes
+do not prove immunity; production-size failure frequency is unmeasured.
+Base repair is deferred under the
+<a href="../docs/decisions/ADR-20260924-base-callback-limitation.md">documented
+local development exception</a>. Failed tests remain failed, and production
+acceptance remains separate.</p>
+
 For demonstration purposes an example input and output record are listed below:
 <pre>
    record(ai, "$(DEV):VoltageRead")
@@ -291,6 +347,29 @@ for a helpful little perl script which provides a numeric definition such as:
   <p>The following parameters are provided:</p>
   <table border="1" cellpadding="10" summary = "devSnmpSetParam parameters">
     <tr><th>Parameter</th><th>Default</th><th>Description</th></tr>
+
+    <tr>
+      <td>RequestTimeoutMSec</td>
+      <td align="right">10000</td>
+      <td><p>Acquisition deadline in milliseconds, from request acceptance,
+          including queue and native session-opening time. Range 1 through
+          3600000; configure before iocInit. Expired requests cannot accept a
+          late result. A ready result remains unchanged while waiting for a
+          callback. Callback or record-lock contention can delay EPICS
+          completion beyond the deadline. This does not cancel an active
+          native session; SessionTimeout remains measured in microseconds.
+          Invalid or post-init changes are rejected without changing the
+          previous setting.</p></td>
+    </tr>
+
+    <tr>
+      <td>RequestTrace</td>
+      <td align="right">0</td>
+      <td><p>Set to 1 before iocInit to record bounded request events for
+          snmpr. Only 0 and 1 are accepted. Post-init changes are rejected.
+          Per-record counters and latency diagnostics remain available when
+          tracing is disabled.</p></td>
+    </tr>
 
     <tr>
       <td>DebugLevel</td>

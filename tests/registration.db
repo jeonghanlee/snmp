@@ -1,0 +1,6 @@
+record(ai, "$(P)Input") {
+    field(DESC, "Request registration contract fixture")
+    field(DTYP, "SnmpRequest")
+    field(SCAN, "$(SCAN=Passive)")
+    field(INP, "$(INP)")
+}

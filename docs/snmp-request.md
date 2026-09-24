@@ -30,6 +30,45 @@ I/O Intr is rejected during initialization. Change DTYP, INP, or protocol
 identity by restarting with a matching DB/DBD and binary; live rebinding is
 not implemented.
 
+### Delivered example and registration
+
+The runnable [input example](../examples/request-inputs.db) contains one
+request input of each supported type, a string FLNK consumer and a legacy
+cached input. The [loader](../examples/request-inputs.iocsh) selects v2c and
+loads that exact DB. Its default numeric OIDs and public community belong to
+the loopback test peer; supply the device's HOST, COMM and OID macros for a
+real application. Set SNMP to this module's complete source/build root.
+
+After loading the consumer's expanded DBD and calling its generated
+registration function, before iocInit:
+
+```text
+iocshLoad("$(SNMP)/examples/request-inputs.iocsh", "SNMP=$(SNMP),P=EXAMPLE:,HOST=$(HOST)")
+iocInit
+```
+
+Process Analog, Integer or Text through their PROC fields to acquire a sample.
+Legacy scans independently. The optional AI_OID, LI_OID, SI_OID and LEGACY_OID
+loader macros replace the four numeric OIDs; masks remain INTEGER:/STRING:.
+This example uses Base records only and runs in the production snmp IOC.
+
+Add devSnmp.dbd to the consumer's DBD inputs, link devSnmp, and regenerate
+the expanded DBD and registerRecordDeviceDriver source together. The three
+new dsets use existing Base record types and do not require DBDINC entries.
+An old executable with a new DBD cannot resolve the new device support;
+an old DBD rejects SnmpRequest even with a new executable. Treat either
+startup error as a rejected configuration. IOC exit zero alone does not
+prove that all records initialized successfully.
+
+The selected operational rollback uses commit
+30d8b81fb10ff1940d9ff29d46d6954679a1f5ba with legacy Snmp DB/startup.
+Restore that pair's library, executable, expanded DBD/registration and startup
+together. This module supports SnmpRequest, but the selected rollback runs
+legacy records. The original db9ebf5 archive remains the historical comparison
+baseline, not the operational rollback; it cannot load SnmpRequest records.
+The test matrix retains each role separately in artifact-pairs.json, with
+build, binary, DBD, DB and executed startup identities.
+
 Configure these parameters before `iocInit`:
 
 | Parameter | Default | Accepted values | Meaning |
@@ -43,6 +82,10 @@ deadline does not cancel an already started Net-SNMP session. Old responses
 cannot satisfy a later request. Callback queue or DB lock contention can delay
 EPICS completion after the acquisition deadline; this is not a hard real-time
 completion guarantee. Site timing acceptance requires device measurements.
+SessionTimeout is measured in microseconds; RequestTimeoutMSec is measured in
+milliseconds. Invalid or post-iocInit request parameter changes are rejected
+and leave the prior value unchanged. PassivePollMSec affects legacy polling;
+it does not schedule an idle SnmpRequest record.
 Deadline checks use the absolute monotonic timestamp under the request mutex
 when inspecting queued work, claiming it, accepting a reply and servicing the
 request. A reply received after expiry fails even if the completion worker has
@@ -85,6 +128,29 @@ acquisitions. CA PROC puts follow Base RPRO behavior and can request one later
 processing pass. A local FLNK chain waits for each source completion; fanout
 submissions do not wait for all acquisitions. Conversion masks and flags retain
 legacy semantics, including quoted STRING representation and `sR` scaling.
+
+### Known Base callback admission limitation
+
+The observed Debian 12 EPICS Base 7.0.10 build can reject callback requests
+after its queue has emptied because its overflow flag remains set. Actual
+two-entry queue tests left terminal results Ready while callback retries
+continued. In this condition, an SNMP response or acquisition timeout does
+not guarantee record completion: PACT can remain set and FLNK may not run.
+The module's retry worker and the planned transport-worker watchdog do not
+repair this Base-side condition.
+
+Use `snmpr` together with record PACT and downstream completion observations.
+A Ready result with `terminal_ns` set, increasing `callback_retries`, and no
+new application/completion identifies rejected callback admission; those
+diagnostics alone do not prove the internal overflow-flag interleaving.
+Retained VAL and last-valid diagnostics do not establish a new completed
+sample. Passing runs on other platforms do not establish immunity, and the
+failure rate at production queue sizes has not been measured.
+
+Base repair is deferred. Local development continues under the documented
+exception in the [Base callback limitation decision](decisions/ADR-20260924-base-callback-limitation.md).
+Failed pressure tests remain failed; production acceptance and any dependency
+correction require their own verification.
 
 Lock order is record lock then request mutex for acceptance and consumption.
 Network completion uses the request mutex without taking a record lock.
@@ -145,9 +211,15 @@ callbacks, stopped network workers and final storage cleanup separately.
 
 ## Validation boundary
 
-The local validation uses Debian 13, Base 7.0.10, system Net-SNMP, numeric v2c
-loopback peers, and real Base/driver/CA paths. APC PDU consumer verification uses
-its shipped MIB, loaders, DB, and PVA/CA tests. This does not establish SNMPv3
-security behavior, other OS builds, hardware compatibility, long-duration
-resource stability, or firmware equivalence. Current evidence and remaining
-checks are tracked in [the milestone](milestone-db9ebf5.md).
+The public matrix executes real Base/driver/CA paths with numeric loopback
+fault peers and native snmpd. Native coverage includes v1, v2c and v3
+noAuthNoPriv, authNoPriv and authPriv with the declared SHA/AES test settings,
+plus writable SET and independent readback. This does not qualify other
+security algorithms or the future helper/profile API. Registration tests run
+the delivered example in both production and test IOCs and reject invalid
+record/parameter and mismatched binary/DBD configurations.
+
+Platform identities and complete observed results are recorded in
+[the milestone](milestone-db9ebf5.md), separately from this executable test
+contract. APC consumer, hardware, long-duration resources and firmware
+equivalence retain their own acceptance conditions.

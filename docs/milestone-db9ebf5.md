@@ -9,8 +9,22 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: finish the M5 handoff cross-check and local commit,
-then begin M8 step 1 with real IOC v3 and writable SET baselines.
+Next session entry point: commit the reviewed M8 step 1 fixtures and step 2
+extraction, then begin P803, the thin native session adapter. Step 2 passed
+its regressions on Debian 13 and Rocky 8 under D10 and its independent
+third-person and maintainer reviews on 2026-09-24; the stale-session
+deletion race is carried to step 6. Step 1's corrected baseline and
+current-state documentation passed the bounded third-person and maintainer
+recheck on 2026-09-24.
+M5 handoff cross-check passed and its fourteen reviewed paths are committed
+locally as 750ea26243614ec4402994959e21bd970b0a6856. M8's fresh 43-case
+compatibility baseline and 100-cold/1000-warm real IOC v3 observations are
+recorded, together with the 12-case writable SET baseline. The corrected APC
+consumer converts all 63 loaded SNMP inputs; the prior 15/63 conversion is
+retained as a mixed-input observation. This accepts the baseline only;
+the replacement implementation and final M8 acceptance remain pending.
+The pre-migration discovery-fault observation has 80 INVALID
+healthy-record completions in 1000 reads; it does not pass T8 isolation.
 The complete final M5 matrices and independent third-person/second-person
 review are accepted locally under the documented Base limitation. All 35
 required steps pass on each of Debian 13, Debian 12 and Rocky 9; the original
@@ -25,8 +39,8 @@ progress, not an unconditional completion guarantee or deployment acceptance.
 The selected M4 plus legacy DB operational rollback is implemented in the
 matrix and instructions; its affected-path and final full-matrix verification
 completed on 2026-09-24. Earlier failed matrices and all natural/controlled
-Base callback failures remain retained. Final handoff derivatives still require
-their cross-check before the local commit; remote landing remains pending.
+Base callback failures remain retained. Final handoff derivatives passed
+independent review before the local commit; remote landing remains pending.
 M4 local tests, independent third-person/second-person reviews and handoff
 cross-check passed; its reviewed 21 paths are committed as 30d8b81.
 M3 is committed as 68294c2; its T5/T10 dedicated successful-generation
@@ -451,7 +465,7 @@ the canonical result should name the safe evidence artifact.
 | M6 | Downstream IOC migration and pilot | Milestone | Blocked | No | M5, G2 | Actual IOC DB passes laboratory and device pilot checks; [detail](#m6---downstream-ioc-migration-and-pilot). |
 | G3 | Production deployment window and acceptance limits | External gate | Open | No | M6 | Operator approves exact candidate, window, and rollback; [detail](#g3---production-deployment-window-and-acceptance-limits). |
 | M7 | Controlled deployment and rollback | Milestone | Blocked | No | M6, G3 | Deployed artifact verified and rollback demonstrated; [detail](#m7---controlled-deployment-and-rollback). |
-| M8 | Extensible SNMPv3 architecture | Milestone | In progress | No | D3, D4, D6, D7, D8, D9 | Separated record/request/security responsibilities using native Net-SNMP facilities, explicit engine identity, restart-only credential activation, compatible worker bounds, proven runtime isolation and compatibility evidence; [detail](#m8---extensible-snmpv3-architecture). |
+| M8 | Extensible SNMPv3 architecture | Milestone | In progress | No | D3, D4, D6, D7, D8, D9, D10 | Separated record/request/security responsibilities using native Net-SNMP facilities, explicit engine identity, restart-only credential activation, compatible worker bounds, proven runtime isolation and compatibility evidence; [detail](#m8---extensible-snmpv3-architecture). |
 
 Ready describes dependency readiness only; it is not implementation authority.
 Decision Date: 2026-09-24. All current implementation plans are accepted and
@@ -471,6 +485,7 @@ does not complete their verification or remove the physical conditions in G2/G3.
 | D7 | Maximize reuse of stable Net-SNMP facilities. Delegate protocol encoding, authentication/privacy, key transformation, discovery, timeliness and wire retries to verified library APIs; keep EPICS completion and application policy in this module. Revise the architecture and implementation/test plan accordingly. | 2026-09-23 |
 | D8 | Exclude live credential/profile replacement from this design; changes require IOC process restart. Add explicit engineID configuration with automatic discovery as the default, real legacy SET regression tests, and test completion criteria aligned with implementation availability. This authorizes the document amendments, not replacement module implementation or deployment. | 2026-09-23 |
 | D9 | Preserve effective native timeout/retry settings and derive a finite worker watchdog bound. The finalized formula in [watchdog policy](decisions/ADR-20260923-worker-watchdog-policy.md) gives 150000 ms for inherited defaults, with 130 s of native intervals plus a selected 20 s allowance. Use the maximum endpoint requirement per worker; reject undersized explicit overrides without reducing native settings. Arm once before transaction IPC and never reset on progress. Numeric design is finalized; runtime/platform qualification, overall M8 plan acceptance and replacement implementation remain separate. | 2026-09-23 |
+| D10 | Qualify the M8 candidate on Debian 13 and Rocky 8 instead of Debian 12 and Rocky 9, and declare Net-SNMP 5.8 in the shipped test profiles. Retained Debian 12 and Rocky 9 observations remain historical evidence, not current platform coverage. | 2026-09-24 |
 
 ### Milestone Details
 
@@ -1542,7 +1557,7 @@ Superseded Plan Artifacts: original M5 mapping is extended only for the dated de
 | T2 | 2026-09-24T17:46:12.026634+00:00 | Final exact-source candidates and shipped default fixtures on all three OSes | Final required matrix PASS: 35 required steps per OS; earlier Base callback failures remain failed and unresolved under the dated local-development exception | Three complete matrix.json files, raw suite/IOC/peer/CA evidence and final pressure holds; the preserved failure observations below remain applicable |
 | T3 | 2026-09-24T17:46:12.026634+00:00 | Original db9, selected M4 rollback, candidate and ASan candidate with identical comparison inputs | PASS: 18 actual legacy/waveform comparisons; both candidate native modes pass 5/5 per OS; three Debian 12 historical v3 shutdown failures remain failed | Per-platform baseline-comparison.json and protocol results; original protocol is a historical observation, not rollback acceptance |
 | T4 | 2026-09-24T17:46:12.026634+00:00 | Final production and test IOCs, exact delivered example DB/loader and real peer | PASS: ordinary registration suite 5/5 per OS, including both examples and invalid configuration; the earlier extra ASan loader leak remains failed | candidate-registration/results.json and registration-inputs.json; additional dependency observation retained below |
-| T5 | 2026-09-24T11:25:35.690358-07:00 | Four identified artifact roles per OS; final full matrix and independent source/runtime/dependency audit | PASS: actual identities match and selected M4 legacy/protocol/terminal runs pass; independent third-person/second-person review supports local handoff preparation | artifact-pairs.json; platform audits; /tmp/snmp-m5-final-review-20260924-reader/audit.json and external results; final handoff cross-check remains pending |
+| T5 | 2026-09-24T11:46:32.948593-07:00 | Four identified artifact roles per OS; final full matrix and independent source/runtime/dependency audit | PASS: actual identities match and selected M4 legacy/protocol/terminal runs pass; independent third-person/second-person review and handoff cross-check accepted | artifact-pairs.json; platform audits; /tmp/snmp-m5-final-review-20260924-reader/audit.json and external results; fup20260924_114632 |
 | T6 | 2026-09-24T17:46:12.026634+00:00 | Final matching production/test DBD, generated registration and libraries; both deliberate mismatch directions on each OS | PASS: supported types complete actual reads; six mismatch startups show required binding errors without peer requests | candidate-registration results, exported symbols, generated registration identities, mismatch.json and actual IOC logs |
 
 ##### Final Local Qualification
@@ -1610,8 +1625,9 @@ The final source and completed matrix support local M5 handoff preparation
 under D007/D008. F009, F011 and F012 are implemented and independently verified.
 F010 remains deferred and unresolved; its natural and controlled failures
 below stay failed. The additional ASan loader leak also remains failed and
-outside any claim of passing ASan registration. Final handoff derivatives,
-local commit and remote landing are separate remaining steps. No Base repair,
+outside any claim of passing ASan registration. Final handoff derivatives
+passed fup20260924_114632; the local commit is 750ea26. Remote landing remains
+pending. No Base repair,
 M8 worker qualification, hardware acceptance or deployment follows.
 
 ##### Earlier Qualification Observations
@@ -1842,15 +1858,18 @@ and public guides record these operating and verification limits. The
 unapplied proposal remains separate from the implemented module. The static
 and maintainer reviews do not claim corrected runtime behavior or remove
 the retained failures. The final complete M5 matrix and source review are
-recorded above; the handoff derivative cross-check remains pending.
+recorded above; fup20260924_114632 accepted the handoff derivative cross-check.
 
 ##### Closure Evidence
 
 - Final local source and matrix review: fup20260924_112535, 2026-09-24,
   third-person and second-person PASS under D007/D008. F010 remains deferred
   and unresolved; original failed observations are retained.
-- Final handoff cross-check and local commit pending. No remote landing or
-  production acceptance; Status remains In progress.
+- Final handoff cross-check: fup20260924_114632, third-person and second-person
+  PASS. Local commit: 750ea26243614ec4402994959e21bd970b0a6856; fourteen
+  committed paths and hashes verified against the accepted inventory, with a
+  clean post-commit tree at 2026-09-24T11:49:10.968465-07:00.
+- No remote landing or production acceptance; Status remains In progress.
 
 #### G2 - Pilot environment and IOC change authority
 
@@ -2133,6 +2152,18 @@ tested candidate. Session recovery does not reload configuration or credentials.
   The former proposed 10-second default and 600000 ms ceiling are not accepted
   bounds. The native Debian 13 evidence supports timer accounting; T5/T17/T18
   must still verify actual admission, timeout/retry preservation and retirement.
+- Carry-forward to step 6: devSnmp_host deletes a session that stays sent
+  and incomplete for 60 s without the manager session mutex, and the
+  destructor completes its requests while the read thread may still process
+  a late reply for that session. The race predates M8; since step 2 both
+  paths also write the per-OID scratch result. With the inherited 10 s
+  timeout and five retries the native expiry is about 60 s, at the stale
+  boundary. Step 6 replaces this session lifetime and must close the race
+  with a reproducing test before its verification passes. Observed by code
+  reading on 2026-09-24; not reproduced.
+- D10 selects Debian 13 and Rocky 8 as the M8 qualification platforms. T12 and
+  the step regressions use those two; the Debian 12 and Rocky 9 native
+  observations below stay as retained evidence and are not rerun.
 - The current 19 request and two 12-case APC results are a regression baseline,
   not proof of the proposed v3 architecture. M8 can be designed without waiting
   for the unrelated hardware/deployment gates.
@@ -2259,14 +2290,14 @@ and a compatible absolute worker deadline independent of record deadlines.
 
 The following table maps the same nine steps to implementation targets and
 observable advancement conditions. It is part of this plan, not a second work
-register. New components and proposed fixtures below do not yet exist. Run each
-step's available checks before migration depends on that step; record partial
-coverage explicitly. Step 8 reruns the complete acceptance matrix on the final
+register. Step 1 fixtures and the step 2 extraction are delivered; later
+components remain planned. Run each step's available checks before migration
+depends on that step; record partial coverage explicitly. Step 8 reruns the complete acceptance matrix on the final
 candidate even when an earlier implementation passed its subset.
 
 | Step | Deliverable | Files or subsystem | Verification before advancing |
 | --- | --- | --- | --- |
-| 1 | Source/binary identities, input baseline, real v3 measurements and pre-migration SET behavior | Existing `tests/test_request.py`, `tests/sequence.db`, APC scratch consumer suites; proposed `tests/snmpv3_agent.py`, `tests/test_snmpv3.py`, `tests/legacy_set.db`, `tests/test_legacy_set.py`; target-library inventory | T1/T2 baseline evidence and T17 baseline subset; retain packet counts, values, timing and exact native settings before transport changes. |
+| 1 | Source/binary identities, input baseline, real v3 measurements and pre-migration SET behavior | `tests/test_request.py`, `tests/sequence.db`, APC scratch consumer suites; real-agent support in `tests/snmp_agent.py`, `tests/test_snmpv3.py`, `tests/legacy_set.db`, `tests/test_legacy_set.py`; target-library inventory | T1/T2 baseline evidence and T17 baseline subset; retain packet counts, values, timing and exact native settings before transport changes. |
 | 2 | Typed requests/results and EPICS completion adapter | `snmpApp/src/snmpRequest.cpp`, `snmpRequest.h`, `devSnmp.cpp`, `devSnmp.h`; `tests/sequence.db`, `tests/src/sequenceProbe.cpp`, `tests/test_request.py` | T3 and the existing-endpoint/OID/batch subset of T4 through the unchanged transport; one terminal completion with value/alarm application before FLNK and PACT clearing afterward. |
 | 3 | Thin native session adapter with explicit ownership | New Net-SNMP adapter component; `snmpApp/src/Makefile`; real-library fixtures | Implemented T15 ownership/callback/retry cases; no module retransmission or discovery implementation. Adapter-only measurements do not close T8. |
 | 4 | Validated profiles, endpoint bindings and engine identity | `snmpApp/src/snmpRegister.cpp`; new configuration component and adapter bindings; proposed v3 fixtures | Initial T5 configuration, T4 profile/context, T6/T7 and T16 parsing/exchange cases; invalid configuration fails explicitly and advertised algorithms complete real exchanges. |
@@ -2279,16 +2310,18 @@ candidate even when an earlier implementation passed its subset.
 ##### Test Plan
 
 Acceptance methods use shipped IOC/DB/device support and real Net-SNMP. The existing
-v2c peer remains the outer boundary for packet-order/error tests. Proposed
-`tests/snmpv3_agent.py` will supervise a real snmpd, and proposed
-`tests/test_snmpv3.py` will drive CA and inspect sanitized evidence. Neither
-file exists yet. A loopback UDP proxy may delay/drop/replay genuine v3 packets;
+v2c peer remains the outer boundary for packet-order/error tests.
+`tests/snmp_agent.py` supervises a real snmpd, and
+`tests/test_snmpv3.py` drives CA and records the pre-migration observations.
+The public runner provides the `v3-baseline` and `legacy-set` suites described
+in `tests/README.md`. A loopback UDP proxy may delay/drop/replay genuine v3 packets;
 it must not stand in for authentication, encryption, or the module backend.
 Test credentials are disposable and never copied from hardware configuration.
-Proposed `tests/legacy_set.db` and `tests/test_legacy_set.py` exercise the shipped
+`tests/legacy_set.db` and `tests/test_legacy_set.py` exercise the shipped
 ao, longout and stringout device support against an external writable laboratory
-agent. They do not exist yet; the current read-only peers cannot serve as SET
-success fixtures. Capture the pre-migration source/binary identity, output PVs,
+agent through native snmpd's pass_persist interface; `tests/agent_values.py`
+implements only that external disposable device. The read-only peers do not
+serve as SET success fixtures. Capture the pre-migration source/binary identity, output PVs,
 agent values and packet sequence before comparing the candidate under the same
 inputs. Modifying an internal driver function is not a permitted fixture.
 
@@ -2312,7 +2345,7 @@ separately and cannot close an IOC test label.
 | T9 | Startup and restart credentials | Edit the credential file while requests are queued, in flight and callback-pending; confirm the running IOC retains its startup snapshot, including after child loss/restart. Reject runtime setters. Stop/start the IOC with coordinated agent credentials; test invalid files, delayed packets, identical usernames with different keys at distinct engines/workers and conflicting same-user profiles in one worker. | Real snmpd, actual startup loader, IOC/child lifecycle and native USM state | Only full IOC restart activates file changes. A child restart uses the existing snapshot. Invalid startup inputs fail without old-secret fallback; conflicting credentials/protocols for one worker/user fail before discovery/application traffic. Distinct workers do not share USM state. No false success, double completion or secret leak. |
 | T10 | Recovery and reuse | Repeat reads on one session, restart agent with same engineID/new boots and then with a changed engineID; drop replies and force tooBig. | Real snmpd plus external proxy | Bounded retry/recovery within the original deadline; no reuse of wrong localized keys; valid-sample age advances only on success; stable warm session avoids repeated discovery. |
 | T11 | Load and shutdown | Flood bounded request admission, saturate callback queue, mix legacy reads/SETs, stop during discovery/recovery/response; run 20 EOF and explicit shutdown cycles. | Actual IOC; SETs only against disposable laboratory agent | Bounded queue/session counts, no GET/SET starvation under accepted load, no deadlock/UAF, every normal cycle reports drained shutdown; no synthetic shutdown FLNK. SET semantics are compared separately in T17. |
-| T12 | Platform/resources | Run functional suite and one-hour steady-load test; record ASan/UBSan and separately TSan results where supported, FD/RSS/CPU and queue metrics. | Debian 13, Debian 12, Rocky 9; Base/compiler/crypto identities recorded | No sanitizer findings accepted without disposition; descriptors return to baseline, retained state stays within configured bounds, no growing memory trend after warmup. |
+| T12 | Platform/resources | Run functional suite and one-hour steady-load test; record ASan/UBSan and separately TSan results where supported, FD/RSS/CPU and queue metrics. | Debian 13 and Rocky 8 under D10; Base/compiler/crypto identities recorded | No sanitizer findings accepted without disposition; descriptors return to baseline, retained state stays within configured bounds, no growing memory trend after warmup. |
 | T13 | APC integration | Build independent module/IOC pairs via the EPICS-env runbook; run original and input-converted APC DB/PVA/CA fixtures using v2c and a real v3 agent exposing the required OIDs. | Selected dependency tree, scratch consumer builds | Preserved DB/DBD/INP/DTYP and input/PVA/CA behavior, no unintended SET, correct library identity, no installed-tree writes; v3 fixture is actual snmpd instrumentation, not a v2c decoder. Actual output semantics require T17. |
 | T14 | Architecture review | Inspect component dependencies, generation/lock/shutdown rules, v3 evidence and compatibility results through independent convergence review. | Final source-identified candidate and evidence | No unresolved functional, preservation or verification defects against the accepted design; owner decisions remain explicit. |
 | T15 | Native API ownership | Exercise actual adapter send success/failure, response copy, close with pending work, retries 0/1/3, intermediate callbacks, mixed-deadline waiters and high FD numbers. Compare callback/packet counts with snmpget using identical retry settings; inspect direct library calls. | Real module/IOC/Net-SNMP and external peers; target package per OS | Correct PDU/callback lifetime, one terminal completion, no duplicate module retransmission, no mixed API families, no custom USM/discovery/crypto cache; large-FD path works. |
@@ -2324,14 +2357,14 @@ separately and cannot close an IOC test label.
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| T1 | 2026-09-23; baseline subset only | Retained candidate IOC and shipped request fixtures; no M8 replacement build | Pending | The full-plan review reran 19 request tests: PASS, exit 0, 49.842 s. The prior two 12-case APC results remain retained evidence, not new runs. See Full-Plan Review Evidence below; final M8 candidate comparison remains pending. |
-| T2 | Not run | Real IOC v3 baseline required | Pending | Matching snmpd/snmp packages are extracted for the native experiment; the 100-cold/1000-warm IOC baseline has not run. |
-| T3 | Not run for M8 | Actual IOC | Pending | none |
-| T4 | Not run for M8 | Actual IOC and peers | Pending | none |
+| T1 | 2026-09-24T19:54:39.429552+00:00; review 2026-09-24T13:14:37-07:00 | Independently archived 750ea26 module; APC 6bedd223 original and fully input-converted consumers; Debian 13/Base 7.0.10 | Baseline execution and bounded correction review PASS; final replacement comparison pending | 19 request and 12 original APC cases pass; a separately rebuilt 63/63-input-converted APC consumer passes 12 cases. The earlier 15/63 mixed-input run remains separately identified below. |
+| T2 | 2026-09-24T19:28:06.264006+00:00 | Archived 750ea26 test IOC, actual Net-SNMP 5.9.4.pre2 snmpd and native client, SHA/AES authPriv; Debian 13 x86-64 | Baseline collection PASS; no replacement performance claim | 100 cold IOC starts and 1000 warm reads with native call observation, plus 1000 warm reads without it; real packet, completion, CPU/FD/RSS observations retained below. |
+| T3 | 2026-09-24T20:11:32.646493+00:00 to 2026-09-24T22:17:39.619337+00:00 | Step 2 extraction candidate built in isolation from the working tree on 750ea26; Debian 13/Base 7.0.10/Net-SNMP 5.9.4.pre2 and Rocky 8.10/Base 7.0.10/Net-SNMP 5.8; actual test IOC, external peer and CA clients | PASS on both platforms; independent third-person and maintainer review passed on 2026-09-24; the final candidate rerun remains pending | sequencing 9, lifecycle 15, conversion 2 and accounting 3 cases per platform against the db9ebf5 waveform baseline; see Step 2 Extraction Regressions below. |
+| T4 | 2026-09-24T20:11:32.646493+00:00 to 2026-09-24T22:17:39.619337+00:00 | Same candidate builds, IOCs and peers as T3 | Existing-endpoint/OID/batch subset PASS on both platforms; profile and context bindings remain pending until real bindings exist | failures 10, batch 10 with 20/21 OIDs at limits 1 and 20, and robustness 16 cases per platform; see Step 2 Extraction Regressions below. |
 | T5 | 2026-09-23T12:33:06-07:00 | Native API only; configuration/profile implementation not run | Pending | The native timeout/retry experiment below measures inherited settings; no startup admission or undersized-watchdog rejection was exercised. |
 | T6 | Not run | V3 algorithm matrix | Pending | none |
 | T7 | Not run | Real v3 agents | Pending | none |
-| T8 | 2026-09-23T10:19:43-07:00 | Native API experiment only; IOC path not run | Pending | Serialized first-send discovery delayed a healthy result by 4006-4018 ms; independent processes completed healthy reads in 0.100-0.195 ms during discovery. Three samples per mode; details below. Full IOC criteria remain unexecuted. |
+| T8 | 2026-09-24T19:28:06.264006+00:00 | Actual pre-migration IOC and two native agents; 400 ms record deadline, 4 s transport timeout, 100 ms requested read interval | Baseline fails the proposed isolation criteria; worker candidate and restart qualification pending | Control: 0/1000 INVALID, p99 46.649 ms; blackholed discovery: 80/1000 INVALID, p99 408.889 ms. This is an actual IOC observation, distinct from the earlier native-only experiment. |
 | T9 | Not run | Startup/restart credential implementation | Pending | none |
 | T10 | Not run | Reusable-session implementation | Pending | none |
 | T11 | Not run | Load/shutdown matrix | Pending | none |
@@ -2340,8 +2373,220 @@ separately and cannot close an IOC test label.
 | T14 | 2026-09-23T14:04:35-07:00 | Four frozen plan/contract documents and source/evidence review; no replacement candidate | Partial; final implementation/evidence review pending | Full-plan convergence conv20260923_140435 records three independent PASS verdicts and zero new demonstrated plan defects. The prior watchdog correction remains represented by D9 and conv20260923_130832. Review basis and frozen identity are recorded above; final implementation/runtime acceptance remains unverified. |
 | T15 | 2026-09-23; native runs only | Native C probe and real snmpd; module adapter not run | Pending | The earlier 32 native cases and the full-plan review's new 26 short cases passed, each with one measured terminal callback. These are separate runs, not 58 distinct coverage cases. The full adapter, ownership, high-FD, platform and client-comparison matrix remains unexecuted; see Full-Plan Review Evidence below. |
 | T16 | Not run | Explicit/automatic engine identity implementation | Pending | none |
-| T17 | 2026-09-23T12:33:06-07:00 | Native SET and writable laboratory agent; output IOCs not run | Pending | Five native SET reply-loss cases changed the real agent value while the client timed out, including inherited defaults. No baseline/candidate output IOC comparison ran; the existing 43-case evidence is not a SET success baseline. |
+| T17 | 2026-09-24T19:46:42.217277+00:00 | Archived 750ea26 IOC; actual ao/longout/stringout, native writable snmpd and external UDP fault proxy; Debian 13/Base 7.0.10 | Baseline 12/12 PASS; final candidate comparison pending | Success, agent error, queued coalescing, readback suppression and request/reply loss at retries 0/1/3/defaults passed. Native retransmissions and default-policy 60-second session retirement are recorded separately below. No worker or exactly-once device guarantee follows. |
 | T18 | 2026-09-23T12:33:06-07:00 | Native experiments only; worker/IPC/IOC implementation not run | Pending | Process separation and native timer measurements are preliminary evidence, not verification of the proposed watchdog, supervisor or IPC path. |
+
+##### Pre-Migration IOC Baseline
+
+The independently archived module is
+750ea26243614ec4402994959e21bd970b0a6856. Its build and fresh 43-case
+compatibility evidence are retained under /tmp/snmp-m8-baseline-20260924-b.
+Both APC copies use 6bedd223117f55b253c5834bdc50c013df1a9010 and the unchanged
+shipped test_pva.py. The second copy changes only 15 of the 63 inputs in the
+sensor-enabled configuration: the 48 template-generated outlet inputs remain
+Snmp. Its twelve passes qualify that mixed configuration only.
+The actual builds, selected module RUNPATH/ldd observations, source hashes and
+all suite outcomes are retained. Both 12-case APC suites passed, in 40.424 s
+and 40.583 s respectively. The installed-tree change check was empty.
+The preceding attempt under /tmp/snmp-m8-baseline-20260924-a retains its
+sandbox interface-enumeration/PVA failure and does not count as passing APC
+coverage.
+
+The corrected conversion uses the same archives and existing module build in
+/tmp/snmp-m8-apc-converted-20260924-a. It converts supported inputs in both
+.db and .template sources before the real consumer build. The expanded loaded
+DB inventory contains 63/63 SnmpRequest inputs, including all 48 outlet
+inputs; output support and the shipped test_pva.py are unchanged. The actual
+build, selected-module ldd check and twelve tests pass, the latter in
+42.807 s. The installed-tree change check is empty. The current 43-case
+baseline uses the original 19 request and 12 original APC cases plus this
+corrected twelve-case run. The earlier mixed run is additional evidence.
+inputs.json SHA-256 is
+c99036a606773b7ea3c4465d161b2a8ab3874921a5d827d8e699a8a518245c96;
+expanded-inputs.json is
+6fad9676422d67e4cc87cc150546be6151763b8c8fe4f990823f38e880c09905.
+Recheck using work/run-m8-apc-converted.py with a new output directory.
+
+The v3 run is /tmp/snmp-m8-v3-baseline-20260924-c, public suite v3-baseline:
+five observation cases passed in 557.191 s. All 104 actual IOC processes
+exited zero with the required shutdown sequence; all seven owned native
+agents exited zero without forced termination. The loaded module SHA-256 is
+e007bcb843d29767dc1a32ca29965526d89779629dc7a2c6a4d976dc7a08a759;
+snmpRequestTest is
+7bd7ad1ac1e9141d109749854e64e3b5c99d37ca19e538441b8ebeadbe3bd56a.
+The build manifest SHA-256 is
+0e7e20a53e9cb8208576a5044740107b5c24a3fc3ff1a62db232f3490716d2ad.
+run.json, actual loaded-library records and the retained fixture-snapshot
+identify the separate module and harness inputs.
+
+Each cold IOC completed one authenticated read, one FLNK and one observed
+session open/close. The warm observed run completed 1000 reads with 1000 native
+snmp_open returns, 1000 snmp_close returns and 1000 actual discovery requests.
+The separate run without LD_AUDIT also observed 1000 discovery requests.
+The observer records actual dynamic calls without replacing their targets;
+its measured timing is distinct from the run without observation.
+Warm request acceptance-to-completion p99/max were 48.712/51.564 ms with
+observation and 48.951/50.966 ms without it. At each successful FLNK the
+actual value was applied and PACT remained set; completion followed.
+
+The warm resource snapshots retained 8 FDs and 23 threads at both endpoints.
+RSS increased from 15020 to 26808 KiB with observation and from 13740 to
+25676 KiB without it. CPU counters, intermediate samples, queue/result/FLNK
+times and packet headers remain in the raw evidence. These measurements do
+not identify a memory-growth cause or qualify the one-hour resource test.
+
+The two-address control and discovery-loss observations each processed 1000
+healthy-record requests and ten other-endpoint requests. Control p99/max were
+46.649/49.728 ms with zero INVALID samples. With the other address blackholed,
+p99/max were 408.889/410.172 ms and 80 healthy-record completions were INVALID.
+The faulted measurement does not meet zero INVALID or the permitted 100 ms
+p99 increase. The observation suite passes collection and per-record ordering;
+that outcome is not T8 acceptance. Process-restart isolation and the final
+worker implementation remain unverified.
+
+Earlier v3 runs -a and -b remain failed: -a's native-call parser missed the
+first line after the IOC prompt; -b's multi-field CA reader removed a final
+empty string value. Their raw observations are preserved. The -c run uses the
+corrected real-path readers; no earlier failed case is relabeled as passed.
+
+The completed SET baseline is /tmp/snmp-m8-legacy-set-20260924-d:
+12/12 tests pass in 508.057 s, with partial=false and no cleanup errors.
+Its run.json and fixture-snapshot retain the exact 59 fixture files. The
+queued-write case uses a 4 s native timeout for a genuine held GET; all five
+CA commands precede release and no SET precedes release. The resulting three
+writes carry 333, 444 and queued in order. Native snmpget, device write logs
+and CA record samples provide separate value observations.
+
+For each of three outputs, request and reply loss at retries 0/1/3/defaults
+produce 1/2/4/6 packets with the same native request ID. Recovery requires no
+new command and creates no extra module SET transaction. Short policies
+finish by native timeout; the inherited policy uses the old module's
+60-second stale-session retirement. Wire transport-continuation timestamps
+are separate from later buffered-log observations; neither is presented as
+an exact callback timestamp. Reply loss can follow real device application,
+so library retry counts are not an exactly-once execution guarantee.
+The earlier SET -a/-b failures and weaker queued condition in -c remain
+identified by their own fixture versions. This establishes comparison inputs
+for T17; the replacement transport has not passed that comparison.
+
+Installed API inventory at /tmp/snmp-m8-native-inventory-20260924-a records
+16 declarations and exports on each target: seven Single Session calls,
+four large-FD helpers, two USM algorithm lookups, two protocol-OID lookups and
+generate_Ku. Exact headers, shared-library hashes, native build options,
+compiler/crypto output and invocation/image identities are retained.
+
+| Target | Net-SNMP package | Reported native version | OpenSSL package |
+| --- | --- | --- | --- |
+| Debian 13 | 5.9.4+dfsg-2+deb13u1 | 5.9.4.pre2 | 3.5.7-1~deb13u2 |
+| Debian 12 | 5.9.3+dfsg-2+deb12u1 | 5.9.3 | 3.0.20-1~deb12u2 |
+| Rocky 9 | 5.9.1-21.el9.x86_64 | 5.9.1 | 3.5.5-4.el9_8.x86_64 |
+
+Observed on 2026-09-24; recheck with work/inventory-m8-native.py in each
+identified environment. Availability does not establish runtime ownership,
+algorithm interoperability, blocking limits or platform acceptance. Those
+remain the actual adapter/IOC tests in the later steps.
+
+The bounded baseline correction review completed at
+2026-09-24T13:14:37.359267-07:00. Independent third-person and maintainer
+passes accepted the delivered fixture descriptions and corrected APC input
+coverage. The audit independently compared 87 archived source files, derived
+the 63 input bindings and 25 unchanged outputs, checked the four actual IOC
+record inventories, and reread the retained twelve-case APC/SET results.
+It also repeated header/export/package inspection in all three native
+environments. Its 625 recorded evidence hashes match the retained artifacts
+in /tmp/snmp-p801-correction-reader-20260924-a. This review ran no new IOC
+suite and does not qualify step 2, a replacement worker, final T1/T17, T8
+isolation or the deferred Base correction. The reviewed canonical snapshot
+has SHA-256 d9f2272658681ef77d25b70c68534f32d1d61b81ed3aae843683b39efd038ad5;
+session follow-up fup20260924_131437 records the two corrected findings as
+implemented and verified.
+
+##### Step 2 Extraction Regressions
+
+The step 2 candidate is the working tree on 750ea26 with the typed
+request/result boundary: `snmpTypes.h`, `snmpEpics.cpp`, `snmpEpics.h`,
+`snmpRequest.cpp`, `snmpRequest.h`, `devSnmp.cpp`, `devSnmp.h` and the module
+Makefile. Both platforms build it in isolation with `tests/build_fixture.py`
+from the working copy and run the public `tests/run_snmp.py` suites with the
+shipped `tests/profiles/loopback.json`.
+
+Debian 13 build /tmp/snmp-m8-extraction-20260924-b has dirty diff SHA-256
+b0334d0d9a6fe9de0f0b91b48a2c0748e58b9733bf564835eacd1de39a37b437, module
+71328c7a0a3808eb4461b7c144ec08c7c1bd61bdc11a0f10fff7c41a7d3a8813 and test IOC
+ea9109f7e60ad5b3c5d186c1003b2925e89c323b3d0a06075dcc8f8f65b0d699. The run
+/tmp/snmp-m8-extraction-tests-20260924-a (2026-09-24T20:11:32 to 20:55:36
+UTC, 240 IOC starts) passes sequencing 9/9, failures 10/10, lifecycle 15/15,
+batch 10/10 and conversion 2/2 against the M5 db9ebf5 baseline waveforms.
+Its robustness run reports two ERROR cases: `tests/owned_thread.py` received
+EPERM from PTRACE_SEIZE because that run executed inside a process sandbox
+that denies ptrace; the host ptrace_scope is 0. The run is retained as failed.
+The rerun /tmp/snmp-m8-extraction-tests-20260924-b (2026-09-24T21:18:55 to
+21:36:39 UTC, outside the sandbox) passes robustness 16/16 in 848 s and
+accounting 3/3 in 216 s; its IOC hash matches the build manifest. The
+robustness rerun recorded the profile before D10 and accounting the profile
+after it; the Debian version is declared in both.
+
+Rocky 8 uses image
+sha256:5a172c75815f7053900dfec586912834e84d2eb8ea9a504e75fbd4de0e9ccff0
+(Rocky Linux 8.10, net-snmp 5.8-33.el8_10, openssl-libs 1.1.1k-12.el8_9,
+gcc-c++ 8.5.0-28.el8_10, glibc 2.28-251.el8_10.2, EPICS base
+/opt/epics/1.3.0/rocky-8.10/7.0.10/base) in a container without network,
+with a read-only root, SYS_PTRACE and uid 1000. The evidence directory
+/tmp/snmp-m8-rocky8-20260924-b holds the candidate build (dirty diff SHA-256
+36e89b15a590146a6c753061563acbb5eb9db618d70e4a2d5821369f59a68fae, equal to
+the working tree including the profile change; module
+50e979243877fbf0279bb4141d2ed2703feab221695e4d1461a312def1e23564; test IOC
+3855fa47f7280fa3ea2c91ce586e6d840ee33e1a37854b30e58c749024703728) and the
+db9ebf5 git-archive baseline `snmp` IOC. Between 2026-09-24T21:25:30 and
+22:17:39 UTC it passes sequencing 9/9, failures 10/10, lifecycle 15/15
+(1010 s), batch 10/10 (393 s), robustness 16/16 (885 s), accounting 3/3
+(234 s), baseline waveforms 1/1 (181 s, `baseline-waveforms-b`) and
+conversion 2/2 (269 s, `conversion-b`). Retained failed runs:
+/tmp/snmp-m8-rocky8-20260924-a, where every suite failed runtime verification
+because the shipped profiles did not yet declare Net-SNMP 5.8; the first
+`baseline-waveforms` invocation in -b, which named a test IOC the baseline
+build does not produce; and the first `conversion` run in -b, which had no
+baseline evidence. None is relabeled.
+
+The in-container scripts `driver.sh`, `driver-waveforms.sh` and
+`driver-conversion.sh` record the argv of each build and suite, and the
+`executions*.json` files record labels, timestamps and exit codes. The
+container command is recorded only here; each script ran as:
+
+```bash
+docker run --rm --network none --read-only --cap-add SYS_PTRACE --user 1000:1000 --tmpfs /tmp:rw,nosuid,nodev,size=2g,exec --mount type=bind,src=/home/jeonglee/gitsrc/snmp,dst=/home/jeonglee/gitsrc/snmp,readonly --mount type=bind,src=$OUT,dst=$OUT --workdir /home/jeonglee/gitsrc/snmp --env HOME=/tmp --env PYTHONDONTWRITEBYTECODE=1 --entrypoint bash sha256:5a172c75815f7053900dfec586912834e84d2eb8ea9a504e75fbd4de0e9ccff0 $OUT/driver.sh
+```
+
+with `$OUT` set to /tmp/snmp-m8-rocky8-20260924-b. The scripts hardcode that
+directory; to recheck, copy them, change `OUT` to a new directory and run
+the same command. No ASan run, one-hour resource test, native
+API inventory on Rocky 8 or T12 acceptance is claimed by this section.
+
+Independent review on 2026-09-24 against the same frozen sources: the
+third-person pass re-derived every evidence root above from its raw files
+and reran sequencing, failures, batch, accounting and robustness on the
+Debian 13 build, 48/48 cases, in /tmp/snmp-p802-third-*; the maintainer
+pass confirmed that snmpRequest and snmpTypes include no EPICS database or
+Net-SNMP header and that ownership and release order follow from the code
+and docs/snmp-architecture.md. Both passed. Their accepted findings were
+missing ownership, call-order, identity and invariant comments; the added
+comments were rechecked by a fresh reader, which found the scratch-writer
+comment wrong on the stale path; that comment now states the race above.
+One startup error text changed with the same S_db_badField status and is
+left as is.
+
+The commented tree was rebuilt on Debian 13 as
+/tmp/snmp-m8-extraction-20260924-e (module
+05dff72ed83cb00fcf806c8b5678f984f6c3b03ba4a280124e18c8a711f7337b, test IOC
+f8b72b27bcd176331bd4084fbca29f37cd920edd98137f3c8b9d023e828b97e8); its
+build-inputs.json source hashes equal the committed module sources, and its
+dirty diff differs from the committed one only in this document. Every
+object has the same disassembly, .rodata and .data as build -b except one
+instruction in devSnmp.o: the source line that epicsMutexCreate() records
+for the session mutex moves from 3800 to 3810. Sequencing 9/9 and failures
+10/10 pass on it in /tmp/snmp-m8-comments-tests-20260924-c, and the Rocky 8
+image compiles the same tree in /tmp/snmp-m8-rocky8-comments-20260924-c.
+Recheck by rebuilding and comparing `objdump -d` output per object.
 
 ##### Full-Plan Review Evidence
 

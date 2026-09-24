@@ -1,10 +1,10 @@
-#include "devSnmp.h"
 #include "snmpRequest.h"
 
 #include <stdio.h>
 #include <string.h>
-#include <dbAccess.h>
-#include <recSup.h>
+#include <atomic>
+#include <limits.h>
+#include <epicsThread.h>
 #include <epicsGuard.h>
 #include <epicsEvent.h>
 
@@ -34,25 +34,19 @@ bool workerStop = false, workerStarted = false;
 std::atomic<bool> configurationLocked(false);
 }
 
-devSnmp_request::devSnmp_request(dbCommon *prec, unsigned capacity,
-                               const unsigned long *oid, unsigned oidLength)
-    : record(prec), state(Idle), owner(NULL), text(capacity, 0),
-      good(false), hasLong(false), hasDouble(false), stopping(false),
-      callbackPending(false), longValue(0), doubleValue(0), generation(0),
-      transaction(0), wireId(0), accepted(0), deadline(0)
+devSnmp_request::devSnmp_request(const SnmpBinding &input, const SnmpCompletion &target)
+    : binding(input), completion(target), state(Idle), result(input.capacity),
+      stopping(false), callbackPending(false), generation(0), transaction(0),
+      wireId(0), accepted(0), deadline(0)
 {
     unsigned used = 0;
     numericOid[0] = '\0';
-    for (unsigned i = 0; i < oidLength && used < sizeof(numericOid); ++i) {
-        int count = snprintf(numericOid + used, sizeof(numericOid) - used, ".%lu", oid[i]);
+    for (unsigned i = 0; i < binding.oid.size() && used < sizeof(numericOid); ++i) {
+        int count = snprintf(numericOid + used, sizeof(numericOid) - used, ".%lu", binding.oid[i]);
         if (count < 0 || (unsigned)count >= sizeof(numericOid) - used) break;
         used += count;
     }
-    memset(&callback, 0, sizeof(callback));
     memset(&statistics, 0, sizeof(statistics));
-    callbackSetCallback(complete, &callback);
-    callbackSetPriority(record->prio, &callback);
-    callbackSetUser(this, &callback);
     requests.push_back(this);
 }
 
@@ -76,7 +70,7 @@ void devSnmp_request::event(const char *name, bool success)
     entry.transaction = transaction;
     entry.wireId = wireId;
     snprintf(entry.oid, sizeof(entry.oid), "%s", numericOid);
-    snprintf(entry.record, sizeof(entry.record), "%s", record->name);
+    snprintf(entry.record, sizeof(entry.record), "%s", binding.name.c_str());
     snprintf(entry.event, sizeof(entry.event), "%s", name);
     entry.success = success;
 }
@@ -91,7 +85,7 @@ void devSnmp_request::report(const char *recordName)
     unsigned long long validTotal = 0, failedTotal = 0, completedTotal = 0, retriesTotal = 0;
     for (unsigned i = 0; i < requests.size(); ++i) {
         devSnmp_request *request = requests[i];
-        if (!request || (recordName && strcmp(recordName, request->record->name))) continue;
+        if (!request || (recordName && strcmp(recordName, request->binding.name.c_str()))) continue;
         Statistics snapshot;
         State current;
         bool pending, stopped;
@@ -128,7 +122,7 @@ void devSnmp_request::report(const char *recordName)
                "terminal_ns=%llu applied_ns=%llu completed_ns=%llu last_valid_ns=%llu "
                "last_valid_age_ms=%.6f queue_age_ms=%.6f queue_ms=%.6f network_ms=%.6f "
                "callback_ms=%.6f processing_ms=%.6f total_ms=%.6f\n",
-               now, request->record->name, generation, states[current], pending, stopped,
+               now, request->binding.name.c_str(), generation, states[current], pending, stopped,
                snapshot.acceptedCount, snapshot.rejectedCount, snapshot.validCount, snapshot.failedCount,
                snapshot.completedCount, snapshot.callbackRetries, snapshot.lastValidGeneration,
                snapshot.acceptedAt, snapshot.claimedAt, snapshot.dispatchedAt, snapshot.terminalAt,
@@ -151,7 +145,7 @@ void devSnmp_request::dumpTrace()
         epicsGuard<epicsMutex> guard(request->mutex);
         if (request->state != Idle) {
             printf("SNMPREQUEST %s generation=%llu state=%s callback=%d\n",
-                   request->record->name, request->generation,
+                   request->binding.name.c_str(), request->generation,
                    states[request->state], request->callbackPending);
         }
     }
@@ -175,8 +169,7 @@ bool devSnmp_request::begin()
         return false;
     }
     ++generation;
-    good = hasLong = hasDouble = false;
-    owner = NULL;
+    result.valid = result.hasLong = result.hasDouble = false;
     transaction = 0;
     wireId = 0;
     accepted = epicsMonotonicGet();
@@ -197,72 +190,56 @@ bool devSnmp_request::pending()
     return !stopping && state == Queued;
 }
 
-bool devSnmp_request::claim(devSnmp_session *session)
+bool devSnmp_request::claim(SnmpIdentity identity)
 {
     epicsGuard<epicsMutex> guard(mutex);
     if (stopping || state != Queued || expire()) return false;
-    owner = session;
-    transaction = session->traceId();
+    transaction = identity;
     statistics.claimedAt = epicsMonotonicGet();
     state = InFlight;
     event("claimed", true);
     return true;
 }
 
-void devSnmp_request::dispatched(devSnmp_session *session, long nativeId)
+void devSnmp_request::dispatched(SnmpIdentity identity, long nativeId)
 {
     epicsGuard<epicsMutex> guard(mutex);
-    if (state != InFlight || owner != session) return;
+    if (state != InFlight || transaction != identity) return;
     wireId = nativeId;
     statistics.dispatchedAt = epicsMonotonicGet();
     event("dispatch", true);
 }
 
-void devSnmp_request::finish(devSnmp_session *session, variable_list *value)
+void devSnmp_request::finish(SnmpIdentity identity, const SnmpValue &value)
 {
     epicsGuard<epicsMutex> guard(mutex);
-    if (stopping || state != InFlight || owner != session) return;
-    if (expire()) return;
-    good = hasLong = hasDouble = false;
-    if (value && value->type != SNMP_NOSUCHOBJECT &&
-        value->type != SNMP_NOSUCHINSTANCE && value->type != SNMP_ENDOFMIBVIEW) {
-        int count = snprint_value(&text[0], text.size(), value->name, value->name_length, value);
-        good = count >= 0 && (unsigned)count < text.size();
-        switch (value->type) {
-        case ASN_INTEGER:
-        case ASN_COUNTER:
-        case ASN_UNSIGNED:
-            if (value->val.integer) {
-                longValue = *value->val.integer;
-                hasLong = good;
-            }
-            break;
-#ifdef NETSNMP_WITH_OPAQUE_SPECIAL_TYPES
-        case ASN_OPAQUE_FLOAT:
-            if (value->val.floatVal) {
-                doubleValue = *value->val.floatVal;
-                hasDouble = good;
-            }
-            break;
-        case ASN_OPAQUE_DOUBLE:
-            if (value->val.doubleVal) {
-                doubleValue = *value->val.doubleVal;
-                hasDouble = good;
-            }
-            break;
-#endif
-        }
+    if (stopping || state != InFlight || transaction != identity || expire()) return;
+    result.valid = result.hasLong = result.hasDouble = false;
+    if (value.valid && strlen(&value.text[0]) < result.text.size() &&
+        value.length <= result.bytes.size() && value.length <= value.bytes.size() &&
+        value.oid.size() <= result.oid.capacity()) {
+        result.kind = value.kind;
+        result.wireType = value.wireType;
+        result.signedValue = value.signedValue;
+        result.unsignedValue = value.unsignedValue;
+        result.realValue = value.realValue;
+        result.length = value.length;
+        memcpy(&result.text[0], &value.text[0], strlen(&value.text[0]) + 1);
+        if (value.length) memcpy(&result.bytes[0], &value.bytes[0], value.length);
+        result.oid.assign(value.oid.begin(), value.oid.end());
+        result.valid = true;
+        result.hasLong = value.hasLong;
+        result.hasDouble = value.hasDouble;
     }
-    if (!expire()) ready(good);
+    if (!expire()) ready(result.valid);
 }
 
 /* Terminal arbitration runs under the request mutex on every entry path.
  * A ready result is immutable even while callback admission is delayed. */
 void devSnmp_request::ready(bool success)
 {
-    owner = NULL;
-    good = success;
-    if (!success) hasLong = hasDouble = false;
+    result.valid = success;
+    if (!success) result.hasLong = result.hasDouble = false;
     state = Ready;
     statistics.terminalAt = epicsMonotonicGet();
     event("result", success);
@@ -285,42 +262,39 @@ void devSnmp_request::service()
     if (state != Ready || callbackPending) return;
     state = Scheduled;
     callbackPending = true;
-    if (callbackRequest(&callback)) {
+    if (!completion.schedule(completion.handle)) {
         ++statistics.callbackRetries;
         state = Ready;
         callbackPending = false;
     }
 }
 
-void devSnmp_request::complete(epicsCallback *callback)
+bool devSnmp_request::completionWanted()
 {
-    devSnmp_request *request = static_cast<devSnmp_request *>(callback->user);
-    {
-        epicsGuard<epicsMutex> guard(request->mutex);
-        if (request->stopping) {
-            request->callbackPending = false;
-            request->state = Idle;
-            return;
-        }
+    epicsGuard<epicsMutex> guard(mutex);
+    if (!stopping) return true;
+    callbackPending = false;
+    state = Idle;
+    return false;
+}
+
+bool devSnmp_request::beginConsumption()
+{
+    epicsGuard<epicsMutex> guard(mutex);
+    if (stopping || state != Scheduled) return false;
+    state = Consuming;
+    return true;
+}
+
+void devSnmp_request::completed(bool processed, bool pactClear)
+{
+    epicsGuard<epicsMutex> guard(mutex);
+    if (processed) {
+        statistics.completedAt = epicsMonotonicGet();
+        ++statistics.completedCount;
+        event("complete", pactClear);
     }
-    dbScanLock(request->record);
-    bool process;
-    {
-        epicsGuard<epicsMutex> guard(request->mutex);
-        process = !request->stopping && request->state == Scheduled;
-        if (process) request->state = Consuming;
-    }
-    if (process) (*request->record->rset->process)(request->record);
-    {
-        epicsGuard<epicsMutex> guard(request->mutex);
-        if (process) {
-            request->statistics.completedAt = epicsMonotonicGet();
-            ++request->statistics.completedCount;
-            request->event("complete", !request->record->pact);
-        }
-        request->callbackPending = false;
-    }
-    dbScanUnlock(request->record);
+    callbackPending = false;
 }
 
 void devSnmp_request::consumed(bool success)
@@ -342,42 +316,48 @@ void devSnmp_request::consumed(bool success)
 bool devSnmp_request::valid()
 {
     epicsGuard<epicsMutex> guard(mutex);
-    return state == Consuming && good;
+    return state == Consuming && result.valid;
 }
 
 bool devSnmp_request::raw(char *value, unsigned capacity)
 {
     epicsGuard<epicsMutex> guard(mutex);
-    if (state != Consuming || !good || !capacity) return false;
-    snprintf(value, capacity, "%s", &text[0]);
+    if (state != Consuming || !result.valid || !capacity) return false;
+    snprintf(value, capacity, "%s", &result.text[0]);
     return true;
 }
 
 bool devSnmp_request::hasNativeLong()
 {
     epicsGuard<epicsMutex> guard(mutex);
-    return state == Consuming && good && hasLong;
+    return state == Consuming && result.valid && result.hasLong;
 }
 
 bool devSnmp_request::hasNativeDouble()
 {
     epicsGuard<epicsMutex> guard(mutex);
-    return state == Consuming && good && hasDouble;
+    return state == Consuming && result.valid && result.hasDouble;
 }
 
 bool devSnmp_request::nativeLong(long *value)
 {
     epicsGuard<epicsMutex> guard(mutex);
-    if (state != Consuming || !good || !hasLong) return false;
-    *value = longValue;
+    if (state != Consuming || !result.valid || !result.hasLong) return false;
+    if (result.kind == SnmpValue::Signed) {
+        if (result.signedValue < LONG_MIN || result.signedValue > LONG_MAX) return false;
+        *value = static_cast<long>(result.signedValue);
+    } else {
+        if (result.unsignedValue > static_cast<uint64_t>(LONG_MAX)) return false;
+        *value = static_cast<long>(result.unsignedValue);
+    }
     return true;
 }
 
 bool devSnmp_request::nativeDouble(double *value)
 {
     epicsGuard<epicsMutex> guard(mutex);
-    if (state != Consuming || !good || !hasDouble) return false;
-    *value = doubleValue;
+    if (state != Consuming || !result.valid || !result.hasDouble) return false;
+    *value = result.realValue;
     return true;
 }
 

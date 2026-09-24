@@ -14,6 +14,8 @@
 #include <epicsThread.h>
 #include <vector>
 #include <atomic>
+#include <memory>
+#include "snmpTypes.h"
 
 #include <net-snmp/net-snmp-config.h>
 #include <net-snmp/net-snmp-includes.h>
@@ -91,6 +93,7 @@ class devSnmp_getTransaction;
 class devSnmp_setTransaction;
 class devSnmp_hostversion;
 class devSnmp_request;
+class devSnmp_epics;
 
 typedef long (*DEVSNMP_DEVFUNC)(devSnmp_pv *pPV);
 
@@ -416,7 +419,10 @@ class devSnmp_oid
     snmpTimeObject    debugSetTime;
     _oid_reading      reading;
     bool              legacyPolling;
+    /* Non-owning acquisition slots; each devSnmp_epics owns its slot.
+     * The shared scratch result below is owned here; see copyRequestValue. */
     std::vector<devSnmp_request *> requests;
+    std::unique_ptr<SnmpValue> requestValue;
 
     void clearData(void);
     void storeData(netsnmp_variable_list *var);
@@ -446,6 +452,7 @@ class devSnmp_pv
 
     bool hasValue();
     devSnmp_request *request() { return pRequest; }
+    bool usesRawValue() const;
     bool getValueString(char *str, int maxsize);
     bool getValueDouble(double *value);
     bool getValueLong(long *value);
@@ -492,7 +499,10 @@ class devSnmp_pv
     devSnmp_manager  *pOurMgr;
     devSnmp_group    *pOurGroup;
     devSnmp_oid      *pOurOID;
+    /* pEpics owns the adapter and its acquisition slot; pRequest is a
+     * non-owning alias of pEpics->request() with the same lifetime. */
     devSnmp_request  *pRequest;
+    devSnmp_epics    *pEpics;
     struct dbCommon  *pOurRecord;
     DEVSNMP_DEVFUNC   pPeriodicFunction;
     long              periodicMSec;
@@ -520,6 +530,7 @@ class devSnmp_group
 
     const char *hostName(void);
     const char *communityName(void);
+    SnmpIdentity profileIdentity() const { return profileId; }
     int snmpVersion(void);
 
     void setMaxOidsPerReq(int maxoids);
@@ -547,6 +558,7 @@ class devSnmp_group
     snmpPointerList      *pvList;
     snmpPointerList      *oidList;
     snmpWeightCollection *weightCollection;
+    SnmpIdentity          profileId;
     unsigned              requestCursor;
     long                  bestReplyMsec;
     long                  worstReplyMsec;

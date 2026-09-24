@@ -45,6 +45,7 @@
 
 #include "devSnmp.h"
 #include "snmpRequest.h"
+#include "snmpEpics.h"
 #include <memory>
 
 #include <alarm.h>
@@ -1764,6 +1765,8 @@ void devSnmp_oid::queueUpdate(void)
 //--------------------------------------------------------------------
 void devSnmp_oid::addRequest(devSnmp_request *request)
 {
+  if (!requestValue || requestValue->text.size() < request->capacity())
+    requestValue.reset(new SnmpValue(request->capacity()));
   requests.push_back(request);
 }
 bool devSnmp_oid::hasPendingRequest(void)
@@ -1775,16 +1778,101 @@ bool devSnmp_oid::hasPendingRequest(void)
 bool devSnmp_oid::claimRequests(devSnmp_session *session)
 {
   bool claimed = false;
-  for (unsigned i = 0; i < requests.size(); ++i) claimed |= requests[i]->claim(session);
+  for (unsigned i = 0; i < requests.size(); ++i) claimed |= requests[i]->claim(session->traceId());
   return claimed;
 }
+/* Native storage is read only inside this transport boundary. The shared OID
+ * scratch result and each acquisition slot are allocated during binding.
+ * Writers are replyProcessing on the read thread under the manager session
+ * mutex and the session destructor. devSnmp_host runs the destructor for
+ * completed and stale sessions without that mutex; a session deleted after
+ * a failed open or send was never sent and has no reply to race. For a
+ * completed session the writers cannot overlap: the reply finished
+ * before deletion and devSnmp_host keeps at most one sent session per
+ * host. For a session deleted as stale after 60 s without completion, a
+ * late reply on the read thread can overlap the destructor; that race on
+ * the session itself predates this scratch and remains open. Each slot
+ * copies the scratch under its own mutex. */
+static void copyRequestValue(SnmpValue &result, const netsnmp_variable_list *value)
+{
+  result.valid = result.hasLong = result.hasDouble = false;
+  result.kind = SnmpValue::Empty;
+  result.length = 0;
+  result.oid.clear();
+  if (!value || value->type == SNMP_NOSUCHOBJECT ||
+      value->type == SNMP_NOSUCHINSTANCE || value->type == SNMP_ENDOFMIBVIEW) return;
+  result.wireType = value->type;
+  int count = snprint_value(&result.text[0], result.text.size(), value->name, value->name_length, value);
+  if (count < 0 || static_cast<unsigned>(count) >= result.text.size()) return;
+  switch (value->type) {
+  case ASN_INTEGER:
+    if (!value->val.integer) return;
+    result.kind = SnmpValue::Signed;
+    result.signedValue = *value->val.integer;
+    result.hasLong = true;
+    break;
+  case ASN_COUNTER:
+  case ASN_UNSIGNED:
+  case ASN_TIMETICKS:
+    if (!value->val.integer) return;
+    result.kind = SnmpValue::Unsigned;
+    result.unsignedValue = static_cast<uint32_t>(*value->val.integer);
+    result.hasLong = value->type != ASN_TIMETICKS;
+    break;
+  case ASN_COUNTER64:
+    if (!value->val.counter64) return;
+    result.kind = SnmpValue::Unsigned;
+    result.unsignedValue = (static_cast<uint64_t>(value->val.counter64->high) << 32) |
+                           static_cast<uint32_t>(value->val.counter64->low);
+    break;
+#ifdef NETSNMP_WITH_OPAQUE_SPECIAL_TYPES
+  case ASN_OPAQUE_FLOAT:
+    if (!value->val.floatVal) return;
+    result.kind = SnmpValue::Real;
+    result.realValue = *value->val.floatVal;
+    result.hasDouble = true;
+    break;
+  case ASN_OPAQUE_DOUBLE:
+    if (!value->val.doubleVal) return;
+    result.kind = SnmpValue::Real;
+    result.realValue = *value->val.doubleVal;
+    result.hasDouble = true;
+    break;
+#endif
+  case ASN_OBJECT_ID: {
+    size_t length = value->val_len / sizeof(oid);
+    if (value->val_len % sizeof(oid) || length > result.oid.capacity() ||
+        (length && !value->val.objid)) return;
+    result.kind = SnmpValue::ObjectId;
+    for (size_t i = 0; i < length; ++i) {
+      if (value->val.objid[i] > UINT32_MAX) return;
+      result.oid.push_back(static_cast<uint32_t>(value->val.objid[i]));
+    }
+    break;
+  }
+  case ASN_OCTET_STR:
+  case ASN_BIT_STR:
+  case ASN_IPADDRESS:
+  case ASN_OPAQUE:
+    if (value->val_len > result.bytes.size() || (value->val_len && !value->val.string)) return;
+    result.kind = SnmpValue::Octets;
+    result.length = static_cast<unsigned>(value->val_len);
+    if (result.length) memcpy(&result.bytes[0], value->val.string, result.length);
+    break;
+  }
+  result.valid = true;
+}
+
 void devSnmp_oid::finishRequests(devSnmp_session *session, netsnmp_variable_list *value)
 {
-  for (unsigned i = 0; i < requests.size(); ++i) requests[i]->finish(session, value);
+  if (!requestValue) return;
+  copyRequestValue(*requestValue, value);
+  for (unsigned i = 0; i < requests.size(); ++i)
+    requests[i]->finish(session->traceId(), *requestValue);
 }
 void devSnmp_oid::dispatchRequests(devSnmp_session *session, long wireId)
 {
-  for (unsigned i = 0; i < requests.size(); ++i) requests[i]->dispatched(session, wireId);
+  for (unsigned i = 0; i < requests.size(); ++i) requests[i]->dispatched(session->traceId(), wireId);
 }
 //--------------------------------------------------------------------
 void devSnmp_oid::periodicProcessing(epicsTimeStamp *pnow)
@@ -2299,9 +2387,11 @@ devSnmp_pv::devSnmp_pv
   pOurOID    = pOID;
   memcpy(&oidExtra,pOidExtra,sizeof(configDataPV));
   pRequest = NULL;
+  pEpics = NULL;
   if (oidExtra.request_mode) {
-    pRequest = new devSnmp_request(pRecord, oidExtra.data_len,
-                                   pOID->getOid()->Oid, pOID->getOid()->OidLen);
+    pEpics = new devSnmp_epics(pRecord, oidExtra.data_len,
+                              pOID->getOid()->Oid, pOID->getOid()->OidLen, pGroup->profileIdentity());
+    pRequest = pEpics->request();
     pOID->addRequest(pRequest);
   } else {
     pOID->enableLegacyPolling();
@@ -2338,13 +2428,18 @@ devSnmp_pv::devSnmp_pv
 //--------------------------------------------------------------------
 devSnmp_pv::~devSnmp_pv(void)
 {
-  delete pRequest;
+  delete pEpics;
   // we don't delete OID object, it belongs to our group
 }
 //--------------------------------------------------------------------
 const configDataPV *devSnmp_pv::configData(void)
 {
   return(&oidExtra);
+}
+//--------------------------------------------------------------------
+bool devSnmp_pv::usesRawValue() const
+{
+  return (oidExtra.special_flags & SPECIAL_FLAG_RVAL) != 0;
 }
 //--------------------------------------------------------------------
 long devSnmp_pv::configFlags(void)
@@ -2719,6 +2814,8 @@ devSnmp_group::devSnmp_group(devSnmp_manager *pMgr, devSnmp_host *host, char *co
 {
   (*okay) = false; // for now...
 
+  static SnmpIdentity nextProfile = 0;
+  profileId = ++nextProfile;
   pOurMgr          = pMgr;
   pOurHost         = host;
   pvList           = new snmpPointerList();
@@ -4262,102 +4359,17 @@ void snmpPollAggregate::report(void)
 #include <stringoutRecord.h>
 #include <longoutRecord.h>
 
-static long requestInit(dbCommon *record, struct link *input)
+bool devSnmpAttachRequest(dbCommon *record, struct link *input)
 {
-  if (input->type != INST_IO || record->scan == menuScanI_O_Intr || !checkInit()) {
-    recGblRecordError(S_db_badField, record, "SnmpRequest: invalid INP or SCAN");
-    return S_db_badField;
-  }
-  if (!pManager->addPV(record, input, true)) {
-    recGblRecordError(S_db_badField, record, "SnmpRequest: invalid input configuration");
-    return S_db_badField;
-  }
-  return 0;
+  return checkInit() && pManager->addPV(record, input, true);
 }
 
-static long requestAiInit(aiRecord *record) { return requestInit((dbCommon *)record, &record->inp); }
-static long requestLiInit(longinRecord *record) { return requestInit((dbCommon *)record, &record->inp); }
-static long requestSiInit(stringinRecord *record) { return requestInit((dbCommon *)record, &record->inp); }
-
-/* Positive means the initial asynchronous pass; zero means consumption.
- * PACT stays true throughout record support's conversion and FLNK pass. */
-static int requestReadStart(dbCommon *record, devSnmp_pv **pv)
+bool devSnmpExiting()
 {
-  *pv = (devSnmp_pv *)record->dpvt;
-  if (doingEpicsExit || !*pv || !(*pv)->request()) return -1;
-  if (record->pact) return 0;
-  if (!(*pv)->request()->begin()) return -1;
-  record->pact = true;
-  return 1;
+  return doingEpicsExit;
 }
 
-static long requestAiRead(aiRecord *record)
-{
-  devSnmp_pv *pv;
-  int start = requestReadStart((dbCommon *)record, &pv);
-  if (start > 0) return 0;
-  long status = -1;
-  if (start == 0) {
-    if (pv->configFlags() & SPECIAL_FLAG_RVAL) {
-      long value;
-      if (pv->getValueLong(&value) && value >= INT_MIN && value <= INT_MAX) {
-        record->rval = value;
-        status = 0;
-      }
-    } else {
-      double value;
-      if (pv->getValueDouble(&value)) {
-        record->val = value;
-        status = 2;
-      }
-    }
-  }
-  if (status >= 0) record->udf = false;
-  else recGblSetSevr(record, READ_ALARM, INVALID_ALARM);
-  if (start == 0) pv->request()->consumed(status >= 0);
-  return status;
-}
 
-static long requestLiRead(longinRecord *record)
-{
-  devSnmp_pv *pv;
-  int start = requestReadStart((dbCommon *)record, &pv);
-  if (start > 0) return 0;
-  long value;
-  bool good = start == 0 && pv->getValueLong(&value) && value >= INT_MIN && value <= INT_MAX;
-  if (good) {
-    record->val = value;
-    record->udf = false;
-  } else recGblSetSevr(record, READ_ALARM, INVALID_ALARM);
-  if (start == 0) pv->request()->consumed(good);
-  return good ? 0 : -1;
-}
-
-static long requestSiRead(stringinRecord *record)
-{
-  devSnmp_pv *pv;
-  int start = requestReadStart((dbCommon *)record, &pv);
-  if (start > 0) return 0;
-  char value[sizeof(record->val)] = {};
-  bool good = start == 0 && pv->getValueString(value, sizeof(value));
-  if (good) {
-    memcpy(record->val, value, sizeof(value));
-    record->udf = false;
-  } else recGblSetSevr(record, READ_ALARM, INVALID_ALARM);
-  if (start == 0) pv->request()->consumed(good);
-  return good ? 0 : -1;
-}
-
-struct RequestDset {
-  long number;
-  DEVSUPFUN report, init, init_record, get_ioint_info, read, special_linconv;
-};
-static RequestDset devSnmpRequestAi = {6, NULL, NULL, (DEVSUPFUN)requestAiInit, NULL, (DEVSUPFUN)requestAiRead, NULL};
-static RequestDset devSnmpRequestLi = {5, NULL, NULL, (DEVSUPFUN)requestLiInit, NULL, (DEVSUPFUN)requestLiRead, NULL};
-static RequestDset devSnmpRequestSi = {5, NULL, NULL, (DEVSUPFUN)requestSiInit, NULL, (DEVSUPFUN)requestSiRead, NULL};
-epicsExportAddress(dset, devSnmpRequestAi);
-epicsExportAddress(dset, devSnmpRequestLi);
-epicsExportAddress(dset, devSnmpRequestSi);
 
 extern "C" {
   static long snmpAiInit(struct aiRecord *pai);

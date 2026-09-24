@@ -223,7 +223,7 @@ class IOC:
         self.metadata["startup_sha256"] = digest(self.work / "st.cmd")
         write_json(self.work / "run.json", self.metadata)
 
-    def client(self, args):
+    def client(self, args, strip=True):
         result = subprocess.run(args, env=self.env, text=True, capture_output=True, timeout=4)
         self.commands.write(json.dumps({"time": time.monotonic_ns(), "args": args,
                                         "status": result.returncode, "out": result.stdout,
@@ -231,14 +231,15 @@ class IOC:
         self.commands.flush()
         if result.returncode:
             raise RuntimeError(result.stderr.strip() or result.stdout.strip())
-        return result.stdout.strip()
+        return result.stdout.strip() if strip else result.stdout
 
     def get(self, name, options=()):
         return self.client(["caget", "-w", "0.4", "-t", "-n", *options, self.prefix + name])
 
     def get_many(self, names):
         """Read numeric fields through one real CA client, without assuming atomicity."""
-        values = self.client(["caget", "-w", "0.4", "-t", "-n", *[self.prefix + name for name in names]]).splitlines()
+        values = self.client(["caget", "-w", "0.4", "-t", "-n", *[self.prefix + name for name in names]],
+                             strip=False).splitlines()
         if len(values) != len(names) or len(set(names)) != len(names):
             raise AssertionError("CA field count differs from the declared query")
         return dict(zip(names, values))

@@ -1,7 +1,7 @@
 {
   "name": "local-native-snmpd",
   "base_version": "7.0.10",
-  "net_snmp_versions": ["5.9.1", "5.9.3", "5.9.4.pre2"],
+  "net_snmp_versions": ["5.8", "5.9.1", "5.9.3", "5.9.4.pre2"],
   "protocols": ["1", "2c", "3"],
   "security_levels": ["noAuthNoPriv", "authNoPriv", "authPriv"],
   "auth_type": "SHA",

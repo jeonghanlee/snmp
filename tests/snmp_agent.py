@@ -1,15 +1,17 @@
 """Real private snmpd and a transparent UDP observation boundary."""
 
+import json
 import os
 from pathlib import Path
 import select
 import shutil
 import socket
 import subprocess
+import sys
 import threading
 import time
 
-from ioc import digest, write_json
+from ioc import ROOT, digest, write_json
 from snmp_peer import items, oid_text
 
 
@@ -42,6 +44,13 @@ def packet_metadata(packet):
         result.update(pdu=pdu[0], id=int.from_bytes(fields[0][1], "big", signed=True),
                       error=int.from_bytes(fields[1][1], "big"),
                       numeric_oids=[oid_text(next(items(binding))[1]) for _, binding, _ in items(fields[3][1])])
+        result["varbinds"] = []
+        for _, binding, _ in items(fields[3][1]):
+            parts = list(items(binding))
+            kind, value, _ = parts[1]
+            value = (int.from_bytes(value, "big", signed=kind == 2) if kind in (2, 0x41, 0x42, 0x43) else
+                     value.decode(errors="backslashreplace") if kind == 4 else value.hex())
+            result["varbinds"].append({"oid": oid_text(parts[0][1]), "type": kind, "value": value})
     return result
 
 
@@ -53,15 +62,26 @@ class Proxy:
         self.back.connect(("127.0.0.1", port))
         self.port = self.front.getsockname()[1]
         self.records, self.errors, self.clients = [], [], {}
+        self.mode, self.pdu = "normal", None
+        self.held, self.released = [], []
+        self.lock = threading.Lock()
+        self.closed = False
         self.log = (work / "wire.jsonl").open("w")
         self.stop = threading.Event()
         self.thread = threading.Thread(target=self.run, daemon=True)
         self.thread.start()
 
     def run(self):
-        import json
         try:
             while not self.stop.is_set():
+                with self.lock:
+                    released, self.released = self.released, []
+                for packet, key, address, request_pdu in released:
+                    self.clients[key] = (address, request_pdu)
+                    self.back.send(packet)
+                    metadata = packet_metadata(packet)
+                    metadata.update(event="release", action="forward", time=time.monotonic_ns())
+                    self.record(metadata)
                 ready, _, _ = select.select([self.front, self.back], [], [], 0.05)
                 for sock in ready:
                     packet, address = sock.recvfrom(65535)
@@ -69,18 +89,50 @@ class Proxy:
                     key = (metadata["version"], metadata.get("msgid", metadata.get("id")))
                     request = sock is self.front
                     metadata.update(event="request" if request else "response", time=time.monotonic_ns())
-                    self.records.append(metadata)
-                    self.log.write(json.dumps(metadata) + "\n")
-                    self.log.flush()
+                    destination = self.clients.get(key) if not request else None
+                    request_pdu = metadata.get("pdu") if request else destination[1] if destination else None
+                    with self.lock:
+                        mode = self.mode if self.pdu is None or self.pdu == request_pdu else "normal"
+                    drop = mode == ("drop-requests" if request else "drop-replies")
+                    hold = request and mode == "hold-requests"
+                    metadata["action"] = "drop" if drop else "hold" if hold else "forward"
+                    if not request and destination is None:
+                        metadata["action"] = "unmatched"
+                    self.record(metadata)
                     if request:
-                        self.clients[key] = address
-                        self.back.send(packet)
-                    else:
-                        self.front.sendto(packet, self.clients.pop(key))
+                        if hold:
+                            with self.lock:
+                                self.held.append((packet, key, address, request_pdu))
+                        elif not drop:
+                            self.clients[key] = (address, request_pdu)
+                            self.back.send(packet)
+                    elif destination:
+                        del self.clients[key]
+                        if not drop:
+                            self.front.sendto(packet, destination[0])
         except BaseException as error:
             self.errors.append(repr(error))
 
+    def record(self, metadata):
+        self.records.append(metadata)
+        self.log.write(json.dumps(metadata) + "\n")
+        self.log.flush()
+
+    def fault(self, mode, pdu=None):
+        if mode not in ("normal", "drop-requests", "drop-replies", "hold-requests"):
+            raise ValueError("Unknown UDP fault mode")
+        with self.lock:
+            self.mode, self.pdu = mode, pdu
+
+    def release(self):
+        with self.lock:
+            self.released.extend(self.held)
+            self.held.clear()
+
     def close(self):
+        if self.closed:
+            return
+        self.closed = True
         self.stop.set()
         self.thread.join(timeout=2)
         self.front.close()
@@ -93,7 +145,7 @@ class Proxy:
 
 
 class Agent:
-    def __init__(self, work, profile):
+    def __init__(self, work, profile, writable=False):
         self.work = work / "agent"
         self.work.mkdir(mode=0o700)
         (self.work / "state").mkdir(mode=0o700)
@@ -105,12 +157,17 @@ class Agent:
             self.port = reserve.getsockname()[1]
         self.auth_type = profile["auth_type"]
         self.priv_type = profile["priv_type"]
+        self.values_path = self.work / "values.json"
+        extension = ""
+        if writable:
+            write_json(self.values_path, {"values": {"5": 500, "6": 600, "7": "initial"}, "reject_set": False})
+            extension = f"pass_persist .1.3.6.1.4.1.55555 {sys.executable} {ROOT}/tests/agent_values.py {self.values_path} {self.work}/writes.jsonl\n"
         config = self.work / "snmpd.conf"
         config.write_text(f"agentaddress udp:127.0.0.1:{self.port}\nengineID fixture-agent\n"
                           "rwcommunity public 127.0.0.1\nsysName fixture-agent\n" +
                           "".join(f"createUser {user} {self.auth_type} {AUTH} {self.priv_type} {PRIV}\n"
                                   f"rwuser {user} {level}\n"
-                                  for user, level in zip(USERS.values(), ("noauth", "auth", "priv"))))
+                                  for user, level in zip(USERS.values(), ("noauth", "auth", "priv"))) + extension)
         config.chmod(0o600)
         self.env = dict(os.environ, SNMP_PERSISTENT_DIR=str(self.work / "state"),
                         SNMPCONFPATH=str(self.work), MIBS="")

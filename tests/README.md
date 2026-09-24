@@ -16,9 +16,9 @@ acceptance requirements and observed results remain in
 
 Requirements: Linux, Python 3, make, a C++11 compiler, Net-SNMP development
 files, and an installed EPICS Base. The published profiles declare Base 7.0.10
-and native Net-SNMP versions 5.9.1, 5.9.3 or 5.9.4.pre2. A declaration is not
-proof that every matrix cell passed on that platform. The protocol suite also
-requires the actual `snmpd` and `snmpget` programs in PATH.
+and native Net-SNMP versions 5.8, 5.9.1, 5.9.3 or 5.9.4.pre2. A declaration is
+not proof that every matrix cell passed on that platform. The protocol suite
+also requires the actual `snmpd` and `snmpget` programs in PATH.
 
 Run these commands from this Git checkout. Set `SNMP_TEST_BASE` to the actual
 Base installation and choose new output paths; the build tool refuses to
@@ -163,6 +163,81 @@ profiles. `--case <name>` selects one named case and reports partial coverage;
 `--repeat N` repeats the selected suite with fresh instances.
 Missing/skipped cases, absent trace, trace overflow, wrong wire identity,
 wrong FLNK observations, timeout or cleanup failure return nonzero.
+
+## Pre-Migration SNMPv3 And SET Observations
+
+Build the identified pre-worker module separately and run the current fixtures
+against that executable. Both suites require real snmpd and snmpget in PATH;
+v3-baseline also requires a C compiler and the Linux x86-64 rtld-audit ABI.
+Use a private new build directory and retain it with the resulting evidence.
+
+```bash
+SNMP_PRE_WORKER=750ea26243614ec4402994959e21bd970b0a6856
+SNMP_V3_BUILD=/tmp/snmp-pre-worker
+SNMP_BUILD_ARGS=(--base "$SNMP_TEST_BASE" --revision "$SNMP_PRE_WORKER")
+python3 tests/build_fixture.py "${SNMP_BUILD_ARGS[@]}" --output "$SNMP_V3_BUILD"
+SNMP_TEST_IOC="$SNMP_V3_BUILD/bin/linux-x86_64/snmpRequestTest"
+SNMP_V3_ARGS=(--ioc "$SNMP_TEST_IOC" --profile tests/profiles/snmpv3.json)
+python3 tests/run_snmp.py "${SNMP_V3_ARGS[@]}" --suite v3-baseline
+python3 tests/run_snmp.py "${SNMP_V3_ARGS[@]}" --suite legacy-set
+```
+
+The v3-baseline suite has five observation cases: 100 cold IOC starts,
+1000 warm reads with native-call observation, 1000 warm reads without it,
+and 1000 reads in each of the two-address control and discovery-loss conditions.
+The latter use a 400 ms record deadline, a 4 s transport timeout and a requested
+100 ms read interval. Every hundred healthy reads also starts one request
+to the second actual agent. The fault proxy drops that address's real packets;
+neither native discovery nor an internal module function is substituted.
+
+Native-call observation uses LD_AUDIT only in the owned IOC. It reports actual
+module-to-library open/close entry and return without replacing the called
+address or changing arguments/return registers. The observer build and source
+hashes are retained. Wire discovery counts are independent observations, not
+estimates based on session counts. The run without LD_AUDIT keeps observation
+overhead distinct from ordinary timing. AuthPriv bodies stay encrypted.
+
+Successful cold/warm reads require applied values, one terminal result and
+FLNK before PACT clears. CPU ticks, FD/RSS/thread samples, native calls and
+acceptance/dispatch/result/FLNK/completion times are retained. The two-address
+cases collect outcomes even when the healthy record becomes INVALID during
+the other address's discovery wait. Their observations.json explicitly marks
+observation_only=true and reports p99, maximum and invalid_count. A passing
+collection does not mean discovery isolation passed: apply M8/T8's separate
+zero-INVALID and latency criteria when qualifying the worker candidate.
+No restart-isolation or one-hour resource qualification is supplied by this
+baseline suite. Run timing comparisons without other laboratory load.
+
+The legacy-set suite has twelve cases. It exercises the shipped ao, longout
+and stringout support against disposable writable OIDs implemented through
+the real snmpd pass_persist interface. Real native snmpget verifies device
+state independently of the IOC and its UDP observer. The ASCII laboratory
+values, actual applied SET log and raw request/response metadata remain in
+the case directory.
+
+Coverage includes successful SETs, agent error responses, queued writes to
+one OID behind a held GET, three output types, shared-OID readback and
+SetSkipReadbackMSec, plus request loss and response loss after application.
+Each loss direction uses retries 0, 1, 3 and omitted timeout/retry overrides.
+The inherited policy therefore includes six real attempts over about a minute
+per output; the complete suite takes several minutes. It verifies the actual
+wire types/values and request IDs, device value, recovery without another
+command, and no additional module SET replay. Native retransmissions may
+apply a command more than once; packet counts do not establish exactly-once
+device execution.
+
+record-samples.json retains values, PACT, UDF, STAT and SEVR, including
+transient alarms. Loss observations distinguish a native timeout callback
+from the pre-worker module's 60-second stale-session retirement. The latter
+is an observed baseline termination route, not successful native timeout
+delivery or acceptance of the future worker watchdog. Preserve both outcomes
+when comparing a replacement. The short laboratory stale threshold is 500 ms,
+output callback period 100 ms and readback suppression 1000 ms; only the
+explicit default-policy cases omit SessionTimeout and SessionRetries.
+
+These suites are individual P801 observations. run_matrix.py does not yet
+include the replacement-worker acceptance matrix; neither suite qualifies
+the final architecture or physical hardware by itself.
 
 ## Observer Negative Controls
 

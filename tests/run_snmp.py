@@ -80,7 +80,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ioc", type=Path, required=True)
     parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion", "robustness", "pressure", "teardown", "accounting", "registration"), required=True)
+    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion", "robustness", "pressure", "teardown", "accounting", "registration", "v3-baseline", "legacy-set"), required=True)
     parser.add_argument("--output", type=Path, help="New evidence directory; never overwritten")
     parser.add_argument("--negative-control", choices=("wrong-value", "miswired", "trace-loss"))
     parser.add_argument("--case", help="One case, explicitly reported as partial coverage")
@@ -158,6 +158,12 @@ def main():
         elif args.suite == "protocol":
             from test_protocol import ProtocolTest
             case_class, names = ProtocolTest, ("v1", "v2c", "v3_no_auth", "v3_auth", "v3_priv")
+        elif args.suite == "v3-baseline":
+            from test_snmpv3 import SnmpV3Test, CASES
+            case_class, names = SnmpV3Test, CASES
+        elif args.suite == "legacy-set":
+            from test_legacy_set import LegacySetTest, CASES
+            case_class, names = LegacySetTest, CASES
         elif args.suite == "lifecycle":
             from test_lifecycle import LifecycleTest, CASES
             case_class, names = LifecycleTest, CASES

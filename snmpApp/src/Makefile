@@ -22,6 +22,7 @@ DBD += devSnmp.dbd
 devSnmp_SRCS += snmpRegister.cpp
 devSnmp_SRCS += snmpSessShow.c
 devSnmp_SRCS += devSnmp.cpp
+devSnmp_SRCS += snmpRequest.cpp
 
 devSnmp_LIBS += $(EPICS_BASE_IOC_LIBS)
 
@@ -52,4 +53,3 @@ snmp_LIBS += $(EPICS_BASE_IOC_LIBS)
 include $(TOP)/configure/RULES
 #----------------------------------------
 #  ADD RULES AFTER THIS LINE
-

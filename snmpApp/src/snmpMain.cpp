@@ -11,7 +11,7 @@
 /* NSCL - Feb 2009 - J.Priller
    R3.14.6 doesn't define epicsExit(), include dummy func if detected */
 #include "epicsVersion.h"
-#if (EPICS_VERSION>=3) && (EPICS_REVISION>=14) && (EPICS_MODIFICATION>=7)
+#if EPICS_VERSION > 3 || (EPICS_VERSION == 3 && (EPICS_REVISION > 14 || (EPICS_REVISION == 14 && EPICS_MODIFICATION >= 7)))
 #include "epicsExit.h"
 #else
 static void epicsExit(int code)

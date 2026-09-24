@@ -1,0 +1,4 @@
+record(stringin, "$(P)TestInstance") {
+    field(DESC, "Owned test IOC instance")
+    field(VAL, "$(INSTANCE)")
+}

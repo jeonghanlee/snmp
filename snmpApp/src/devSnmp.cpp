@@ -41,8 +41,10 @@
 #include <strings.h>
 #include <ctype.h>
 #include <errno.h>
+#include <limits.h>
 
 #include "devSnmp.h"
+#include "snmpRequest.h"
 
 #include <alarm.h>
 #include <cvtTable.h>
@@ -182,6 +184,8 @@ static setParamItem setParamTable[] = {
   { "SessionRetries",       &snmpSessionRetries,       sessionRetriesChange },
   { "SessionTimeout",       &snmpSessionTimeout,       sessionTimeoutChange },
   { "CheckRanges",          &snmpCheckRanges,          checkRangesChange    },
+  { "RequestTimeoutMSec",  &snmpRequestTimeoutMSec,  NULL                 },
+  { "RequestTrace",        &snmpRequestTrace,        NULL                 },
   { NULL,                   NULL,                      NULL                 }
 };
 
@@ -323,15 +327,23 @@ static bool snmpParseInOut
 //----------------------------------------------------------------------
 static void snmpAtExit(void *arg)
 {
+  if (doingEpicsExit) return;
   // set exiting flag
   // and give processes making calls into pManager a little time to complete
   doingEpicsExit = true;
   epicsThreadSleep(0.2);
 
   if (pManager) {
+    bool callbacksStopped = devSnmp_request::shutdown();
+    bool networkStopped = pManager->stop();
+    if (!callbacksStopped || !networkStopped) {
+      fprintf(stderr, "devSnmp: shutdown incomplete; retaining storage at exit\n");
+      return;
+    }
     if (snmpDebugLevel) printf("devSnmp : deleting manager object\n");
     delete pManager;
     pManager = NULL;
+    printf("devSnmp: shutdown complete\n");
   }
 }
 //--------------------------------------------------------------------
@@ -339,9 +351,14 @@ static void snmpInitHook(initHookState state)
 {
   switch (state) {
     case initHookAtEnd:
+      devSnmp_request::start();
       if (pManager->start() != epicsOk) {
         printf("devSnmp ERROR: could not start manager object\n");
       }
+      break;
+
+    case initHookAtShutdown:
+      snmpAtExit(NULL);
       break;
 
     default:
@@ -1055,6 +1072,8 @@ char devSnmp_setting::setType(void)
 //--------------------------------------------------------------------
 devSnmp_session::devSnmp_session(devSnmp_manager *pMgr, devSnmp_group *pGroup, bool is_set)
 {
+  static std::atomic<unsigned long long> nextTransaction(0);
+  transactionId = ++nextTransaction;
   pOurMgr     = pMgr;
   pOurGroup   = pGroup;
   session     = NULL;
@@ -1072,6 +1091,10 @@ devSnmp_session::devSnmp_session(devSnmp_manager *pMgr, devSnmp_group *pGroup, b
 //--------------------------------------------------------------------
 devSnmp_session::~devSnmp_session(void)
 {
+  if (!is_setting && oidList) {
+    for (int i = 0; i < oidList->count(); ++i)
+      ((devSnmp_oid *)oidList->itemAt(i))->finishRequests(this, NULL);
+  }
   close();
   if (oidList) {
     // don't delete OID objects in list
@@ -1103,6 +1126,24 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
 
   int oidCount = oidList->count();
   devSnmp_oid **oidArray = (devSnmp_oid **) oidList->rawArray();
+
+  // Each request consumes only its dispatch's uniquely matching varbind.
+  if (!is_setting) {
+    for (int i = 0; i < oidCount; ++i) {
+      netsnmp_variable_list *matched = NULL;
+      unsigned matches = 0;
+      if (op == NETSNMP_CALLBACK_OP_RECEIVED_MESSAGE && pdu && !pdu->errstat) {
+        OID *expected = oidArray[i]->getOid();
+        for (netsnmp_variable_list *v = pdu->variables; v; v = v->next_variable) {
+          if (!snmp_oid_compare(expected->Oid, expected->OidLen, v->name, v->name_length)) {
+            matched = v;
+            ++matches;
+          }
+        }
+      }
+      oidArray[i]->finishRequests(this, matches == 1 ? matched : NULL);
+    }
+  }
 
   if (op == NETSNMP_CALLBACK_OP_RECEIVED_MESSAGE) {
     //
@@ -1232,13 +1273,20 @@ bool devSnmp_session::open(SNMP_SESSION *psess)
     return(false);
   }
 
+  if (!is_setting) {
+    for (int i = 0; i < oidList->count(); ++i) {
+      OID *oid = ((devSnmp_oid *)oidList->itemAt(i))->getOid();
+      if (!snmp_add_null_var(pdu, oid->Oid, oid->OidLen)) return false;
+    }
+  }
   return(true);
 }
 //--------------------------------------------------------------------
 void devSnmp_session::addReading(devSnmp_oid *pOID)
 {
-  if ((pdu) && (! is_setting)) {
-    snmp_add_null_var(pdu,pOID->getOid()->Oid,pOID->getOid()->OidLen);
+  if (!is_setting) {
+    bool claimed = pOID->claimRequests(this);
+    if (!claimed && !pOID->legacyPollingEnabled()) return;
     oidList->append(pOID);
   }
 }
@@ -1264,6 +1312,11 @@ void devSnmp_session::addSetting(devSnmp_oid *pOID, devSnmp_setting *pSet)
 bool devSnmp_session::send(void)
 {
   tried_send = true;
+
+  if (!is_setting && pdu) {
+    for (int i = 0; i < oidList->count(); ++i)
+      ((devSnmp_oid *)oidList->itemAt(i))->dispatchRequests(this, pdu->reqid);
+  }
 
   bool state;
   if (snmp_send(session,pdu)) {
@@ -1300,9 +1353,8 @@ void devSnmp_session::close(void)
   pOurMgr->sessionMutexLock();
 
   try {
-    // if tried to send then session owns pdu and we shouldn't free it
-    // otherwise we need to free it
-    if ((pdu) && (! tried_send)) snmp_free_pdu(pdu);
+    // Net-SNMP owns the PDU only after a successful send.
+    if ((pdu) && (! sent)) snmp_free_pdu(pdu);
     if (session) snmp_close(session);
   } catch( ... ) {
     printf("devSnmp : EXCEPTION in devSnmp_session::close\n");
@@ -1438,13 +1490,6 @@ devSnmp_session *devSnmp_getTransaction::createSession(void)
                                                   pGroup,
                                                   false);
 
-  // open session
-  if (! pSession->open(pGroup->getBaseSession())) {
-    snmp_perror("devSnmp_getTransaction::createSession : GET session open failed");
-    delete pSession;
-    return(NULL);
-  }
-
   // add OIDs to session
   int oidCount = oidList->count();
   devSnmp_oid **oidArray = (devSnmp_oid **) oidList->rawArray();
@@ -1454,6 +1499,15 @@ devSnmp_session *devSnmp_getTransaction::createSession(void)
     pSession->addReading(pOID);
   }
 
+  if (!pSession->itemCount()) {
+    delete pSession;
+    return NULL;
+  }
+  if (!pSession->open(pGroup->getBaseSession())) {
+    snmp_perror("devSnmp_getTransaction::createSession : GET session open failed");
+    delete pSession;
+    return NULL;
+  }
   return(pSession);
 }
 //--------------------------------------------------------------------
@@ -1533,6 +1587,7 @@ devSnmp_oid::devSnmp_oid
   setMutex         = epicsMutexCreate();
   flagged_read_bad = SNMP_ERR_NOERROR;
   queued_for_get   = false;
+  legacyPolling    = false;
   validFlag        = false;
   pollSendCount    = 0;
   pollReplyCount   = 0;
@@ -1702,6 +1757,31 @@ void devSnmp_oid::queueUpdate(void)
     lastPollSent.clear();
 }
 //--------------------------------------------------------------------
+void devSnmp_oid::addRequest(devSnmp_request *request)
+{
+  requests.push_back(request);
+}
+bool devSnmp_oid::hasPendingRequest(void)
+{
+  for (unsigned i = 0; i < requests.size(); ++i)
+    if (requests[i]->pending()) return true;
+  return false;
+}
+bool devSnmp_oid::claimRequests(devSnmp_session *session)
+{
+  bool claimed = false;
+  for (unsigned i = 0; i < requests.size(); ++i) claimed |= requests[i]->claim(session);
+  return claimed;
+}
+void devSnmp_oid::finishRequests(devSnmp_session *session, netsnmp_variable_list *value)
+{
+  for (unsigned i = 0; i < requests.size(); ++i) requests[i]->finish(session, value);
+}
+void devSnmp_oid::dispatchRequests(devSnmp_session *session, long wireId)
+{
+  for (unsigned i = 0; i < requests.size(); ++i) requests[i]->dispatched(session, wireId);
+}
+//--------------------------------------------------------------------
 void devSnmp_oid::periodicProcessing(epicsTimeStamp *pnow)
 {
   // if we have a reading, make sure it isn't too stale and flag
@@ -1865,6 +1945,14 @@ devSnmp_setting *devSnmp_oid::getNextSetting(void)
 //--------------------------------------------------------------------
 long devSnmp_oid::recalcPollWeight(epicsTimeStamp *pnow)
 {
+  if (!queued_for_get && hasPendingRequest()) {
+    pollWeight = -65535;
+    return pollWeight;
+  }
+  if (!legacyPolling) {
+    pollWeight = snmpDoNotPollWeight;
+    return pollWeight;
+  }
   // don't poll us if:
   //     we're already queued for a poll (or still waiting for a reply)
   //     or we've been flagged as a bad oid in some previous poll
@@ -2205,6 +2293,14 @@ devSnmp_pv::devSnmp_pv
   pOurRecord = pRecord;
   pOurOID    = pOID;
   memcpy(&oidExtra,pOidExtra,sizeof(configDataPV));
+  pRequest = NULL;
+  if (oidExtra.request_mode) {
+    pRequest = new devSnmp_request(pRecord, oidExtra.data_len,
+                                   pOID->getOid()->Oid, pOID->getOid()->OidLen);
+    pOID->addRequest(pRequest);
+  } else {
+    pOID->enableLegacyPolling();
+  }
 
   // initialize misc variables
   pPeriodicFunction = NULL;
@@ -2230,13 +2326,14 @@ devSnmp_pv::devSnmp_pv
     case menuScan_1_second: pollMSec = 100;                 break;
     default:                pollMSec = 200;                 break;
   }
-  if (pollMSec < pOurOID->getPollMSec()) pOurOID->setPollMSec(pollMSec);
+  if (!pRequest && pollMSec < pOurOID->getPollMSec()) pOurOID->setPollMSec(pollMSec);
 
   (*okay) = true;
 }
 //--------------------------------------------------------------------
 devSnmp_pv::~devSnmp_pv(void)
 {
+  delete pRequest;
   // we don't delete OID object, it belongs to our group
 }
 //--------------------------------------------------------------------
@@ -2257,6 +2354,7 @@ const char *devSnmp_pv::devSnmp_pv::errorString(void)
 //--------------------------------------------------------------------
 bool devSnmp_pv::hasValue()
 {
+  if (pRequest) return pRequest->valid();
   return pOurOID && pOurOID->hasReading();
 }
 //--------------------------------------------------------------------
@@ -2274,7 +2372,7 @@ bool devSnmp_pv::getValueString(char *str, int maxsize)
   // try to locate our mask
   char *pc = snmpStrStr(rawData, oidExtra.mask);
   if (! pc) {
-    sprintf(lastError,"mask '%s' not found in '%s'",oidExtra.mask,rawData);
+    snprintf(lastError,sizeof(lastError),"mask '%s' not found in '%s'",oidExtra.mask,rawData);
     return(false);
   }
 
@@ -2312,8 +2410,9 @@ bool devSnmp_pv::getValueDouble(double *value)
   }
 
   // if use-native is enabled and oid has a double reading available, use that
-  if ((oidExtra.special_flags & SPECIAL_FLAG_USE_NATIVE) && (pOurOID->hasReadingDouble())) {
-    bool ok = pOurOID->getValueDouble(value);
+  if ((oidExtra.special_flags & SPECIAL_FLAG_USE_NATIVE) &&
+      (pRequest ? pRequest->hasNativeDouble() : pOurOID->hasReadingDouble())) {
+    bool ok = pRequest ? pRequest->nativeDouble(value) : pOurOID->getValueDouble(value);
     if (! ok) strcpy(lastError,"oid getValueDouble failed");
     return(ok);
   }
@@ -2328,17 +2427,17 @@ bool devSnmp_pv::getValueDouble(double *value)
   // so we must call epicsParseDouble with a units pointer
   char *units = NULL;
   if (epicsParseDouble(str,value,&units) != 0) {
-    sprintf(lastError,"epicsParseDouble failed on '%s'",str);
+    snprintf(lastError,sizeof(lastError),"epicsParseDouble failed on '%s'",str);
     return(false);
   }
 #else
   if (epicsScanDouble(str,value) != 1) {
-    sprintf(lastError,"epicsScanDouble failed on '%s'",str);
+    snprintf(lastError,sizeof(lastError),"epicsScanDouble failed on '%s'",str);
     return(false);
   }
 #endif
   if (isnan(*value)) {
-    sprintf(lastError,"'%s' = isnan",str);
+    snprintf(lastError,sizeof(lastError),"'%s' = isnan",str);
     return(false);
   }
   return(true);
@@ -2353,8 +2452,9 @@ bool devSnmp_pv::getValueLong(long *value)
   }
 
   // if use-native is enabled and oid has a long reading available, use that
-  if ((oidExtra.special_flags & SPECIAL_FLAG_USE_NATIVE) && (pOurOID->hasReadingLong())) {
-    bool ok = pOurOID->getValueLong(value);
+  if ((oidExtra.special_flags & SPECIAL_FLAG_USE_NATIVE) &&
+      (pRequest ? pRequest->hasNativeLong() : pOurOID->hasReadingLong())) {
+    bool ok = pRequest ? pRequest->nativeLong(value) : pOurOID->getValueLong(value);
     if (! ok) strcpy(lastError,"oid getValueLong failed");
     return(ok);
   }
@@ -2367,7 +2467,7 @@ bool devSnmp_pv::getValueLong(long *value)
   if (! (oidExtra.special_flags & SPECIAL_FLAG_HEXBITS)) {
     // is just a regular number
     if (! snmpScanLong(str,value)) {
-      sprintf(lastError,"snmpScanLong failed on '%s'",str);
+      snprintf(lastError,sizeof(lastError),"snmpScanLong failed on '%s'",str);
       return(false);
     }
   } else {
@@ -2389,7 +2489,7 @@ bool devSnmp_pv::getValueLong(long *value)
 
     // parse resulting hex-encoded string
     if (! snmpScanLong(str,value,16)) {
-      sprintf(lastError,"snmpScanLong(hex) failed on '%s'",str);
+      snprintf(lastError,sizeof(lastError),"snmpScanLong(hex) failed on '%s'",str);
       return(false);
     }
 
@@ -2414,6 +2514,7 @@ bool devSnmp_pv::getValueLong(long *value)
 //--------------------------------------------------------------------
 bool devSnmp_pv::getRawValueString(char *str, int maxsize)
 {
+  if (pRequest) return pRequest->raw(str, maxsize);
   if (! pOurOID) {
     sprintf(lastError,"devSnmp_pv::getRawValueString: oid object is NULL");
     return(false);
@@ -2448,6 +2549,7 @@ void devSnmp_pv::setPollMSec(int msec)
 //--------------------------------------------------------------------
 void devSnmp_pv::periodicProcessing(epicsTimeStamp *pnow)
 {
+  if (pRequest) return;
   // call periodic callback if is time to
   if (pPeriodicFunction) {
     if (lastPeriodicFuncCall.elapsedMilliseconds(pnow) >= periodicMSec) {
@@ -2500,6 +2602,7 @@ bool devSnmp_pv::doingProcess(void)
 //--------------------------------------------------------------------
 void devSnmp_pv::processRecord(bool asyncUpdate)
 {
+  if (pRequest || doingEpicsExit) return;
   dbScanLock(pOurRecord);
   in_rec_process = true;
   if (asyncUpdate)
@@ -2616,6 +2719,7 @@ devSnmp_group::devSnmp_group(devSnmp_manager *pMgr, devSnmp_host *host, char *co
   pvList           = new snmpPointerList();
   oidList          = new snmpPointerList();
   weightCollection = new snmpWeightCollection();
+  requestCursor    = 0;
   bestReplyMsec    = 0;
   worstReplyMsec   = 0;
   avgReplyMsec     = 0.0;
@@ -2898,9 +3002,20 @@ void devSnmp_group::processing(epicsTimeStamp *pnow)
     OIDs needing a poll that don't make it into this request will be
     picked up on subsequent calls of through this routine.
   */
-  weightCollection->transactionBuildStart();
   devSnmp_getTransaction *pGetTrans = new devSnmp_getTransaction(maxOidsPerReq);
-  do {
+  // Request readiness is independent of poll-period bins and their tail order.
+  // Rotate the starting OID so a full batch cannot starve later waiters.
+  unsigned start = requestCursor;
+  for (unsigned offset = 0; offset < (unsigned)oidCount && !pGetTrans->isFull(); ++offset) {
+    unsigned index = (start + offset) % oidCount;
+    devSnmp_oid *pOID = oidArray[index];
+    if (!pOID || pOID->isGetQueued() || !pOID->hasPendingRequest()) continue;
+    pGetTrans->addOID(pOID);
+    requestCursor = (index + 1) % oidCount;
+  }
+
+  weightCollection->transactionBuildStart();
+  while (!pGetTrans->isFull()) {
     // get next OID to poll
     devSnmp_oid *pOID = weightCollection->topOID();
     if (! pOID) break;
@@ -2909,12 +3024,12 @@ void devSnmp_group::processing(epicsTimeStamp *pnow)
     // even if we fill up our transaction below)
     weightCollection->nextOID();
 
-    if (pOID->getPollWeight() >= snmpDoNotPollWeight) continue;
+    if (pOID->isGetQueued() || pOID->getPollWeight() >= snmpDoNotPollWeight) continue;
 
     // add this PV to request, and stop if the request is then full
     pGetTrans->addOID(pOID);
     if (pGetTrans->isFull()) break;
-  } while (true);
+  }
 
   weightCollection->transactionBuildEnd();
 
@@ -3596,24 +3711,7 @@ devSnmp_manager::devSnmp_manager(void)
 //--------------------------------------------------------------------
 devSnmp_manager::~devSnmp_manager(void)
 {
-  snmpTimeObject T;
-
-  // stop send task
-  int t = 0;
-  sendTask_abort = true;
-  while ((! sendTask_exited) && (t < 3000)) {
-    epicsThreadSleep(0.1);
-    t += 100;
-  }
-
-  // stop read task
-  t = 0;
-  readTask_abort = true;
-  while ((! readTask_exited) && (t < 3000)) {
-    epicsThreadSleep(0.1);
-    t += 100;
-  }
-
+  // Shutdown must stop callbacks and workers before deleting the manager.
   // delete host list
   if (snmpHostList) {
     int hostCount = snmpHostList->count();
@@ -3625,6 +3723,18 @@ devSnmp_manager::~devSnmp_manager(void)
     delete snmpHostList;
     snmpHostList = NULL;
   }
+}
+//--------------------------------------------------------------------
+bool devSnmp_manager::stop(void)
+{
+  sendTask_abort = true;
+  readTask_abort = true;
+  for (unsigned attempt = 0; attempt < 300; ++attempt) {
+    if ((!sendTask_id || sendTask_exited) && (!readTask_id || readTask_exited))
+      return true;
+    epicsThreadSleep(0.01);
+  }
+  return false;
 }
 //--------------------------------------------------------------------
 int devSnmp_manager::start(void)
@@ -3654,8 +3764,6 @@ int devSnmp_manager::start(void)
 int devSnmp_manager::readTask(void)
 {
   readTask_start.start(NULL);
-  readTask_abort = false;
-  readTask_exited = false;
   readTask_loops = 0;
   while (! readTask_abort) {
     readTask_loops++;
@@ -3702,8 +3810,6 @@ int devSnmp_manager::readTask(void)
 int devSnmp_manager::sendTask(void)
 {
   sendTask_start.start(NULL);
-  sendTask_abort = false;
-  sendTask_exited = false;
   sendTask_loops = 0;
   while (! sendTask_abort) {
     // do processing
@@ -3825,7 +3931,7 @@ int devSnmp_manager::getHostMaxOidsPerReq(char *host)
   return( pHost ? pHost->getMaxOidsPerReq() : DEFAULT_MAX_OIDS_PER_REQ );
 }
 //--------------------------------------------------------------------
-devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink)
+devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bool requestMode)
 {
   // parse INP/OUT line
   char *instioStr = pLink->value.instio.string;
@@ -3839,6 +3945,8 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink)
     }
   instioStr = macEnvExpand(instioStr);
   if (! snmpParseInOut(instioStr,&base,&extra)) return(NULL);
+  extra.request_mode = requestMode;
+  if (requestMode && (extra.data_len < 2 || extra.data_len > 65536)) return NULL;
 
   // validate OID text, fill in OID structure
   OID oid;
@@ -3971,6 +4079,7 @@ bool devSnmp_manager::reportMatchAny(char *match)
 //--------------------------------------------------------------------
 void devSnmp_manager::report(int level, char *match)
 {
+  devSnmp_request::dumpTrace();
   if ((! snmpHostList) || (snmpHostList->count() == 0)) {
     printf("no devSnmp hosts defined\n");
     return;
@@ -4032,8 +4141,8 @@ void devSnmp_manager::report(int level, char *match)
     snmpTimeObject T;
     T.start(&globalLastTick);
     T.toDateTimeString(tmp);
-    printf("      sendTask_abort  : %d\n",sendTask_abort);
-    printf("      sendTask_exited : %d\n",sendTask_exited);
+    printf("      sendTask_abort  : %d\n",sendTask_abort.load());
+    printf("      sendTask_exited : %d\n",sendTask_exited.load());
     printf("      globalLastTick  : %s\n",tmp);
   }
 
@@ -4045,8 +4154,8 @@ void devSnmp_manager::report(int level, char *match)
     showReadDetail = true;
   }
   if (showReadDetail) {
-    printf("      readTask_abort        : %d\n",readTask_abort);
-    printf("      readTask_exited       : %d\n",readTask_exited);
+    printf("      readTask_abort        : %d\n",readTask_abort.load());
+    printf("      readTask_exited       : %d\n",readTask_exited.load());
     printf("      readTask_inSelect     : %d\n",readTask_inSelect);
     printf("      readTask_fds          : %d\n",readTask_fds);
     printf("      readTask_block        : %d\n",readTask_block);
@@ -4145,6 +4254,103 @@ void snmpPollAggregate::report(void)
 #include <aoRecord.h>
 #include <stringoutRecord.h>
 #include <longoutRecord.h>
+
+static long requestInit(dbCommon *record, struct link *input)
+{
+  if (input->type != INST_IO || record->scan == menuScanI_O_Intr || !checkInit()) {
+    recGblRecordError(S_db_badField, record, "SnmpRequest: invalid INP or SCAN");
+    return S_db_badField;
+  }
+  if (!pManager->addPV(record, input, true)) {
+    recGblRecordError(S_db_badField, record, "SnmpRequest: invalid input configuration");
+    return S_db_badField;
+  }
+  return 0;
+}
+
+static long requestAiInit(aiRecord *record) { return requestInit((dbCommon *)record, &record->inp); }
+static long requestLiInit(longinRecord *record) { return requestInit((dbCommon *)record, &record->inp); }
+static long requestSiInit(stringinRecord *record) { return requestInit((dbCommon *)record, &record->inp); }
+
+/* Positive means the initial asynchronous pass; zero means consumption.
+ * PACT stays true throughout record support's conversion and FLNK pass. */
+static int requestReadStart(dbCommon *record, devSnmp_pv **pv)
+{
+  *pv = (devSnmp_pv *)record->dpvt;
+  if (doingEpicsExit || !*pv || !(*pv)->request()) return -1;
+  if (record->pact) return 0;
+  if (!(*pv)->request()->begin()) return -1;
+  record->pact = true;
+  return 1;
+}
+
+static long requestAiRead(aiRecord *record)
+{
+  devSnmp_pv *pv;
+  int start = requestReadStart((dbCommon *)record, &pv);
+  if (start > 0) return 0;
+  long status = -1;
+  if (start == 0) {
+    if (pv->configFlags() & SPECIAL_FLAG_RVAL) {
+      long value;
+      if (pv->getValueLong(&value) && value >= INT_MIN && value <= INT_MAX) {
+        record->rval = value;
+        status = 0;
+      }
+    } else {
+      double value;
+      if (pv->getValueDouble(&value)) {
+        record->val = value;
+        status = 2;
+      }
+    }
+  }
+  if (status >= 0) record->udf = false;
+  else recGblSetSevr(record, READ_ALARM, INVALID_ALARM);
+  if (start == 0) pv->request()->consumed(status >= 0);
+  return status;
+}
+
+static long requestLiRead(longinRecord *record)
+{
+  devSnmp_pv *pv;
+  int start = requestReadStart((dbCommon *)record, &pv);
+  if (start > 0) return 0;
+  long value;
+  bool good = start == 0 && pv->getValueLong(&value) && value >= INT_MIN && value <= INT_MAX;
+  if (good) {
+    record->val = value;
+    record->udf = false;
+  } else recGblSetSevr(record, READ_ALARM, INVALID_ALARM);
+  if (start == 0) pv->request()->consumed(good);
+  return good ? 0 : -1;
+}
+
+static long requestSiRead(stringinRecord *record)
+{
+  devSnmp_pv *pv;
+  int start = requestReadStart((dbCommon *)record, &pv);
+  if (start > 0) return 0;
+  char value[sizeof(record->val)] = {};
+  bool good = start == 0 && pv->getValueString(value, sizeof(value));
+  if (good) {
+    memcpy(record->val, value, sizeof(value));
+    record->udf = false;
+  } else recGblSetSevr(record, READ_ALARM, INVALID_ALARM);
+  if (start == 0) pv->request()->consumed(good);
+  return good ? 0 : -1;
+}
+
+struct RequestDset {
+  long number;
+  DEVSUPFUN report, init, init_record, get_ioint_info, read, special_linconv;
+};
+static RequestDset devSnmpRequestAi = {6, NULL, NULL, (DEVSUPFUN)requestAiInit, NULL, (DEVSUPFUN)requestAiRead, NULL};
+static RequestDset devSnmpRequestLi = {5, NULL, NULL, (DEVSUPFUN)requestLiInit, NULL, (DEVSUPFUN)requestLiRead, NULL};
+static RequestDset devSnmpRequestSi = {5, NULL, NULL, (DEVSUPFUN)requestSiInit, NULL, (DEVSUPFUN)requestSiRead, NULL};
+epicsExportAddress(dset, devSnmpRequestAi);
+epicsExportAddress(dset, devSnmpRequestLi);
+epicsExportAddress(dset, devSnmpRequestSi);
 
 extern "C" {
   static long snmpAiInit(struct aiRecord *pai);
@@ -4383,6 +4589,14 @@ int devSnmpSetMaxOidsPerReq(char *hostName, int maxoids)
 int devSnmpSetParam(const char *param, int value)
 {
   if (! checkInit()) return(epicsError);
+  if (param && (!strcmp(param, "RequestTimeoutMSec") || !strcmp(param, "RequestTrace"))) {
+    bool timeout = !strcmp(param, "RequestTimeoutMSec");
+    if (!devSnmp_request::configurationOpen() ||
+        (timeout ? (value < 1 || value > 3600000) : (value < 0 || value > 1))) {
+      fprintf(stderr, "devSnmp: invalid or post-init request parameter: %s\n", param);
+      return epicsError;
+    }
+  }
   if ((param == NULL) || (param[0] == 0)) {
     // no argument, show current values
     int longest = 0;
@@ -5398,4 +5612,3 @@ static int snmpWfIpAddrConvert(void *rval, char *sval)
     return(epicsError);
 }
 //--------------------------------------------------------------------
-

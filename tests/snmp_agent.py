@@ -1,0 +1,175 @@
+"""Real private snmpd and a transparent UDP observation boundary."""
+
+import os
+from pathlib import Path
+import select
+import shutil
+import socket
+import subprocess
+import threading
+import time
+
+from ioc import digest, write_json
+from snmp_peer import items, oid_text
+
+
+CONTACT = ".1.3.6.1.2.1.1.4.0"
+NAME = ".1.3.6.1.2.1.1.5.0"
+AUTH = "fixture-auth-test-only"
+PRIV = "fixture-priv-test-only"
+USERS = {"noAuthNoPriv": "fixtureNoAuth", "authNoPriv": "fixtureAuth", "authPriv": "fixturePriv"}
+
+
+def packet_metadata(packet):
+    top = list(items(next(items(packet))[1]))
+    version = int.from_bytes(top[0][1], "big")
+    result = {"version": version, "bytes": len(packet)}
+    pdu = None
+    if version == 3:
+        header = list(items(top[1][1]))
+        usm = list(items(next(items(top[2][1]))[1]))
+        result.update(msgid=int.from_bytes(header[0][1], "big"), flags=int.from_bytes(header[2][1], "big"),
+                      engine_id=usm[0][1].hex(), boots=int.from_bytes(usm[1][1], "big"),
+                      engine_time=int.from_bytes(usm[2][1], "big"))
+        if top[3][0] == 0x30:
+            scoped = list(items(top[3][1]))
+            result.update(context_engine_id=scoped[0][1].hex(), context=scoped[1][1].decode())
+            pdu = scoped[2]
+    else:
+        pdu = top[2]
+    if pdu:
+        fields = list(items(pdu[1]))
+        result.update(pdu=pdu[0], id=int.from_bytes(fields[0][1], "big", signed=True),
+                      error=int.from_bytes(fields[1][1], "big"),
+                      numeric_oids=[oid_text(next(items(binding))[1]) for _, binding, _ in items(fields[3][1])])
+    return result
+
+
+class Proxy:
+    def __init__(self, work, port):
+        self.front = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.back = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        self.front.bind(("127.0.0.1", 0))
+        self.back.connect(("127.0.0.1", port))
+        self.port = self.front.getsockname()[1]
+        self.records, self.errors, self.clients = [], [], {}
+        self.log = (work / "wire.jsonl").open("w")
+        self.stop = threading.Event()
+        self.thread = threading.Thread(target=self.run, daemon=True)
+        self.thread.start()
+
+    def run(self):
+        import json
+        try:
+            while not self.stop.is_set():
+                ready, _, _ = select.select([self.front, self.back], [], [], 0.05)
+                for sock in ready:
+                    packet, address = sock.recvfrom(65535)
+                    metadata = packet_metadata(packet)
+                    key = (metadata["version"], metadata.get("msgid", metadata.get("id")))
+                    request = sock is self.front
+                    metadata.update(event="request" if request else "response", time=time.monotonic_ns())
+                    self.records.append(metadata)
+                    self.log.write(json.dumps(metadata) + "\n")
+                    self.log.flush()
+                    if request:
+                        self.clients[key] = address
+                        self.back.send(packet)
+                    else:
+                        self.front.sendto(packet, self.clients.pop(key))
+        except BaseException as error:
+            self.errors.append(repr(error))
+
+    def close(self):
+        self.stop.set()
+        self.thread.join(timeout=2)
+        self.front.close()
+        self.back.close()
+        self.log.close()
+        if self.thread.is_alive():
+            raise AssertionError("UDP observer did not stop")
+        if self.errors:
+            raise AssertionError("UDP observer errors: " + repr(self.errors))
+
+
+class Agent:
+    def __init__(self, work, profile):
+        self.work = work / "agent"
+        self.work.mkdir(mode=0o700)
+        (self.work / "state").mkdir(mode=0o700)
+        self.executable = shutil.which("snmpd")
+        if not self.executable or not shutil.which("snmpget"):
+            raise RuntimeError("Protocol suite requires real snmpd and snmpget in PATH")
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reserve:
+            reserve.bind(("127.0.0.1", 0))
+            self.port = reserve.getsockname()[1]
+        self.auth_type = profile["auth_type"]
+        self.priv_type = profile["priv_type"]
+        config = self.work / "snmpd.conf"
+        config.write_text(f"agentaddress udp:127.0.0.1:{self.port}\nengineID fixture-agent\n"
+                          "rwcommunity public 127.0.0.1\nsysName fixture-agent\n" +
+                          "".join(f"createUser {user} {self.auth_type} {AUTH} {self.priv_type} {PRIV}\n"
+                                  f"rwuser {user} {level}\n"
+                                  for user, level in zip(USERS.values(), ("noauth", "auth", "priv"))))
+        config.chmod(0o600)
+        self.env = dict(os.environ, SNMP_PERSISTENT_DIR=str(self.work / "state"),
+                        SNMPCONFPATH=str(self.work), MIBS="")
+        self.log = (self.work / "snmpd.log").open("w")
+        self.process = None
+        try:
+            self.process = subprocess.Popen([self.executable, "-f", "-Lo", "-C", "-c", str(config),
+                                             "-p", str(self.work / "snmpd.pid"), "-r"],
+                                            env=self.env, stdout=self.log, stderr=subprocess.STDOUT)
+            deadline = time.monotonic() + profile["action_timeout"]
+            while time.monotonic() < deadline and self.process.poll() is None:
+                result = self.client("2c", None, NAME)
+                if result.returncode == 0 and "fixture-agent" in result.stdout:
+                    write_json(self.work / "identity.json", {
+                        "executable": self.executable, "sha256": digest(self.executable),
+                        "version": subprocess.check_output([self.executable, "-v"], text=True, stderr=subprocess.STDOUT),
+                        "pid": self.process.pid, "port": self.port, "auth_type": self.auth_type,
+                        "priv_type": self.priv_type, "config_sha256": digest(config),
+                    })
+                    return
+                time.sleep(0.02)
+            raise AssertionError("Real snmpd failed readiness; evidence: " + str(self.work))
+        except BaseException:
+            self.close()
+            raise
+
+    def client(self, version, level, oid):
+        security = ["-c", "public"] if version != "3" else ["-l", level, "-u", USERS[level]]
+        if level in ("authNoPriv", "authPriv"):
+            security += ["-a", self.auth_type, "-A", AUTH]
+        if level == "authPriv":
+            security += ["-x", self.priv_type, "-X", PRIV]
+        return subprocess.run(["snmpget", "-v", version, *security, "-t", "0.2", "-r", "0", "-On",
+                               f"127.0.0.1:{self.port}", oid], env=self.env, text=True,
+                              capture_output=True, timeout=3)
+
+    def ioc_config(self, level):
+        config = self.work / "ioc-v3.conf"
+        lines = ["securityName " + USERS[level], "securityLevel " + level]
+        if level in ("authNoPriv", "authPriv"):
+            lines += ["authType " + self.auth_type, "authPassPhrase " + AUTH]
+        if level == "authPriv":
+            lines += ["privType " + self.priv_type, "privPassPhrase " + PRIV]
+        config.write_text("\n".join(lines) + "\n")
+        config.chmod(0o600)
+        return config
+
+    def close(self):
+        forced = False
+        if self.process and self.process.poll() is None:
+            self.process.terminate()
+            try:
+                self.process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                self.process.kill()
+                self.process.wait()
+                forced = True
+        self.log.close()
+        write_json(self.work / "exit.json", {"exit_code": self.process.returncode if self.process else None,
+                                            "forced": forced})
+        if forced:
+            raise AssertionError("Native agent did not stop within the shutdown bound")

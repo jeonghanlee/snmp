@@ -1,0 +1,12 @@
+record(longin, "$(P)LegacyFast3") {
+    field(DESC, "Legacy polling ahead of queued input")
+    field(DTYP, "Snmp")
+    field(INP, "@$(HOST) public .1.3.6.1.4.1.55555.3.0 INTEGER: 128")
+    field(SCAN, ".1 second")
+}
+record(longin, "$(P)LegacyFast4") {
+    field(DESC, "Legacy polling ahead of queued input")
+    field(DTYP, "Snmp")
+    field(INP, "@$(HOST) public .1.3.6.1.4.1.55555.4.0 INTEGER: 128")
+    field(SCAN, ".1 second")
+}

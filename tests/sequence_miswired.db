@@ -1,0 +1,4 @@
+record(ai, "$(P)A") {
+    field(DESC, "Incorrect FLNK negative control")
+    field(FLNK, "$(P)AuditB")
+}

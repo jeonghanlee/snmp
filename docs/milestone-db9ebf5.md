@@ -9,8 +9,8 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: implement M2's real IOC runner, legacy record/output
-baseline and protocol fixtures. M1's source contract and independent third-person
+Next session entry point: finish M2's accepted local handoff and commit, then
+execute the accepted M3 lifecycle and batching plan. M1's source contract and independent third-person
 and second-person reviews are accepted locally; remote landing remains pending.
 Decision Date: 2026-09-24. The owner accepts the current M1-M8 plans and directs
 sequential implementation, review, correction and a commit per milestone.
@@ -35,11 +35,14 @@ and 0.100-0.195 ms with independent processes during the same discovery fault.
 It is not an IOC integration result; the full T8 and new worker-boundary T18
 remain pending. The existing candidate remains the sequencing baseline;
 its remaining protocol/platform/resource and hardware acceptance matrix is
-still open. The final
+still open. The initial
 candidate passed 19 real request IOC tests, 12 unchanged APC legacy tests, and
 12 tests with APC input DTYP converted to SnmpRequest. All 21 test IOCs reached
-graceful module shutdown. Hardware, firmware comparison, SNMPv3, other OS builds,
-long-duration resource tests, and final implementation acceptance review remain pending.
+graceful module shutdown. These are the 2026-09-22 results. The M2 evidence below adds actual IOC
+SNMPv1/v2c/v3 and writable SET runs on 2026-09-24. The original 19 cases also
+ran on Debian 12 and Rocky 9 before the M2 harness changes; those runs do not
+qualify the final architecture. Hardware, firmware comparison, long-duration
+resource tests and final implementation acceptance remain pending.
 No installed tree or original APC checkout was changed.
 
 ### Current Local Candidate
@@ -57,7 +60,8 @@ Base callbacks with queue retry, and graceful shutdown before storage deletion.
 The real fixtures are `tests/sequence.db`, `tests/legacy.db`,
 `tests/snmp_peer.py`, `tests/test_request.py`, and `tests/src/sequenceProbe.*`.
 These actual paths supersede the proposed v2c fixture/runner filenames below;
-the unimplemented protocol and broader stress scenarios remain planned.
+the M2 runner and protocol paths below supersede the original launch procedure.
+Broader stress and final architecture scenarios remain planned.
 
 | Observed local result | Evidence |
 | --- | --- |
@@ -82,7 +86,8 @@ The corrections select pending requests independently of legacy poll bins and
 start cleanup at Base `initHookAtShutdown`, before callback queues stop.
 
 The broader plans below remain acceptance checklists. Their unexecuted variants
-are not waived by the 43 passing local tests: v1/v3 security, Debian 12/Rocky 9,
+are not waived by the 43 original passing local tests. Subsequent M2 native
+protocol evidence does not close final v3/platform qualification.
 20/21-OID boundary variants, extended active scans and put-with-completion,
 three-record serial chains, controlled open/send failures, sanitizers/resource
 soak, independent review, and the per-device pilot remain to be completed.
@@ -416,7 +421,7 @@ the canonical result should name the safe evidence artifact.
 | --- | --- | --- | --- | --- | --- | --- |
 | M1 | Processing and configuration contract | Milestone | In progress | No | D1, D3, D4 | Concrete contract and acceptance proposal; [detail](#m1---processing-and-configuration-contract). |
 | G1 | Design acceptance and implementation authority | External gate | Complete | No | M1 | Accepted API, limits, and authorized module scope; [detail](#g1---design-acceptance-and-implementation-authority). |
-| M2 | Real IOC test harness and legacy baseline | Milestone | Not started | No | M1, G1 | Reproducible IOC/peer/client path and baseline evidence; [detail](#m2---real-ioc-test-harness-and-legacy-baseline). |
+| M2 | Real IOC test harness and legacy baseline | Milestone | In progress | No | M1, G1 | Reproducible IOC/peer/client path and baseline evidence; [detail](#m2---real-ioc-test-harness-and-legacy-baseline). |
 | M3 | Request-driven reads and OID batching | Milestone | Not started | No | M1, G1 | Fresh reads complete exactly once through EPICS; [detail](#m3---request-driven-reads-and-oid-batching). |
 | M4 | Failure completion and diagnostics | Milestone | Not started | No | M3, G1 | Faults terminate safely with observable results; [detail](#m4---failure-completion-and-diagnostics). |
 | M5 | Compatibility and candidate acceptance | Milestone | Not started | No | M2, M3, M4, G1 | Final candidate passes the accepted matrix; [detail](#m5---compatibility-and-candidate-acceptance). |
@@ -717,7 +722,9 @@ Superseded Plan Artifacts: none
 - Repository landing remains pending: the branch has no upstream and no push
   was requested. M1 remains In progress for that formal closure condition;
   its accepted local deliverable permits the authorized M2 work to proceed.
-  A local commit is recorded after execution and is not remote landing evidence.
+  Local contract commit: `029126824e846a623f9845299326cec08f8f7282`, observed
+  2026-09-24; exact five-document inventory verified after commit. This is not
+  remote landing evidence.
 
 #### G1 - Design acceptance and implementation authority
 
@@ -760,7 +767,7 @@ cell passed or remove G2/G3's physical conditions.
 Origin: db9ebf5 / M2
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -797,20 +804,22 @@ Superseded Plan Artifacts: none
 
 ##### Concrete Harness And Sequencing Evidence Plan
 
-The paths and CLI below are planned M2 deliverables, not existing executable
-tests. Implement them before claiming any result. Keep the test management
-and acceptance record in this document; do not create a second test plan.
+The M2 runner and external peers are implemented. Existing flat DB paths are
+retained; the table identifies the delivered artifacts. Extended M3-M5/M8
+scenarios and repetition counts below remain acceptance criteria, not results
+from the initial suites. This document is the sole test-management record.
 
-| Planned path | Responsibility |
+| Artifact path | Responsibility |
 | --- | --- |
 | `tests/run_snmp.py` | Start owned peer/IOC/client processes, await readiness, apply the named scenario, assert results, retain evidence, and return a nonzero status on failure or incomplete coverage. |
 | `tests/snmp_peer.py` | External v2c protocol peer with held/released replies, request IDs, per-OID generation values, duplicates, loss and response anomalies. Extend or port the inspected peer; do not import a sibling checkout at runtime. |
 | `tests/profiles/loopback.json` | Declared Base/Net-SNMP versions, isolated local endpoints, PV prefix, timeout/retry/batch parameters and deadlines. Operational credentials never appear here. |
 | `tests/profiles/snmpv3.json` | Real Net-SNMP snmpd-based v3 peer configuration and discovery/authentication scenarios, with synthetic local test credentials. Record supported security algorithms. |
-| `tests/db/legacy.db`, `tests/db/request.db` | The same record/OID/conversion inventory, selecting the corresponding DTYP. Unsupported baseline syntax is not a behavior regression. |
-| `tests/db/sequence.db` | Passive inputs with real downstream audit records, A-to-auditA-to-B-to-auditB-to-C-to-auditC FLNK chain, independent fanout inputs, and periodic/PINI/PROC scenarios. |
-| `tests/db/mixed.db` | Legacy and request-driven records sharing OIDs, simulated output/readback, two hosts and distinct supported security contexts. |
-| `tests/ioc/st.cmd` | Load the actual installed DBD, register support, configure loopback peers, load the selected DB and run iocInit. |
+| `tests/legacy_matrix.db`, `tests/sequence.db` | Legacy four-input/three-output matrix and request fixtures. Baseline and candidate use the same delivered legacy DB. SnmpRequest is unavailable on the baseline. |
+| `tests/sequence.db`, `tests/sequence_miswired.db` | Passive request inputs with actual downstream audit records and a wrong-FLNK negative control. The initial suite has A-to-B and fanout cases; the extended three-record/PINI matrix remains M3 work. |
+| `tests/legacy.db`, `tests/legacy_saturation.db`, `tests/protocol.db` | Shared legacy/request OIDs, saturated polling and actual native GET/SET/readback. Multi-host/context isolation acceptance remains M8 work. |
+| `tests/ioc.py`, `tests/identity.db` | Produce each retained st.cmd, verify the loaded DBD/library and unique instance over CA, and stop owned IOC/repeater processes. |
+| `tests/build_fixture.py`, `tests/snmp_agent.py` | Independent archive/candidate build provenance and real native snmpd with a transparent UDP observer. |
 | `tests/src/sequenceProbe.cpp`, `tests/src/sequenceProbe.dbd` | Test-only downstream subroutine support that records each real FLNK invocation and its input snapshots. It observes the real record chain; it neither supplies SNMP results nor calls a substitute completion function. |
 
 Wire this test support into the EPICS build with its own test IOC product,
@@ -885,8 +894,11 @@ case; aggregate throughput or a high pass percentage cannot waive it. G1
 still sets numeric queue, completion, recovery and cross-host latency limits;
 the runner must reject an acceptance profile with those fields unset.
 
-Planned invocations, after M2 creates the runner and the test IOC has been
-built; `SNMP_TEST_IOC` must name that actual candidate or baseline executable:
+Implemented invocations; build independent inputs with tests/build_fixture.py
+as described in tests/README.md. `SNMP_TEST_IOC` must name that actual
+candidate or baseline executable. The baseline protocol run adds --dtyp Snmp
+and the candidate legacy comparison adds --baseline-evidence with the successful
+baseline run directory:
 
 ```bash
 python3 tests/run_snmp.py --ioc "$SNMP_TEST_IOC" --profile tests/profiles/loopback.json --suite legacy
@@ -963,15 +975,119 @@ Evidence beneath that root: `run.json`, `snmp-build.log`, `apcpdu-build.log`,
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| T1 | Not run | Isolated local UDP endpoints | Pending | none |
-| T2 | Not run | Same real IOC and fixture | Pending | none |
-| T3 | 2026-09-22T18:39:59-07:00 | D5 dependency tree, actual baseline SNMP/APC PDU builds and loopback v2c peers | Partial: 12 existing APC PDU tests pass; full planned record/protocol coverage pending | Observed Independent Legacy Baseline above; retained build, link, test and installation-check evidence |
-| T4 | Not run | External protocol-capable peers | Pending | none |
-| T5 | Not run | Actual IOC, peer, audit records and runner | Pending | none |
+| T1 | 2026-09-24T02:41:06-07:00 | Debian 13, Base 7.0.10, native Net-SNMP 5.9.4.pre2; actual candidate IOC/CA/UDP | Pass: nine sequencing and ten failure/lifetime cases; unique instance, loaded binaries, trace/wire/FLNK and cleanup checks | M2 Local Harness Evidence below |
+| T2 | 2026-09-24T02:40:34-07:00 | Same actual candidate with wrong external value | Pass: runner exits 1 on actual 909 versus expected 101 | wrong-value result below |
+| T3 | 2026-09-24T03:18:46-07:00 | Independent db9ebf5 and candidate, same shipped legacy matrix | Pass: four input and three output paths, actual SET and bounded recovery; automatic comparison equal; candidate-as-baseline and inconsistent runtime evidence rejected | Provenance verification and accepted independent recheck below; original 12 APC baseline tests remain separate evidence |
+| T4 | 2026-09-24T02:40:41-07:00 | Real private snmpd/native IOC, independent baseline and candidate | Pass: v1, v2c, v3 noAuthNoPriv/authNoPriv/authPriv GET, actual SET and readback; SHA/AES selected where required | Protocol runs below; not final M8 package/stress acceptance |
+| T5 | 2026-09-24T02:40:44-07:00 | Actual IOC/peer/audit DB | Pass: proper chain passes, wrong FLNK and disabled trace each exit 1 for the intended observation failure | miswired and trace-loss results below |
+
+##### M2 Local Harness Evidence
+
+Observed: 2026-09-24. Candidate source is an independent working-copy snapshot
+built after M1 local commit 0291268; baseline is an unmodified archive of
+`db9ebf51bc81d6f63d9395513d94d60b3b7eda83`. Both actual builds returned zero
+without compiler warning/error lines. Inputs are recorded individually in
+`/tmp/snmp-m2-candidate-20260924-b/build-inputs.json` and
+`/tmp/snmp-m2-baseline-20260924-a/build-inputs.json`.
+
+Candidate libdevSnmp SHA-256:
+`595c968366b81a4c55198870ca196952e6290141560db4b0df6384d09a539113`.
+Baseline libdevSnmp SHA-256:
+`8ee9ef595616d9d05905c1d11eed50e96ff8abc493a4d0ef9baedf1be8927667`.
+Every successful case verifies its executable, DBD and actual loaded module
+against that manifest, its selected Base libraries/clients, actual Base/native
+versions and a fresh instance identity. The copied module source and current
+harness/fixture identities are recorded separately.
+
+Run directories below are relative to `work/snmp-tests/`. Each contains exact
+configuration, input digests and machine-readable results. Its case directories
+contain the actual IOC, CA and wire evidence, including original failures.
+
+| Run | Directory | Observed result |
+| --- | --- | --- |
+| Baseline legacy matrix | `20260924T093959-qpfcvyt7` | One matrix case passes; four inputs and three real SET/readback types |
+| Baseline native protocol | `20260924T093959-g8h3e4yk` | Five cases pass with Snmp inputs |
+| Candidate legacy matrix | `20260924T094031-7vq8xje4` | Initial matrix case passes; retained before the stronger recovery/value comparison |
+| Baseline comparison input | `20260924T094558-5uqbvhgf` | Full matrix passes with bounded observed readback-state sampling |
+| Candidate automatic comparison | `20260924T094637-fektulfc` | Pass in 13.179 s; baseline-comparison.json records equal initial/changed/timeout/recovered data with the named exclusion |
+| Candidate sequencing | `20260924T094031-le0eu1ud` | Nine cases pass in 18.909 s |
+| Candidate failure/lifetime | `20260924T094031-27y1xklj` | Ten cases pass in 34.867 s |
+| Candidate native protocol | `20260924T094031-k3xx73fw` | Five cases pass in 10.044 s with SnmpRequest inputs and legacy SET |
+| Wrong value | `20260924T094032-wfvse75j` | Exit 1; 909 versus 101 assertion |
+| Wrong FLNK | `20260924T094032-uj4elckc` | Exit 1; expected audit missing and wrong source PACT observed |
+| Missing trace | `20260924T094032-uhuge74y` | Exit 1; missing driver trace despite two actual audit completions |
+
+The legacy waveform includes native-text leading whitespace and quotes; the
+actual CHAR NORD is 8 for space/quote/hello/quote. A controlled 500 ms stale
+threshold exposes legacy input PACT waiting and output readback alarms without
+changing production defaults. Timeout input STAT/SEVR can vary with Base active
+scan timing. The automatic comparison excludes only timeout input STAT/SEVR;
+all other sampled fields are compared. Sampling waits for actual expected
+readback values and idle/no-alarm state, retaining every intermediate sample.
+The baseline also exposed transient stringout INVALID values during normal
+responses; the test measures eventual readback and does not claim that legacy
+transients are absent or CA multi-field reads are atomic. Full final candidate
+tests, repeated/pressure cases and M8 workers
+are not implied by these initial results.
+
+The pre-M2 cumulative candidate also built and ran all original 19 real IOC
+cases on Debian 12/Net-SNMP 5.9.3 and Rocky 9/Net-SNMP 5.9.1, both Base 7.0.10.
+All 38 owned IOCs reached module shutdown. Evidence:
+`/tmp/snmp-milestones-w9_9lage/platform-results.json` and its per-platform build,
+link and case logs. A failed lexical path comparison is retained; normalized
+actual library resolution was subsequently checked. These are initial candidate
+platform observations, not a final M5/M8 platform verdict.
+
+##### M2 Independent Review And Provenance Verification
+
+Observed: 2026-09-24. Independent report rev20260924_030510 reads the complete
+34-file candidate and records fresh builds, 25 passing candidate cases, six
+passing baseline cases and three intended failing observer controls under
+`/tmp/snmp-m2-review-mswh41o3/`. The operator reader pass passes. Its single
+P2 finding concerns baseline identity: the comparison admitted candidate
+results in the baseline slot. The actual db9ebf5 comparison still passed.
+
+Imported comparison evidence now requires the exact unmodified db9ebf5 archive,
+consistent runtime/build executable, DBD and loaded-module identities, and the
+existing matching profile/fixture checks. Only that exact baseline is exempt
+from the candidate shutdown marker assertion in legacy and protocol tests.
+The production module sources are unchanged by this correction; all 12 source
+files match the prior candidate-b build manifest. Current observer/fixture
+hashes are independently retained in each new run.
+
+| Correction verification | Directory under `work/snmp-tests/` | Actual result |
+| --- | --- | --- |
+| Original baseline matrix | `m2-provenance-baseline-legacy` | Exit 0; one complete real matrix, 11.356 s |
+| Candidate comparison | `m2-provenance-candidate-legacy` | Exit 0; one matrix, 11.226 s; equal=true and exact baseline commit/build identity recorded |
+| Original baseline native protocols | `m2-provenance-baseline-protocol` | Exit 0; all five cases, 15.706 s |
+| Candidate native protocols | `m2-provenance-candidate-protocol` | Exit 0; all five cases, 10.026 s |
+| Candidate used as baseline | `m2-provenance-wrong-baseline` | Exit 1 after actual matrix execution; explicit unmodified-archive provenance assertion, 13.177 s |
+
+Every IOC in these runs records exit 0 with no cleanup error. The wrong-baseline
+failure is the intended comparison rejection, not a startup or teardown error.
+Independent correction verification ran from 2026-09-24T03:16:38-07:00 through
+03:18:46-07:00 with the actual public runner and the prior independently built
+baseline/candidate executables. It passed 12 positive cases and rejected seven
+negative cases: candidate-as-baseline, four separate runtime/build identity
+mismatches, and two wrong-archive shutdown exemptions. Evidence is retained
+under `/tmp/snmp-m2-correction-review-pq26dxfu/`, including exact argv and
+timestamps in `execution-results.json`. No new build is claimed for this run.
+All 19 owned IOCs exited zero; all 11 candidate lifetimes confirmed module
+shutdown, and all 11 native agents exited without forced cleanup. Baseline
+and deliberately mislabeled baseline binaries have no module shutdown marker;
+the latter are correctly rejected rather than counted as successful cleanup.
+The independent third-person and second-person follow-up passed at
+2026-09-24T03:25:24-07:00. The baseline provenance finding is implemented and
+verified; no correction defect remains. These results do not close later
+stress, platform, worker or physical-device checks.
 
 ##### Closure Evidence
 
-- None.
+- Local harness and baseline verification, independent third-person execution
+  review and second-person reader review are accepted on 2026-09-24.
+  The provenance finding is implemented and verified. Local handoff cross-check
+  and commit remain pending; remote landing and physical G2/G3 execution
+  remain open. Local M3 implementation follows the accepted M2 commit.
 
 #### M3 - Request-driven reads and OID batching
 

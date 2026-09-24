@@ -7,6 +7,8 @@ DIRS += $(wildcard *Sup)
 DIRS += $(wildcard *App)
 DIRS += $(wildcard *Top)
 DIRS += $(wildcard iocBoot)
+DIRS += tests
+tests_DEPEND_DIRS += snmpApp
 
 
 # All dirs except configure depend on configure

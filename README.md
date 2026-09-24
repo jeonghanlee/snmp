@@ -10,6 +10,13 @@ Privately customization version with several patches of the NSCL/FRIB SNMP drive
 * Generic MIB files
   * Debian: aptitude install snmp-mibs-downloader
   * Rocky: https://github.com/jeonghanlee/snmp-mibs-downloader-env
+
+## Request-driven inputs
+
+`SnmpRequest` provides opt-in asynchronous reads for `ai`, `longin`, and
+`stringin`. Existing `Snmp` records retain their polling behavior.
+See [configuration and completion semantics](docs/snmp-request.md) and
+[real IOC tests](tests/README.md).
  
 ## Update
 

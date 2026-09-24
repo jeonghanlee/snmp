@@ -12,6 +12,8 @@
 #include <dbScan.h>
 #include <epicsTime.h>
 #include <epicsThread.h>
+#include <vector>
+#include <atomic>
 
 #include <net-snmp/net-snmp-config.h>
 #include <net-snmp/net-snmp-includes.h>
@@ -58,6 +60,7 @@ typedef struct {
   int  data_len;
   char set_type;
   long special_flags;
+  bool request_mode;
 } configDataPV;
 
 #define V3_TXT_LEN 512
@@ -87,6 +90,7 @@ class devSnmp_session;
 class devSnmp_getTransaction;
 class devSnmp_setTransaction;
 class devSnmp_hostversion;
+class devSnmp_request;
 
 typedef long (*DEVSNMP_DEVFUNC)(devSnmp_pv *pPV);
 
@@ -230,6 +234,7 @@ class devSnmp_session
     int replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_PDU *pdu);
 
     SNMP_SESSION *getSession(void);
+    unsigned long long traceId(void) const { return transactionId; }
 
   protected:
     devSnmp_magic    ourMagic;
@@ -244,6 +249,7 @@ class devSnmp_session
     bool             completed;
     bool             sent;
     bool             tried_send;
+    unsigned long long transactionId;
 };
 //----------------------------------------------------------------------
 class devSnmp_transaction
@@ -327,6 +333,13 @@ class devSnmp_oid
     bool getRawValueString(char *str, int maxsize);
 
     void queueUpdate(void);
+    void addRequest(devSnmp_request *request);
+    bool hasPendingRequest(void);
+    bool claimRequests(devSnmp_session *session);
+    void dispatchRequests(devSnmp_session *session, long wireId);
+    bool legacyPollingEnabled(void) { return legacyPolling; }
+    void finishRequests(devSnmp_session *session, netsnmp_variable_list *value);
+    void enableLegacyPolling(void) { legacyPolling = true; }
     void periodicProcessing(epicsTimeStamp *pnow);
 
     int getDataLength(void);
@@ -348,6 +361,7 @@ class devSnmp_oid
     long getPollWeight(void);
 
     void setGetQueued(bool state);
+    bool isGetQueued(void) { return queued_for_get; }
 
     devSnmp_manager *getManager(void);
     devSnmp_group *getGroup(void);
@@ -401,6 +415,8 @@ class devSnmp_oid
     bool              setDebugging;
     snmpTimeObject    debugSetTime;
     _oid_reading      reading;
+    bool              legacyPolling;
+    std::vector<devSnmp_request *> requests;
 
     void clearData(void);
     void storeData(netsnmp_variable_list *var);
@@ -429,6 +445,7 @@ class devSnmp_pv
     virtual ~devSnmp_pv(void);
 
     bool hasValue();
+    devSnmp_request *request() { return pRequest; }
     bool getValueString(char *str, int maxsize);
     bool getValueDouble(double *value);
     bool getValueLong(long *value);
@@ -475,6 +492,7 @@ class devSnmp_pv
     devSnmp_manager  *pOurMgr;
     devSnmp_group    *pOurGroup;
     devSnmp_oid      *pOurOID;
+    devSnmp_request  *pRequest;
     struct dbCommon  *pOurRecord;
     DEVSNMP_DEVFUNC   pPeriodicFunction;
     long              periodicMSec;
@@ -529,6 +547,7 @@ class devSnmp_group
     snmpPointerList      *pvList;
     snmpPointerList      *oidList;
     snmpWeightCollection *weightCollection;
+    unsigned              requestCursor;
     long                  bestReplyMsec;
     long                  worstReplyMsec;
     double                avgReplyMsec;
@@ -604,7 +623,7 @@ class devSnmp_manager
     void getHostSnmpV3Params(char *host, devSnmp_v3params *v3params);
     int getHostMaxOidsPerReq(char *host);
     void setMaxOidsPerReq(char *host, int maxoids);
-    devSnmp_pv *addPV(struct dbCommon *pRec, struct link *pLink);
+    devSnmp_pv *addPV(struct dbCommon *pRec, struct link *pLink, bool requestMode = false);
     void processing(epicsTimeStamp *pnow);
     void zeroCounters(void);
     void report(int level, char *match);
@@ -614,6 +633,7 @@ class devSnmp_manager
     void sessionTimeoutChange(void);
 
     int start(void);
+    bool stop(void);
     int readTask(void);
     int sendTask(void);
 
@@ -632,8 +652,8 @@ class devSnmp_manager
     epicsThreadId    sendTask_id;
     snmpTimeObject   sendTask_start;
     unsigned long    sendTask_loops;
-    bool             sendTask_abort;
-    bool             sendTask_exited;
+    std::atomic<bool> sendTask_abort;
+    std::atomic<bool> sendTask_exited;
 
     epicsThreadId    readTask_id;
     snmpTimeObject   readTask_start;
@@ -643,8 +663,8 @@ class devSnmp_manager
     int              readTask_block;
     fd_set           readTask_fdset;
     struct timeval   readTask_timeout;
-    bool             readTask_abort;
-    bool             readTask_exited;
+    std::atomic<bool> readTask_abort;
+    std::atomic<bool> readTask_exited;
     bool             readTask_inSelect;
     unsigned long    readTask_ignoreBlocks;
 
@@ -689,8 +709,3 @@ extern "C" {
 }  // extern "C"
 
 #endif  // DEVSNMP_H
-
-
-
-
-

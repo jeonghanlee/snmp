@@ -4,6 +4,9 @@ device(stringin,INST_IO,devSnmpSi,"Snmp")
 device(ai,INST_IO,devSnmpAi,"Snmp")
 device(longin,INST_IO,devSnmpLi,"Snmp")
 device(waveform,INST_IO,devSnmpWf,"Snmp")
+device(ai,INST_IO,devSnmpRequestAi,"SnmpRequest")
+device(longin,INST_IO,devSnmpRequestLi,"SnmpRequest")
+device(stringin,INST_IO,devSnmpRequestSi,"SnmpRequest")
 
 ## NSCL - Feb 2009 - J.Priller
 ## include output record types

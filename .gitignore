@@ -151,3 +151,7 @@ WienerCrate/configure/CONFIG_APP
 WienerCrate/configure/RULES.Db
 .cvsignore
 *.zip
+.iocsh_history
+
+# Local review artifacts
+/work/

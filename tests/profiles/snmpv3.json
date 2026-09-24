@@ -1,0 +1,20 @@
+{
+  "name": "local-native-snmpd",
+  "base_version": "7.0.10",
+  "net_snmp_versions": ["5.9.1", "5.9.3", "5.9.4.pre2"],
+  "protocols": ["1", "2c", "3"],
+  "security_levels": ["noAuthNoPriv", "authNoPriv", "authPriv"],
+  "auth_type": "SHA",
+  "priv_type": "AES",
+  "action_timeout": 10,
+  "session_timeout_us": 2000000,
+  "session_retries": 0,
+  "request_timeout_ms": 10000,
+  "limits": {
+    "deadline_completion_seconds": 1,
+    "healthy_max_seconds": 1,
+    "healthy_p99_delta_seconds": 0.1,
+    "pending_per_worker": 256,
+    "queue_bytes_per_worker": 1048576
+  }
+}

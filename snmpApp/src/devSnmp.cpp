@@ -45,6 +45,7 @@
 
 #include "devSnmp.h"
 #include "snmpRequest.h"
+#include "snmpNative.h"
 #include "snmpEpics.h"
 #include <memory>
 
@@ -1781,8 +1782,10 @@ bool devSnmp_oid::claimRequests(devSnmp_session *session)
   for (unsigned i = 0; i < requests.size(); ++i) claimed |= requests[i]->claim(session->traceId());
   return claimed;
 }
-/* Native storage is read only inside this transport boundary. The shared OID
- * scratch result and each acquisition slot are allocated during binding.
+/* finishRequests copies the native reply for request-mode inputs through
+ * snmpNativeCopyValue; legacy polling reads native storage separately in
+ * storeData. The shared OID scratch result and each acquisition slot are
+ * allocated during binding.
  * Writers are replyProcessing on the read thread under the manager session
  * mutex and the session destructor. devSnmp_host runs the destructor for
  * completed and stale sessions without that mutex; a session deleted after
@@ -1793,80 +1796,10 @@ bool devSnmp_oid::claimRequests(devSnmp_session *session)
  * late reply on the read thread can overlap the destructor; that race on
  * the session itself predates this scratch and remains open. Each slot
  * copies the scratch under its own mutex. */
-static void copyRequestValue(SnmpValue &result, const netsnmp_variable_list *value)
-{
-  result.valid = result.hasLong = result.hasDouble = false;
-  result.kind = SnmpValue::Empty;
-  result.length = 0;
-  result.oid.clear();
-  if (!value || value->type == SNMP_NOSUCHOBJECT ||
-      value->type == SNMP_NOSUCHINSTANCE || value->type == SNMP_ENDOFMIBVIEW) return;
-  result.wireType = value->type;
-  int count = snprint_value(&result.text[0], result.text.size(), value->name, value->name_length, value);
-  if (count < 0 || static_cast<unsigned>(count) >= result.text.size()) return;
-  switch (value->type) {
-  case ASN_INTEGER:
-    if (!value->val.integer) return;
-    result.kind = SnmpValue::Signed;
-    result.signedValue = *value->val.integer;
-    result.hasLong = true;
-    break;
-  case ASN_COUNTER:
-  case ASN_UNSIGNED:
-  case ASN_TIMETICKS:
-    if (!value->val.integer) return;
-    result.kind = SnmpValue::Unsigned;
-    result.unsignedValue = static_cast<uint32_t>(*value->val.integer);
-    result.hasLong = value->type != ASN_TIMETICKS;
-    break;
-  case ASN_COUNTER64:
-    if (!value->val.counter64) return;
-    result.kind = SnmpValue::Unsigned;
-    result.unsignedValue = (static_cast<uint64_t>(value->val.counter64->high) << 32) |
-                           static_cast<uint32_t>(value->val.counter64->low);
-    break;
-#ifdef NETSNMP_WITH_OPAQUE_SPECIAL_TYPES
-  case ASN_OPAQUE_FLOAT:
-    if (!value->val.floatVal) return;
-    result.kind = SnmpValue::Real;
-    result.realValue = *value->val.floatVal;
-    result.hasDouble = true;
-    break;
-  case ASN_OPAQUE_DOUBLE:
-    if (!value->val.doubleVal) return;
-    result.kind = SnmpValue::Real;
-    result.realValue = *value->val.doubleVal;
-    result.hasDouble = true;
-    break;
-#endif
-  case ASN_OBJECT_ID: {
-    size_t length = value->val_len / sizeof(oid);
-    if (value->val_len % sizeof(oid) || length > result.oid.capacity() ||
-        (length && !value->val.objid)) return;
-    result.kind = SnmpValue::ObjectId;
-    for (size_t i = 0; i < length; ++i) {
-      if (value->val.objid[i] > UINT32_MAX) return;
-      result.oid.push_back(static_cast<uint32_t>(value->val.objid[i]));
-    }
-    break;
-  }
-  case ASN_OCTET_STR:
-  case ASN_BIT_STR:
-  case ASN_IPADDRESS:
-  case ASN_OPAQUE:
-    if (value->val_len > result.bytes.size() || (value->val_len && !value->val.string)) return;
-    result.kind = SnmpValue::Octets;
-    result.length = static_cast<unsigned>(value->val_len);
-    if (result.length) memcpy(&result.bytes[0], value->val.string, result.length);
-    break;
-  }
-  result.valid = true;
-}
-
 void devSnmp_oid::finishRequests(devSnmp_session *session, netsnmp_variable_list *value)
 {
   if (!requestValue) return;
-  copyRequestValue(*requestValue, value);
+  snmpNativeCopyValue(*requestValue, value);
   for (unsigned i = 0; i < requests.size(); ++i)
     requests[i]->finish(session->traceId(), *requestValue);
 }

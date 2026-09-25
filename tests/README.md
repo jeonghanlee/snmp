@@ -239,6 +239,42 @@ These suites are individual P801 observations. run_matrix.py does not yet
 include the replacement-worker acceptance matrix; neither suite qualifies
 the final architecture or physical hardware by itself.
 
+## Native Session Adapter
+
+The native suite drives the module's Single Session adapter, snmpNative.cpp,
+from the test IOC through the `nativeProbe` and `nativeProbeMixed` IOC shell
+commands in tests/src/nativeProbe.cpp. The probe prepares each session
+description as a transport would; opening, sending, servicing, closing and
+completion delivery run in the real module adapter against a real snmpd and
+the transparent UDP observer. The IOC's record transport is not involved.
+
+```bash
+SNMP_NATIVE_ARGS=(--ioc "$SNMP_TEST_IOC" --profile tests/profiles/snmpv3.json)
+python3 tests/run_snmp.py "${SNMP_NATIVE_ARGS[@]}" --suite native
+```
+
+The nineteen cases cover v2c and v3 authPriv responses, twenty concurrent
+requests, request loss at retries 0, 1 and 3, reply loss, close with pending
+requests, an unresolvable endpoint, oversized GETs that the library fails
+inside the send, an unknown v3 user and a wrong authentication key, a
+completion that sends another GET, recovery after the agent restarts with a
+higher engineBoots, a USM report carrying a foreign request ID, an SNMPv3
+retransmission whose send fails at the socket boundary, two sessions
+with different deadlines in one service loop, a silent endpoint beside a
+healthy one, and a session socket above FD_SETSIZE. Every accepted request must complete exactly once,
+and a rejected request never completes. Retry cases require one wire attempt
+per try under a single request ID, completion near the configured timeout
+times the attempts, and one library RESEND callback per retransmission; they
+also require snmpget with the same timeout and retries to send the same
+number of attempts. The send-failure case bounds resident memory growth over
+twenty rejected 6000-varbind requests. The descriptor case occupies every
+free descriptor below 1100 before opening and requires a socket at or above
+it, so the process descriptor limit must exceed that; raise it for
+containers, for example with `--ulimit nofile=4096:4096`.
+
+These are adapter results. They do not qualify discovery isolation of the
+record path, worker processes or profile handling.
+
 ## Observer Negative Controls
 
 Run each option below with the sequencing command. Each invocation runs the
@@ -400,20 +436,27 @@ profile and relevant fixture/observer hashes.
 
 ## Outer Socket Failure Fixture
 
-The lifecycle transport case compiles `socket_fault.c` with the system C
-compiler and preloads it only into the owned test IOC. It does not intercept
-Net-SNMP, device support, callbacks or Base record processing. An explicitly
+The lifecycle transport case and the native resend_send_failure case compile
+`socket_fault.c` with the system C compiler and preload it only into the owned
+test IOC. It does not intercept Net-SNMP, device support, callbacks or Base
+record processing. An explicitly
 armed, one-shot AF_INET/SOCK_DGRAM socket creation fails with EMFILE; an
 explicitly armed sendto/sendmsg to the selected loopback peer fails with EIO.
 The file control is inactive for ordinary startup, CA clients and recovery.
 
-Every injected failure must have one logged real socket call between claim
-and terminal result, no corresponding wire request, READ/INVALID at FLNK,
-retained valid value, idle completion and a successful fresh recovery. Open
+In the lifecycle case, every injected failure must have one logged real
+socket call between claim and terminal result, no corresponding wire
+request, READ/INVALID at FLNK, retained valid value, idle completion and a
+successful fresh recovery. Open
 failure has no dispatch attempt; send failure has one attempt without wire
 transmission. Unconsumed controls, unused fault events and missing evidence
 fail the test. `socket-build.json` retains compiler arguments, source/library
 hashes and build output; `socket-fault.jsonl` retains the actual fault events.
+
+The native resend_send_failure case arms the send fault only after the proxy
+has dropped the first attempt of an SNMPv3 GET. It requires exactly one
+logged sendto or sendmsg fault, one send_failed completion for that request
+before the session closes, and no other attempt of it on the wire.
 
 ## Failure, Diagnostics And Process Lifetime
 

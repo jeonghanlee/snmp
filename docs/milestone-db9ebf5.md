@@ -9,8 +9,12 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: begin P803, the thin native session adapter. The
-reviewed M8 step 1 fixtures and step 2 extraction are committed. Step 2 passed
+Next session entry point: commit M8 step 3, the native session adapter, then
+begin P804 validated profiles. Step 3 passes its native suite 19/19 and the
+regression suites on Debian 13 and Rocky 8, and its third bounded recheck
+(fup20260924_212921) passed on 2026-09-24 after the review and recheck
+findings were corrected. The reviewed
+M8 step 1 fixtures and step 2 extraction are committed. Step 2 passed
 its regressions on Debian 13 and Rocky 8 under D10 and its independent
 third-person and maintainer reviews on 2026-09-24; the stale-session
 deletion race is carried to step 6. Step 1's corrected baseline and
@@ -2161,6 +2165,10 @@ tested candidate. Session recovery does not reload configuration or credentials.
   boundary. Step 6 replaces this session lifetime and must close the race
   with a reproducing test before its verification passes. Observed by code
   reading on 2026-09-24; not reproduced.
+- Step 3 adds the Single Session adapter only; the record transport keeps the
+  traditional API until it moves with the worker in steps 5 and 6. The
+  adapter's service() waits on session sockets only, so the worker loop in
+  step 5 must provide its own wake path. Decision Date: 2026-09-24.
 - D10 selects Debian 13 and Rocky 8 as the M8 qualification platforms. T12 and
   the step regressions use those two; the Debian 12 and Rocky 9 native
   observations below stay as retained evidence and are not rerun.
@@ -2290,8 +2298,8 @@ and a compatible absolute worker deadline independent of record deadlines.
 
 The following table maps the same nine steps to implementation targets and
 observable advancement conditions. It is part of this plan, not a second work
-register. Step 1 fixtures and the step 2 extraction are delivered; later
-components remain planned. Run each step's available checks before migration
+register. Step 1 fixtures, the step 2 extraction and the step 3 adapter are
+delivered; later components remain planned. Run each step's available checks before migration
 depends on that step; record partial coverage explicitly. Step 8 reruns the complete acceptance matrix on the final
 candidate even when an earlier implementation passed its subset.
 
@@ -2371,7 +2379,7 @@ separately and cannot close an IOC test label.
 | T12 | Not run | Platform/resource matrix | Pending | none |
 | T13 | Not run for M8 | APC laboratory integration | Pending | none |
 | T14 | 2026-09-23T14:04:35-07:00 | Four frozen plan/contract documents and source/evidence review; no replacement candidate | Partial; final implementation/evidence review pending | Full-plan convergence conv20260923_140435 records three independent PASS verdicts and zero new demonstrated plan defects. The prior watchdog correction remains represented by D9 and conv20260923_130832. Review basis and frozen identity are recorded above; final implementation/runtime acceptance remains unverified. |
-| T15 | 2026-09-23; native runs only | Native C probe and real snmpd; module adapter not run | Pending | The earlier 32 native cases and the full-plan review's new 26 short cases passed, each with one measured terminal callback. These are separate runs, not 58 distinct coverage cases. The full adapter, ownership, high-FD, platform and client-comparison matrix remains unexecuted; see Full-Plan Review Evidence below. |
+| T15 | 2026-09-25T04:08:56.389399+00:00 to 2026-09-25T04:10:30.522120+00:00 | Module adapter snmpNative.cpp in the test IOC through nativeProbe; real snmpd and UDP observer; Debian 13 Net-SNMP 5.9.4.pre2 and Rocky 8 5.8 | Adapter subset PASS 19/19 on both platforms; record-path, worker and platform-resource cases pending | Send success and immediate send failure, response copy, close with pending work, retries 0/1/3 compared with snmpget, RESEND callbacks, USM rejections, recovery after an agent restart, a foreign report ID, a failed SNMPv3 retransmission, re-entrant get, mixed deadlines and a socket at descriptor 1100; see Step 3 Native Session Adapter below. The 2026-09-23 native C probe runs remain separate retained evidence. |
 | T16 | Not run | Explicit/automatic engine identity implementation | Pending | none |
 | T17 | 2026-09-24T19:46:42.217277+00:00 | Archived 750ea26 IOC; actual ao/longout/stringout, native writable snmpd and external UDP fault proxy; Debian 13/Base 7.0.10 | Baseline 12/12 PASS; final candidate comparison pending | Success, agent error, queued coalescing, readback suppression and request/reply loss at retries 0/1/3/defaults passed. Native retransmissions and default-policy 60-second session retirement are recorded separately below. No worker or exactly-once device guarantee follows. |
 | T18 | 2026-09-23T12:33:06-07:00 | Native experiments only; worker/IPC/IOC implementation not run | Pending | Process separation and native timer measurements are preliminary evidence, not verification of the proposed watchdog, supervisor or IPC path. |
@@ -2587,6 +2595,99 @@ for the session mutex moves from 3800 to 3810. Sequencing 9/9 and failures
 10/10 pass on it in /tmp/snmp-m8-comments-tests-20260924-c, and the Rocky 8
 image compiles the same tree in /tmp/snmp-m8-rocky8-comments-20260924-c.
 Recheck by rebuilding and comparing `objdump -d` output per object.
+
+##### Step 3 Native Session Adapter
+
+snmpApp/src/snmpNative.cpp and snmpNative.h add SnmpNativeSession, the owner
+of one Net-SNMP Single Session handle and of the state of every request sent
+through it; the library frees each accepted PDU. The native value copy moved unchanged from devSnmp.cpp into
+the adapter as snmpNativeCopyValue; the record transport calls it and is
+otherwise unchanged. The test IOC drives the adapter through the nativeProbe
+and nativeProbeMixed commands in tests/src/nativeProbe.cpp, and
+tests/test_native.py is the public `native` suite described in
+tests/README.md.
+
+Every snmp_sess_*, PDU and large descriptor-set function the adapter calls is
+declared and exported by the installed Net-SNMP on Debian 13 (5.9.4.pre2) and
+Rocky 8 (5.8), checked on 2026-09-24. `nm -u` of snmpNative.o lists only the
+snmp_sess_* family, the large descriptor-set helpers and PDU, OID, value and
+error helpers; no traditional global session function. A new PDU carries a
+nonzero request ID before sending on both platforms. The library matches
+SNMPv3 messages to requests by message ID, and a report's request ID is zero
+or foreign. For a rejected SNMPv3 request both libraries deliver SEC_ERROR and
+the report message: 5.9.4 SEC_ERROR first, 5.8 the report first. After an
+agent restart raises engineBoots, 5.8 delivers the notInTimeWindow report and
+then retransmits and delivers the response; 5.9.4 retransmits without a report
+callback. The library also gives a retransmission a new message ID before
+sending it and, if that send fails, reports SEND_FAILED with the request's own
+PDU and no RESEND. The adapter therefore finds callbacks that carry the
+request's own PDU by request ID and received SNMPv3 responses and reports by
+the message ID of the latest sent attempt, treats a report message as
+intermediate and SEC_ERROR as the terminal security failure, and ignores
+callbacks after the recorded outcome.
+
+The first review failed both lanes (rev20260924_184555, rev20260924_184000):
+freed callback data after SEC_ERROR crashed the IOC, a send failed inside
+snmp_sess_async_send leaked its PDU, a completion re-entering get() during
+that failure deleted an exchange twice, and the suite lacked those cases.
+The corrected adapter keys requests by ID, frees the PDU and returns false
+for a send the library failed, never completes inside get(), and zeroes the
+descriptor set. The suite grew from twelve to sixteen cases. The bounded
+recheck (fup20260924_195837, fup20260924_195027) confirmed those corrections
+and found that treating every report as final failed recovery on 5.8 after an
+agent restart, that a report with a foreign nonzero request ID left its
+request pending until close, and two text errors. Those were corrected, and
+agent-restart and foreign-report cases bring the suite to eighteen. The second
+recheck (fup20260924_202048, fup20260924_201206) found that an SNMPv3
+retransmission that failed to send stayed pending until close, because
+callbacks carrying the request's own PDU were matched by message ID. They are
+now matched by request ID, and a case that fails the retransmission at the
+libc socket boundary with the existing socket_fault fixture brings the suite
+to nineteen. The third recheck (fup20260924_212921) passed: every callback
+path completed exactly once on both versions, and a message-ID mutant fails
+the new case. The Rocky 5.8 package removed a request after a failed
+retransmission, so a retry after that failure was not reproduced; the adapter
+covers it through the same request-ID match, a conclusion from source
+reading.
+
+Final build /tmp/snmp-m8-native-20260924-l (module
+8ce4d6d08094ef0cad279ff208771f459fae838327e6bba0e7bebf274f593dc2, test IOC
+fc047b1bdf195b5d2b5c3a740774cf3691e580322d87e7cde7d29402799bf44a) passes
+native 19/19 in /tmp/snmp-m8-native-tests-20260924-i. The Rocky 8 build of the
+same sources passes native 19/19 in /tmp/snmp-m8-rocky8-native-20260924-e
+(test IOC 6b70929ab8f7c61622cc8fbc2f80c21a23f4a06d79bca00e221fd2789facbd32;
+container-command.txt holds the exact container invocation). Observed: twenty
+6000-varbind GETs are rejected with no completion and 8212 KiB (Debian) and
+8148 KiB (Rocky) resident growth, against about 6.9 MB per leaked PDU before
+the correction; USM rejections complete once as security errors, including a
+report with a foreign request ID; after the agent restarts with engineBoots
+7 the next GET receives notInTimeWindow, is retransmitted once and completes
+as a response on both platforms; an SNMPv3 retransmission failed by one
+sendmsg EIO at the socket boundary completes once as send_failed 1.5 s after
+the first attempt, before close; the three pending requests at close complete
+as Closed through library callbacks during snmp_sess_close.
+
+The transport objects devSnmp.o, snmpRequest.o, snmpEpics.o, snmpRegister.o
+and snmpSessShow.o of build -l disassemble identically to build
+/tmp/snmp-m8-native-20260924-h. On build -h, Debian 13 passes sequencing 9,
+failures 10, lifecycle 15, batch 10, robustness 16, accounting 3 and
+conversion 2 in /tmp/snmp-m8-native-tests-20260924-e, against a db9ebf5
+waveform baseline recollected with the current profile in
+/tmp/snmp-m8-native-tests-20260924-b/baseline-waveforms-b. Rocky 8 passes the
+same seven suites and its own db9ebf5 baseline in
+/tmp/snmp-m8-rocky8-native-20260924-b from the same sources.
+
+Retained failures: the first Debian conversion run in
+/tmp/snmp-m8-native-tests-20260924-b, whose waveform baseline predated the
+5.8 profile declaration; native runs -c on Debian, where the security-error
+cases timed out before reports were matched by message ID; native in the
+Rocky -b run, where 5.8 security reports were classified as protocol errors
+and one IOC stopped at startup in rsrv_init before the adapter ran; and the
+sixteen-case passes on builds -i and Rocky -c and the eighteen-case passes on
+build -j and Rocky -d, whose report and message matching the rechecks later
+found wrong; and the first nineteen-case run -h, whose new assertion expected
+sendto where the library called sendmsg. None is relabeled. These results do not qualify record-path discovery isolation,
+worker processes, profiles or T12.
 
 ##### Full-Plan Review Evidence
 

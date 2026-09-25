@@ -24,6 +24,7 @@ devSnmp_SRCS += snmpSessShow.c
 devSnmp_SRCS += devSnmp.cpp
 devSnmp_SRCS += snmpRequest.cpp
 devSnmp_SRCS += snmpEpics.cpp
+devSnmp_SRCS += snmpNative.cpp
 
 devSnmp_LIBS += $(EPICS_BASE_IOC_LIBS)
 

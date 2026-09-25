@@ -54,6 +54,15 @@ def packet_metadata(packet):
     return result
 
 
+def foreign_report_id(packet):
+    """Rewrite an unauthenticated report's request ID from 0 to 5, keeping its length."""
+    start = packet.rfind(b"\xa8")
+    field = packet.find(b"\x02\x01\x00", start)
+    if start < 0 or field < 0 or field - start > 4:
+        raise ValueError("Report request ID not found")
+    return packet[:field + 2] + b"\x05" + packet[field + 3:]
+
+
 class Proxy:
     def __init__(self, work, port):
         self.front = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -96,6 +105,10 @@ class Proxy:
                     drop = mode == ("drop-requests" if request else "drop-replies")
                     hold = request and mode == "hold-requests"
                     metadata["action"] = "drop" if drop else "hold" if hold else "forward"
+                    if not request and mode == "report-foreign-id" and metadata.get("pdu") == 0xA8 \
+                            and metadata.get("id") == 0:
+                        packet = foreign_report_id(packet)
+                        metadata["action"] = "forward-foreign-id"
                     if not request and destination is None:
                         metadata["action"] = "unmatched"
                     self.record(metadata)
@@ -119,7 +132,7 @@ class Proxy:
         self.log.flush()
 
     def fault(self, mode, pdu=None):
-        if mode not in ("normal", "drop-requests", "drop-replies", "hold-requests"):
+        if mode not in ("normal", "drop-requests", "drop-replies", "hold-requests", "report-foreign-id"):
             raise ValueError("Unknown UDP fault mode")
         with self.lock:
             self.mode, self.pdu = mode, pdu
@@ -174,6 +187,7 @@ class Agent:
         self.log = (self.work / "snmpd.log").open("w")
         self.process = None
         try:
+            self.config = config
             self.process = subprocess.Popen([self.executable, "-f", "-Lo", "-C", "-c", str(config),
                                              "-p", str(self.work / "snmpd.pid"), "-r"],
                                             env=self.env, stdout=self.log, stderr=subprocess.STDOUT)
@@ -203,6 +217,23 @@ class Agent:
         return subprocess.run(["snmpget", "-v", version, *security, "-t", "0.2", "-r", "0", "-On",
                                f"127.0.0.1:{self.port}", oid], env=self.env, text=True,
                               capture_output=True, timeout=3)
+
+    def restart(self, engine_id, boots):
+        """Restart the real agent with the same engine ID and a higher engineBoots."""
+        self.process.terminate()
+        self.process.wait(timeout=3)
+        config = self.work / "snmpd-restart.conf"
+        config.write_text(self.config.read_text() + f"oldEngineID 0x{engine_id}\nengineBoots {boots}\n")
+        config.chmod(0o600)
+        self.process = subprocess.Popen([self.executable, "-f", "-Lo", "-C", "-c", str(config),
+                                         "-p", str(self.work / "snmpd.pid"), "-r"],
+                                        env=self.env, stdout=self.log, stderr=subprocess.STDOUT)
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline and self.process.poll() is None:
+            if self.client("2c", None, NAME).returncode == 0:
+                return
+            time.sleep(0.05)
+        raise AssertionError("Restarted snmpd failed readiness; evidence: " + str(self.work))
 
     def ioc_config(self, level):
         config = self.work / "ioc-v3.conf"

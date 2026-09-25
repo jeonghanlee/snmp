@@ -15,6 +15,18 @@ struct variable_list;
  * the storage reserved in result. Native storage is never retained. */
 void snmpNativeCopyValue(SnmpValue &result, const variable_list *value);
 
+/* Resolves an authentication or privacy algorithm name through the linked
+ * library's own lookup helpers and copies its protocol OID. Returns false
+ * when the library does not know the name. Policy filtering is the caller's. */
+bool snmpNativeAuthProtocol(const char *name, std::vector<unsigned long> &protocol);
+bool snmpNativePrivProtocol(const char *name, std::vector<unsigned long> &protocol);
+
+/* Derives the passphrase-based Ku for authProtocol with the library's
+ * generate_Ku. key receives up to *keyLength bytes; returns false and leaves
+ * the key unusable when the library rejects the protocol or passphrase. */
+bool snmpNativeDeriveKey(const unsigned long *authProtocol, size_t authProtocolLength,
+                         const std::string &passphrase, unsigned char *key, size_t *keyLength);
+
 /* Terminal outcome of one native exchange, valid only during the completion
  * call. Response: the agent answered; errorStatus and errorIndex come from
  * the response PDU, and values holds one entry per requested OID in request

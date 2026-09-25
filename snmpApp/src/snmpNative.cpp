@@ -84,6 +84,34 @@ void snmpNativeCopyValue(SnmpValue &result, const variable_list *value)
   result.valid = true;
 }
 
+bool snmpNativeAuthProtocol(const char *name, std::vector<unsigned long> &protocol)
+{
+    int type = name ? usm_lookup_auth_type(name) : -1;
+    size_t length = 0;
+    const oid *found = type < 0 ? NULL : sc_get_auth_oid(type, &length);
+    if (!found || !length) return false;
+    protocol.assign(found, found + length);
+    return true;
+}
+
+bool snmpNativePrivProtocol(const char *name, std::vector<unsigned long> &protocol)
+{
+    int type = name ? usm_lookup_priv_type(name) : -1;
+    size_t length = 0;
+    const oid *found = type < 0 ? NULL : sc_get_priv_oid(type, &length);
+    if (!found || !length) return false;
+    protocol.assign(found, found + length);
+    return true;
+}
+
+bool snmpNativeDeriveKey(const unsigned long *authProtocol, size_t authProtocolLength,
+                         const std::string &passphrase, unsigned char *key, size_t *keyLength)
+{
+    if (!authProtocol || !authProtocolLength || passphrase.empty() || !key || !keyLength) return false;
+    return generate_Ku((const oid *)authProtocol, (u_int)authProtocolLength, (const u_char *)passphrase.data(),
+                       passphrase.size(), key, keyLength) == SNMPERR_SUCCESS;
+}
+
 /* One accepted request, keyed by the request ID that snmp_pdu_create assigns
  * before sending. messageId follows the SNMPv3 message ID of the latest sent
  * attempt, because the library matches received SNMPv3 messages to requests

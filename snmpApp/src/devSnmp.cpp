@@ -355,6 +355,11 @@ static void snmpAtExit(void *arg)
 static void snmpInitHook(initHookState state)
 {
   switch (state) {
+    case initHookAfterIocBuilt:
+      // records are bound; no security or endpoint definition may change now
+      snmpConfigFreeze();
+      break;
+
     case initHookAtEnd:
       devSnmp_request::start();
       if (pManager->start() != epicsOk) {
@@ -2769,52 +2774,84 @@ devSnmp_group::devSnmp_group(devSnmp_manager *pMgr, devSnmp_host *host, char *co
   memset(base_session,0,sizeof(SNMP_SESSION));
   memset(&v3params,0,sizeof(devSnmp_v3params));
 
-  // initialize base session structure
+  // initialize base session structure from this group's host: a named
+  // endpoint supplies its address, profile, engine IDs and optional
+  // timeout/retry overrides; a legacy host its own name and v3 settings
   snmp_sess_init(base_session);
-  base_session->retries       = snmpSessionRetries;
-  base_session->timeout       = snmpSessionTimeout;
-  base_session->peername      = dup_string(pOurHost->hostName());
+  base_session->retries       = pOurHost->sessionRetries();
+  base_session->timeout       = pOurHost->sessionTimeoutUs();
+  base_session->peername      = dup_string(pOurHost->peerName());
   base_session->community     = (unsigned char *) dup_string(community);
   base_session->community_len = strlen(community);
-  base_session->version       = pOurMgr->getHostSnmpVersion(base_session->peername);
+  base_session->version       = pOurHost->getSnmpVersion();
   base_session->callback      = snmpSessionCallback;
 
-  // apply SNMPv3 params if using that version
   if (base_session->version == SNMP_VERSION_3) {
-    pOurMgr->getHostSnmpV3Params(base_session->peername,&v3params);
-    base_session->securityAuthProto    = v3params.securityAuthProto;
-    base_session->securityAuthProtoLen = v3params.securityAuthProtoLen;
-    base_session->securityPrivProto    = v3params.securityPrivProto;
-    base_session->securityPrivProtoLen = v3params.securityPrivProtoLen;
-    base_session->securityLevel        = v3params.securityLevel;
-    base_session->securityName         = dup_string(v3params.securityName);
-    base_session->securityNameLen      = strlen(v3params.securityName);
-    base_session->contextName          = dup_string(v3params.context);
-    base_session->contextNameLen       = strlen(v3params.context);
-    long errCode;
-    if (strlen(v3params.authPassPhrase) > 0) {
-      base_session->securityAuthKeyLen = USM_AUTH_KU_LEN;
-      errCode = generate_Ku(base_session->securityAuthProto,
-                            base_session->securityAuthProtoLen,
-                            (u_char *) v3params.authPassPhrase,
-                            strlen(v3params.authPassPhrase),
-                            base_session->securityAuthKey,
-                            &base_session->securityAuthKeyLen);
-      if (errCode != SNMPERR_SUCCESS) {
-        printf("devSnmp ERROR: generate_Ku [authPassPhrase] FAILED: errcode %ld : %s\n",errCode,snmp_errstring(errCode));
-      }
+    const SnmpEndpointConfig *endpoint = pOurHost->endpointConfig();
+    const SnmpProfileConfig *profile = endpoint ? endpoint->profile : NULL;
+    std::string authPassphrase, privPassphrase;
+    std::vector<unsigned char> securityEngineID, contextEngineID;
+    if (profile) {
+      base_session->securityAuthProto    = profile->authProtocol.empty() ? NULL : (oid *) &profile->authProtocol[0];
+      base_session->securityAuthProtoLen = profile->authProtocol.size();
+      base_session->securityPrivProto    = profile->privProtocol.empty() ? NULL : (oid *) &profile->privProtocol[0];
+      base_session->securityPrivProtoLen = profile->privProtocol.size();
+      base_session->securityLevel        = profile->securityLevel;
+      base_session->securityName         = dup_string(profile->securityName.c_str());
+      base_session->securityNameLen      = profile->securityName.size();
+      base_session->contextName          = dup_string(profile->contextName.c_str());
+      base_session->contextNameLen       = profile->contextName.size();
+      authPassphrase   = profile->authPassphrase;
+      privPassphrase   = profile->privPassphrase;
+      securityEngineID = endpoint->securityEngineID;
+      contextEngineID  = endpoint->contextEngineID;
+    } else {
+      pOurHost->getSnmpV3Params(&v3params);
+      base_session->securityAuthProto    = v3params.securityAuthProto;
+      base_session->securityAuthProtoLen = v3params.securityAuthProtoLen;
+      base_session->securityPrivProto    = v3params.securityPrivProto;
+      base_session->securityPrivProtoLen = v3params.securityPrivProtoLen;
+      base_session->securityLevel        = v3params.securityLevel;
+      base_session->securityName         = dup_string(v3params.securityName);
+      base_session->securityNameLen      = strlen(v3params.securityName);
+      base_session->contextName          = dup_string(v3params.context);
+      base_session->contextNameLen       = strlen(v3params.context);
+      authPassphrase = v3params.authPassPhrase;
+      privPassphrase = v3params.privPassPhrase;
+      securityEngineID.assign(v3params.securityEngineID, v3params.securityEngineID + v3params.securityEngineIDLen);
+      contextEngineID.assign(v3params.contextEngineID, v3params.contextEngineID + v3params.contextEngineIDLen);
+      explicit_bzero(v3params.authPassPhrase, sizeof(v3params.authPassPhrase));
+      explicit_bzero(v3params.privPassPhrase, sizeof(v3params.privPassPhrase));
     }
-    if (strlen(v3params.privPassPhrase) > 0) {
+    if (! securityEngineID.empty()) {
+      base_session->securityEngineID = new u_char[securityEngineID.size()];
+      memcpy(base_session->securityEngineID, &securityEngineID[0], securityEngineID.size());
+      base_session->securityEngineIDLen = securityEngineID.size();
+    }
+    if (! contextEngineID.empty()) {
+      base_session->contextEngineID = new u_char[contextEngineID.size()];
+      memcpy(base_session->contextEngineID, &contextEngineID[0], contextEngineID.size());
+      base_session->contextEngineIDLen = contextEngineID.size();
+    }
+    // A passphrase that the library cannot turn into a key fails this binding.
+    bool keysValid = true;
+    if (! authPassphrase.empty()) {
+      base_session->securityAuthKeyLen = USM_AUTH_KU_LEN;
+      keysValid = snmpNativeDeriveKey((const unsigned long *) base_session->securityAuthProto,
+                                      base_session->securityAuthProtoLen, authPassphrase,
+                                      base_session->securityAuthKey, &base_session->securityAuthKeyLen);
+    }
+    if (keysValid && ! privPassphrase.empty()) {
       base_session->securityPrivKeyLen = USM_PRIV_KU_LEN;
-      errCode = generate_Ku(base_session->securityAuthProto,
-                            base_session->securityAuthProtoLen,
-                            (u_char *) v3params.privPassPhrase,
-                            strlen(v3params.privPassPhrase),
-                            base_session->securityPrivKey,
-                            &base_session->securityPrivKeyLen);
-      if (errCode != SNMPERR_SUCCESS) {
-        printf("devSnmp ERROR: generate_Ku [privPassPhrase] FAILED: errcode %ld %s\n",errCode,snmp_errstring(errCode));
-      }
+      keysValid = snmpNativeDeriveKey((const unsigned long *) base_session->securityAuthProto,
+                                      base_session->securityAuthProtoLen, privPassphrase,
+                                      base_session->securityPrivKey, &base_session->securityPrivKeyLen);
+    }
+    snmpConfigClear(authPassphrase);
+    snmpConfigClear(privPassphrase);
+    if (! keysValid) {
+      printf("devSnmp ERROR: host '%s' SNMPv3 key derivation failed\n", pOurHost->hostName());
+      return;
     }
   }
 
@@ -2859,6 +2896,10 @@ devSnmp_group::~devSnmp_group(void)
     delete [] base_session->community;
     if (base_session->securityName) delete [] base_session->securityName;
     if (base_session->contextName) delete [] base_session->contextName;
+    delete [] base_session->securityEngineID;
+    delete [] base_session->contextEngineID;
+    explicit_bzero(base_session->securityAuthKey, sizeof(base_session->securityAuthKey));
+    explicit_bzero(base_session->securityPrivKey, sizeof(base_session->securityPrivKey));
     delete base_session;
     base_session = NULL;
   }
@@ -3109,16 +3150,16 @@ void devSnmp_group::sessionGotReply(devSnmp_session *pSession)
 //--------------------------------------------------------------------
 void devSnmp_group::sessionRetriesChange(void)
 {
-  // applicable global variable value changed
-  base_session->retries = snmpSessionRetries;
+  // applicable global variable value changed; a named endpoint keeps its override
+  base_session->retries = pOurHost->sessionRetries();
   // fix ? - unknown whether changing this on-the-fly will have any effect
   // might be picked up when devSnmp_[get/set]Transaction::createSession is called
 }
 //--------------------------------------------------------------------
 void devSnmp_group::sessionTimeoutChange(void)
 {
-  // applicable global variable value changed
-  base_session->timeout = snmpSessionTimeout;
+  // applicable global variable value changed; a named endpoint keeps its override
+  base_session->timeout = pOurHost->sessionTimeoutUs();
   // fix ? - unknown whether changing this on-the-fly will have any effect
   // might be picked up when devSnmp_[get/set]Transaction::createSession is called
 }
@@ -3241,26 +3282,69 @@ void devSnmp_group::updatePVs(devSnmp_oid *pOID)
 devSnmp_host::devSnmp_host(devSnmp_manager *pMgr, char *host, bool *okay)
 {
   (*okay) = false;  // for now...
-
-  // copy params
-  pOurMgr = pMgr;
-  hostname = dup_string(host);
-
-  // init variables
-  groupList         = new snmpPointerList();
-  getQueue          = new snmpPointerList();
-  setQueue          = new snmpPointerList();
-  activeSessionList = new snmpPointerList();
-  memset(&v3params,0,sizeof(devSnmp_v3params));
+  initialize(pMgr, host);
 
   // set some defaults (user can override later)
-  snmpVersion   = SNMP_VERSION_2c;
-  maxOidsPerReq = DEFAULT_MAX_OIDS_PER_REQ;
   setSnmpV3Param("authType",      "MD5",          true);
   setSnmpV3Param("privType",      "AES",          true);
   setSnmpV3Param("securityLevel", "noAuthNoPriv", true);
 
   (*okay) = true;
+}
+//--------------------------------------------------------------------
+// Named endpoint host: SNMPv3 with every security setting from the endpoint
+// profile; the legacy v3params stay unused.
+devSnmp_host::devSnmp_host(devSnmp_manager *pMgr, char *key, const SnmpEndpointConfig *config, bool *okay)
+{
+  (*okay) = false;
+  initialize(pMgr, key);
+  endpoint    = config;
+  snmpVersion = SNMP_VERSION_3;
+  if (config->maxOidsPerReq > 0) maxOidsPerReq = config->maxOidsPerReq;
+  (*okay) = true;
+}
+//--------------------------------------------------------------------
+void devSnmp_host::initialize(devSnmp_manager *pMgr, char *host)
+{
+  pOurMgr = pMgr;
+  hostname = dup_string(host);
+  groupList         = new snmpPointerList();
+  getQueue          = new snmpPointerList();
+  setQueue          = new snmpPointerList();
+  activeSessionList = new snmpPointerList();
+  memset(&v3params,0,sizeof(devSnmp_v3params));
+  snmpVersion   = SNMP_VERSION_2c;
+  maxOidsPerReq = DEFAULT_MAX_OIDS_PER_REQ;
+  endpoint      = NULL;
+  configInvalid = false;
+  hasBinding    = false;
+}
+//--------------------------------------------------------------------
+// Security settings change only before a record binds this host and before
+// iocInit; a named endpoint host never takes legacy settings.
+bool devSnmp_host::configurable(const char *what)
+{
+  const char *reason = endpoint ? "is a named endpoint" :
+                       hasBinding ? "is already bound by a record" :
+                       snmpConfigFrozen() ? "cannot change after iocInit" : NULL;
+  if (!reason) return(true);
+  printf("devSnmp ERROR: host '%s' %s; %s rejected\n", hostname, reason, what);
+  return(false);
+}
+//--------------------------------------------------------------------
+const char *devSnmp_host::peerName(void)
+{
+  return endpoint ? endpoint->address.c_str() : hostname;
+}
+//--------------------------------------------------------------------
+long devSnmp_host::sessionTimeoutUs(void)
+{
+  return (endpoint && endpoint->timeoutMSec > 0) ? endpoint->timeoutMSec * 1000L : snmpSessionTimeout;
+}
+//--------------------------------------------------------------------
+int devSnmp_host::sessionRetries(void)
+{
+  return (endpoint && endpoint->retries >= 0) ? endpoint->retries : snmpSessionRetries;
 }
 //--------------------------------------------------------------------
 devSnmp_host::~devSnmp_host(void)
@@ -3365,13 +3449,21 @@ devSnmp_pv *devSnmp_host::addPV
       OID              *oid,
       struct dbCommon  *pRecord)
 {
+  if (configInvalid) {
+    printf("devSnmp ERROR: %s not bound: host '%s' has invalid startup configuration\n",pRecord->name,hostname);
+    fflush(stdout);
+    return(NULL);
+  }
+
   // find or create group for this PV
   devSnmp_group *pGroup = findGroup(base->community);
   if (! pGroup) pGroup = createGroup(base->community);
   if (! pGroup) return(NULL);
 
-  // have group add PV
-  return( pGroup->addPV(base,extra,oid,pRecord) );
+  // have group add PV; a successful binding freezes this host's settings
+  devSnmp_pv *pPV = pGroup->addPV(base,extra,oid,pRecord);
+  if (pPV) hasBinding = true;
+  return(pPV);
 }
 //--------------------------------------------------------------------
 void devSnmp_host::queueGetTransaction(devSnmp_getTransaction *pTrans)
@@ -3405,12 +3497,14 @@ int devSnmp_host::getSnmpVersion(void)
   return(snmpVersion);
 }
 //--------------------------------------------------------------------
-void devSnmp_host::setSnmpVersion(int version)
+bool devSnmp_host::setSnmpVersion(int version)
 {
+  if (! configurable("SNMP version")) return(false);
   snmpVersion = version;
+  return(true);
 }
 //--------------------------------------------------------------------
-void devSnmp_host::setSnmpV3Param(const char *param, const char *value, bool ignoreVersion)
+bool devSnmp_host::setSnmpV3Param(const char *param, const char *value, bool ignoreVersion)
 {
 /*
   mimics parameters used in snmpget/snmpwalk utilities snmp.conf files
@@ -3428,15 +3522,21 @@ void devSnmp_host::setSnmpV3Param(const char *param, const char *value, bool ign
   securityLevel  -l (noAuthNoPriv|authNoPriv|authPriv)  defSecurityLevel (noAuthNoPriv|authNoPriv|authPriv)
   context        -n CONTEXTNAME                         defContext CONTEXTNAME
 */
+  // allow the 'def' prefix that snmp.conf token names use
+  if (strncasecmp(param,"def",3) == 0) param += 3;
+  if ((! ignoreVersion) && (! configurable("SNMPv3 parameter"))) return(false);
   if ((! ignoreVersion) && (snmpVersion != SNMP_VERSION_3)) {
     printf("devSnmp ERROR: host '%s' is not using SNMP_VERSION_3 - set it with devSnmpSetSnmpVersion first\n",hostname);
-    return;
+    configInvalid = true;
+    return(false);
+    configInvalid = true;
+    return(false);
   }
 
   if (strcasecmp(param,"securityName") == 0) {
     // securityName -u NAME
     copy_string(v3params.securityName,sizeof(v3params.securityName),value);
-    return;
+    return(true);
   }
 
   if (strcasecmp(param,"authType") == 0) {
@@ -3449,8 +3549,10 @@ void devSnmp_host::setSnmpV3Param(const char *param, const char *value, bool ign
       v3params.securityAuthProtoLen = USM_AUTH_PROTO_SHA_LEN;
     } else {
       printf("devSnmp ERROR: unknown SNMPv3 authProtocol selection '%s'\n",value);
+      configInvalid = true;
+      return(false);
     }
-    return;
+    return(true);
   }
 
   if (strcasecmp(param,"privType") == 0) {
@@ -3460,27 +3562,31 @@ void devSnmp_host::setSnmpV3Param(const char *param, const char *value, bool ign
       v3params.securityPrivProto    = usmDESPrivProtocol;
       v3params.securityPrivProtoLen = USM_PRIV_PROTO_DES_LEN;
       #else
-      printf("devSnmp ERROR: DES is no longer supported on this system");
+      printf("devSnmp ERROR: DES is no longer supported on this system\n");
+      configInvalid = true;
+      return(false);
       #endif
     } else if ((strcasecmp(value, "AES") == 0) || (strcasecmp(value, "AES128") == 0)) {
       v3params.securityPrivProto    = usmAESPrivProtocol;
       v3params.securityPrivProtoLen = USM_PRIV_PROTO_AES_LEN;
     } else {
       printf("devSnmp ERROR: unknown SNMPv3 privProtocol selection '%s'\n",value);
+      configInvalid = true;
+      return(false);
     }
-    return;
+    return(true);
   }
 
   if (strcasecmp(param,"authPassPhrase") == 0) {
     // authKey  -A PASSPHRASE
     copy_string(v3params.authPassPhrase,sizeof(v3params.authPassPhrase),value);
-    return;
+    return(true);
   }
 
   if (strcasecmp(param,"privPassPhrase") == 0) {
     // privKey  -X PASSPHRASE
     copy_string(v3params.privPassPhrase,sizeof(v3params.privPassPhrase),value);
-    return;
+    return(true);
   }
 
   if (strcasecmp(param,"securityLevel") == 0) {
@@ -3493,41 +3599,81 @@ void devSnmp_host::setSnmpV3Param(const char *param, const char *value, bool ign
       v3params.securityLevel = SNMP_SEC_LEVEL_AUTHPRIV;
     } else {
       printf("devSnmp ERROR: unknown SNMPv3 securityLevel selection '%s'\n",value);
+      configInvalid = true;
+      return(false);
     }
-    return;
+    return(true);
   }
 
   if (strcasecmp(param,"context") == 0) {
     // context  -n CONTEXTNAME
     copy_string(v3params.context,sizeof(v3params.context),value);
-    return;
+    return(true);
+  }
+
+  if ((strcasecmp(param,"securityEngineID") == 0) || (strcasecmp(param,"contextEngineID") == 0)) {
+    // explicit engine identity; omission keeps discovery and the default context
+    std::vector<unsigned char> bytes;
+    std::string error;
+    if (! snmpConfigParseEngineID(value, bytes, error)) {
+      printf("devSnmp ERROR: host '%s' %s %s\n",hostname,param,error.c_str());
+      configInvalid = true;
+      return(false);
+    }
+    bool security = strcasecmp(param,"securityEngineID") == 0;
+    memcpy(security ? v3params.securityEngineID : v3params.contextEngineID, &bytes[0], bytes.size());
+    (security ? v3params.securityEngineIDLen : v3params.contextEngineIDLen) = bytes.size();
+    return(true);
   }
 
   // nothing we know about...
   printf("devSnmp ERROR: unknown SNMPv3 parameter '%s'\n",param);
+  configInvalid = true;
+  return(false);
 }
 //--------------------------------------------------------------------
-void devSnmp_host::setSnmpV3ConfigFile(const char *fileName)
+bool devSnmp_host::setSnmpV3ConfigFile(const char *fileName)
 {
+  // Legacy token file: case-insensitive keys with an optional "def" prefix.
+  // Diagnostics give the line number only, never the line, which may hold
+  // a passphrase.
+  if (! configurable("SNMPv3 config file")) return(false);
   if (snmpVersion != SNMP_VERSION_3) {
     printf("devSnmp ERROR: host '%s' is not using SNMP_VERSION_3 - set it with devSnmpSetSnmpVersion first\n",hostname);
-    return;
+    configInvalid = true;
+    return(false);
   }
 
   FILE *fi = fopen(fileName,"r");
   if (! fi) {
     printf("devSnmp ERROR: unable to open file for read '%s'\n",fileName);
-    return;
+    configInvalid = true;
+    return(false);
   }
+  static const char *const known[] = {"securityName", "authType", "privType", "authPassPhrase",
+                                      "privPassPhrase", "securityLevel", "context", "securityEngineID",
+                                      "contextEngineID", NULL};
+  bool valid = true;
+  unsigned lineNumber = 0;
   char line[1024];
   while (fgets(line,sizeof(line),fi) != NULL) {
+    ++lineNumber;
+    if (! strchr(line,'\n') && ! feof(fi)) {
+      // an overlong line is rejected whole; its remainder is never parsed
+      printf("devSnmp ERROR: SNMPv3 config file line %u in '%s' exceeds %u bytes\n",
+             lineNumber,fileName,(unsigned) sizeof(line) - 2);
+      valid = false;
+      int c;
+      while ((c = fgetc(fi)) != EOF && c != '\n') {}
+      continue;
+    }
     trimup(line);
     if (line[0] == 0) continue;    // skip blank lines
     if (line[0] == '#') continue;  // skip comments
-    char *value = strchr(line,' ');
-    if (! value) value = strchr(line,'\t');
-    if (! value) {
-      printf("devSnmp ERROR: invalid SNMPv3 config file line '%s'\n",line);
+    char *value = line + strcspn(line," \t");
+    if (! *value) {
+      printf("devSnmp ERROR: invalid SNMPv3 config file line %u in '%s'\n",lineNumber,fileName);
+      valid = false;
       continue;
     }
     (*value) = 0;
@@ -3537,9 +3683,21 @@ void devSnmp_host::setSnmpV3ConfigFile(const char *fileName)
     // allow 'def' prefix of param name
     // these are key names snmpwalk / snmpget config files use
     if (strncasecmp(param,"def",3) == 0) param += 3;
-    setSnmpV3Param(param,value);
+    bool recognized = false;
+    for (const char *const *name = known; *name; ++name)
+      if (strcasecmp(param,*name) == 0) recognized = true;
+    if (! recognized) {
+      // an unknown key is not printed: a malformed line may hold a passphrase
+      printf("devSnmp ERROR: unknown SNMPv3 parameter at config file line %u in '%s'\n",lineNumber,fileName);
+      valid = false;
+      continue;
+    }
+    if (! setSnmpV3Param(param,value)) valid = false;
   }
+  explicit_bzero(line,sizeof(line));
   fclose(fi);
+  if (! valid) configInvalid = true;
+  return(valid);
 }
 //--------------------------------------------------------------------
 void devSnmp_host::getSnmpV3Params(devSnmp_v3params *params)
@@ -3887,53 +4045,70 @@ int devSnmp_manager::getHostSnmpVersion(char *host)
   return( pHost ? pHost->getSnmpVersion() : SNMP_VERSION_2c );
 }
 //--------------------------------------------------------------------
-void devSnmp_manager::setHostSnmpVersion(char *host, char *versionStr)
+bool devSnmp_manager::setHostSnmpVersion(char *host, char *versionStr)
 {
-  // parse version
+  devSnmp_host *pHost = legacyHost(host);
+  if (! pHost) return(false);
+
+  // parse version; an unknown name invalidates the host instead of
+  // silently selecting v2c
   int vers;
-  if (strcmp(versionStr,"SNMP_VERSION_1") == 0)
+  if (versionStr && strcmp(versionStr,"SNMP_VERSION_1") == 0)
     vers = SNMP_VERSION_1;
-  else if (strcmp(versionStr,"SNMP_VERSION_2") == 0)
+  else if (versionStr && strcmp(versionStr,"SNMP_VERSION_2") == 0)
     vers = SNMP_VERSION_2c;
-  else if (strcmp(versionStr,"SNMP_VERSION_2c") == 0)
+  else if (versionStr && strcmp(versionStr,"SNMP_VERSION_2c") == 0)
     vers = SNMP_VERSION_2c;
-  else if (strcmp(versionStr,"SNMP_VERSION_3") == 0)
+  else if (versionStr && strcmp(versionStr,"SNMP_VERSION_3") == 0)
     vers = SNMP_VERSION_3;
-  else
-    vers = SNMP_VERSION_2c;
-
-  // locate matching host
-  devSnmp_host *pHost = findHost(host);
-
-  // if host does not exist, create it
-  if (! pHost) pHost = createHost(host);
-
-  // set version for host
-  if (pHost) pHost->setSnmpVersion(vers);
+  else {
+    printf("devSnmp ERROR: host '%s' unknown SNMP version\n",host);
+    pHost->invalidate();
+    return(false);
+  }
+  return(pHost->setSnmpVersion(vers));
 }
 //--------------------------------------------------------------------
-void devSnmp_manager::setHostSnmpV3Param(char *host, char *param, char *value)
+bool devSnmp_manager::setHostSnmpV3Param(char *host, char *param, char *value)
 {
-  // locate matching host
-  devSnmp_host *pHost = findHost(host);
-
-  // if host does not exist, create it
-  if (! pHost) pHost = createHost(host);
-
-  // call host object method to set parameter
-  pHost->setSnmpV3Param(param,value);
+  devSnmp_host *pHost = legacyHost(host);
+  if (! pHost) return(false);
+  if (! param || ! value) {
+    // a missing argument is invalid startup configuration, not a no-op
+    printf("devSnmp ERROR: host '%s' SNMPv3 parameter call is missing its %s\n",host,param ? "value" : "parameter");
+    pHost->invalidate();
+    return(false);
+  }
+  return(pHost->setSnmpV3Param(param,value));
 }
 //--------------------------------------------------------------------
-void devSnmp_manager::setHostSnmpV3ConfigFile(char *host, char *fileName)
+bool devSnmp_manager::setHostSnmpV3ConfigFile(char *host, char *fileName)
 {
-  // locate matching host
+  devSnmp_host *pHost = legacyHost(host);
+  if (! pHost) return(false);
+  if (! fileName) {
+    printf("devSnmp ERROR: host '%s' SNMPv3 config file call is missing its file name\n",host);
+    pHost->invalidate();
+    return(false);
+  }
+  return(pHost->setSnmpV3ConfigFile(fileName));
+}
+//--------------------------------------------------------------------
+// Finds or creates a legacy host for a setter. The "endpoint:" prefix is
+// reserved for named endpoints and never names a legacy host.
+devSnmp_host *devSnmp_manager::legacyHost(char *host)
+{
+  if (! host || ! *host) {
+    printf("devSnmp ERROR: host setter called without a host name\n");
+    return(NULL);
+  }
+  if (strncmp(host,"endpoint:",9) == 0) {
+    printf("devSnmp ERROR: '%s' is a reserved named-endpoint key, not a legacy host\n",host);
+    return(NULL);
+  }
   devSnmp_host *pHost = findHost(host);
-
-  // if host does not exist, create it
   if (! pHost) pHost = createHost(host);
-
-  // call host object method to set parameter
-  pHost->setSnmpV3ConfigFile(fileName);
+  return(pHost);
 }
 //--------------------------------------------------------------------
 void devSnmp_manager::getHostSnmpV3Params(char *host, devSnmp_v3params *v3params)
@@ -3943,18 +4118,15 @@ void devSnmp_manager::getHostSnmpV3Params(char *host, devSnmp_v3params *v3params
   if (pHost) pHost->getSnmpV3Params(v3params);
 }
 //--------------------------------------------------------------------
-void devSnmp_manager::setMaxOidsPerReq(char *host, int maxoids)
+bool devSnmp_manager::setMaxOidsPerReq(char *host, int maxoids)
 {
   if (maxoids < 1) maxoids = 1;
 
-  // locate matching host
-  devSnmp_host *pHost = findHost(host);
-
-  // if host does not exist, create it
-  if (! pHost) pHost = createHost(host);
-
-  // set max oids for host
-  if (pHost) pHost->setMaxOidsPerReq(maxoids);
+  // a named endpoint sets its batch limit only through devSnmpSetEndpointParam
+  devSnmp_host *pHost = legacyHost(host);
+  if (! pHost) return(false);
+  pHost->setMaxOidsPerReq(maxoids);
+  return(true);
 }
 //--------------------------------------------------------------------
 int devSnmp_manager::getHostMaxOidsPerReq(char *host)
@@ -3996,9 +4168,36 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bo
     }
   }
 
-  // find or create host object for this OID
+  // find or create host object for this OID; "endpoint:NAME" with the "-"
+  // community placeholder selects a named endpoint and never a network host
   devSnmp_host *pHost = findHost(base.host);
-  if (! pHost) pHost = createHost(base.host);
+  if (strncmp(base.host,"endpoint:",9) == 0) {
+    std::string error;
+    const SnmpEndpointConfig *endpoint = NULL;
+    if (strcmp(base.community,"-") != 0)
+      error = "named endpoint link requires the '-' community placeholder";
+    else
+      endpoint = snmpConfigBindEndpoint(base.host + 9, error);
+    if (! endpoint) {
+      printf("devSnmp ERROR: %s: %s\n",pRec->name,error.c_str());
+      fflush(stdout);
+      term_OID_struct(&oid);
+      return(NULL);
+    }
+    if (! pHost) {
+      bool okay;
+      pHost = new devSnmp_host(this,base.host,endpoint,&okay);
+      if (! okay) {
+        delete pHost;
+        pHost = NULL;
+      } else {
+        snmpHostList->append(pHost);
+        snmpHostList->sort(devSnmp_host_compare);
+      }
+    }
+  } else if (! pHost) {
+    pHost = createHost(base.host);
+  }
   if (! pHost) {
     term_OID_struct(&oid);
     return(NULL);
@@ -4513,29 +4712,58 @@ int epicsSnmpInit(int param)
 int devSnmpSetSnmpVersion(char *hostName, char *versionStr)
 {
   if (! checkInit()) return(epicsError);
-  pManager->setHostSnmpVersion(hostName,versionStr);
-  return(epicsOk);
+  return pManager->setHostSnmpVersion(hostName,versionStr) ? epicsOk : epicsError;
 }
 //--------------------------------------------------------------------
 int devSnmpSetSnmpV3Param(char *hostName, char *paramName, char *value)
 {
   if (! checkInit()) return(epicsError);
-  pManager->setHostSnmpV3Param(hostName,paramName,value);
-  return(epicsOk);
+  return pManager->setHostSnmpV3Param(hostName,paramName,value) ? epicsOk : epicsError;
 }
 //--------------------------------------------------------------------
 int devSnmpSetSnmpV3ConfigFile(char *hostName, char *fileName)
 {
   if (! checkInit()) return(epicsError);
-  pManager->setHostSnmpV3ConfigFile(hostName,fileName);
-  return(epicsOk);
+  return pManager->setHostSnmpV3ConfigFile(hostName,fileName) ? epicsOk : epicsError;
+}
+//--------------------------------------------------------------------
+// Named profile and endpoint commands. Each validates its complete input and
+// publishes nothing on failure; the message names the item and field only.
+static int configResult(const char *command, bool ok, const std::string &error)
+{
+  if (ok) return(epicsOk);
+  printf("devSnmp ERROR: %s: %s\n", command, error.c_str());
+  return(epicsError);
+}
+//--------------------------------------------------------------------
+int devSnmpLoadV3Profile(const char *name, const char *fileName)
+{
+  if (! checkInit()) return(epicsError);
+  std::string error;
+  bool ok = snmpConfigLoadProfile(name, fileName, error);
+  return configResult("devSnmpLoadV3Profile", ok, error);
+}
+//--------------------------------------------------------------------
+int devSnmpDefineEndpoint(const char *name, const char *address, const char *profile)
+{
+  if (! checkInit()) return(epicsError);
+  std::string error;
+  bool ok = snmpConfigDefineEndpoint(name, address, profile, error);
+  return configResult("devSnmpDefineEndpoint", ok, error);
+}
+//--------------------------------------------------------------------
+int devSnmpSetEndpointParam(const char *name, const char *parameter, const char *value)
+{
+  if (! checkInit()) return(epicsError);
+  std::string error;
+  bool ok = snmpConfigSetEndpointParam(name, parameter, value, error);
+  return configResult("devSnmpSetEndpointParam", ok, error);
 }
 //--------------------------------------------------------------------
 int devSnmpSetMaxOidsPerReq(char *hostName, int maxoids)
 {
   if (! checkInit()) return(epicsError);
-  pManager->setMaxOidsPerReq(hostName,maxoids);
-  return(epicsOk);
+  return pManager->setMaxOidsPerReq(hostName,maxoids) ? epicsOk : epicsError;
 }
 //--------------------------------------------------------------------
 int devSnmpSetParam(const char *param, int value)

@@ -275,6 +275,45 @@ containers, for example with `--ulimit nofile=4096:4096`.
 These are adapter results. They do not qualify discovery isolation of the
 record path, worker processes or profile handling.
 
+## Named Profiles, Endpoints And Engine Identity
+
+The config suite starts the actual test IOC with named SNMPv3 profiles and
+endpoints, the legacy host setters and configuration files, against real
+snmpd agents through the transparent UDP observer. Profile and credential
+files are written per case with disposable test secrets. tests/endpoint.db
+holds a request-mode and a legacy polled record that select an endpoint with
+the `endpoint:NAME -` link.
+
+```bash
+SNMP_CONFIG_ARGS=(--ioc "$SNMP_TEST_IOC" --profile tests/profiles/snmpv3.json)
+python3 tests/run_snmp.py "${SNMP_CONFIG_ARGS[@]}" --suite config
+```
+
+The eight cases cover reads through a named endpoint beside an unchanged
+legacy host link; noAuthNoPriv, authNoPriv and authPriv profiles for one
+address, each observed on the wire at its own level; authPriv with SHA-224,
+SHA-256, SHA-384 and SHA-512 against agents configured for each; startup
+rejection of invalid names, paths, sizes, NUL bytes, fields, levels,
+algorithms outside policy, credential symlinks, permissions and FIFOs,
+unterminated last lines, short passphrases, duplicate or unknown definitions, conflicting credentials at one
+address, out-of-range endpoint parameters, invalid engine IDs, a wrong link
+placeholder, an unknown endpoint, records of an endpoint whose setting was
+rejected, the reserved endpoint prefix through the legacy security and
+batch-size setters, invalid legacy host settings including a setter call
+missing its value, a legacy configuration
+file with a tab-separated passphrase containing a space, an unknown key and
+an overlong line, and every definition attempted after iocInit; IOC shell error propagation
+under `on error break`; wrong user, authentication secret, privacy secret and
+context, each completing once as INVALID with no value, then a corrected
+restart; automatic, explicit, host-setter (with the def prefix) and file engine IDs
+with a wrong explicit ID that is sent as configured and fails; and 5-byte and 32-byte
+engine IDs completing real exchanges with agents restarted under those IDs,
+where every request carries the configured ID and no discovery is sent.
+Every case searches the IOC log and startup file, or the shell output, for
+the disposable secrets.
+The case of a credential file owned by another user needs a second account
+and is not run.
+
 ## Observer Negative Controls
 
 Run each option below with the sequencing command. Each invocation runs the

@@ -9,12 +9,13 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: commit M8 step 3, the native session adapter, then
-begin P804 validated profiles. Step 3 passes its native suite 19/19 and the
-regression suites on Debian 13 and Rocky 8, and its third bounded recheck
-(fup20260924_212921) passed on 2026-09-24 after the review and recheck
-findings were corrected. The reviewed
-M8 step 1 fixtures and step 2 extraction are committed. Step 2 passed
+Next session entry point: commit M8 step 4, named profiles, endpoints and
+engine identity, then begin M8 step 5, the matching helper product with
+private IPC and supervised workers. Step 3 is committed as
+d34a6b3; it passes its native suite 19/19 and the regression suites on
+Debian 13 and Rocky 8, and its third bounded recheck (fup20260924_212921)
+passed on 2026-09-24 after the review and recheck findings were corrected.
+The reviewed M8 step 1 fixtures and step 2 extraction are committed. Step 2 passed
 its regressions on Debian 13 and Rocky 8 under D10 and its independent
 third-person and maintainer reviews on 2026-09-24; the stale-session
 deletion race is carried to step 6. Step 1's corrected baseline and
@@ -2165,6 +2166,20 @@ tested candidate. Session recovery does not reload configuration or credentials.
   boundary. Step 6 replaces this session lifetime and must close the race
   with a reproducing test before its verification passes. Observed by code
   reading on 2026-09-24; not reproduced.
+- Carry-forward to step 6: the legacy-set readback_suppression case fails
+  intermittently on Rocky 8 (2 of 15 alternating repeats on each of the step 3
+  and step 4 builds, 0 of 20 on Debian 13), applying a shared-OID readback
+  about 50 ms after a SET instead of after SetSkipReadbackMSec. It predates
+  step 4; the window compares wall-clock ticks refreshed by the send thread,
+  and the cause is not identified. Step 6 moves the legacy SET path and must
+  close it with a reproducing test. Decision Date: 2026-09-25.
+- Step 4 binds named endpoints through the existing transport now, as
+  devSnmp_host entries keyed endpoint:NAME. Named profiles accept SHA and the
+  SHA-2 family with AES128 only; MD5, DES and AES192/256 are rejected until
+  device verification, while legacy setters keep MD5 and DES. Invalid legacy
+  input fails that host's record binding instead of continuing, and same-user
+  credential conflicts are checked per configured address, the future worker
+  boundary. Decision Date: 2026-09-24.
 - Step 3 adds the Single Session adapter only; the record transport keeps the
   traditional API until it moves with the worker in steps 5 and 6. The
   adapter's service() waits on session sockets only, so the worker loop in
@@ -2298,8 +2313,8 @@ and a compatible absolute worker deadline independent of record deadlines.
 
 The following table maps the same nine steps to implementation targets and
 observable advancement conditions. It is part of this plan, not a second work
-register. Step 1 fixtures, the step 2 extraction and the step 3 adapter are
-delivered; later components remain planned. Run each step's available checks before migration
+register. Step 1 fixtures, the step 2 extraction, the step 3 adapter and the
+step 4 configuration are delivered; later components remain planned. Run each step's available checks before migration
 depends on that step; record partial coverage explicitly. Step 8 reruns the complete acceptance matrix on the final
 candidate even when an earlier implementation passed its subset.
 
@@ -2369,9 +2384,9 @@ separately and cannot close an IOC test label.
 | T2 | 2026-09-24T19:28:06.264006+00:00 | Archived 750ea26 test IOC, actual Net-SNMP 5.9.4.pre2 snmpd and native client, SHA/AES authPriv; Debian 13 x86-64 | Baseline collection PASS; no replacement performance claim | 100 cold IOC starts and 1000 warm reads with native call observation, plus 1000 warm reads without it; real packet, completion, CPU/FD/RSS observations retained below. |
 | T3 | 2026-09-24T20:11:32.646493+00:00 to 2026-09-24T22:17:39.619337+00:00 | Step 2 extraction candidate built in isolation from the working tree on 750ea26; Debian 13/Base 7.0.10/Net-SNMP 5.9.4.pre2 and Rocky 8.10/Base 7.0.10/Net-SNMP 5.8; actual test IOC, external peer and CA clients | PASS on both platforms; independent third-person and maintainer review passed on 2026-09-24; the final candidate rerun remains pending | sequencing 9, lifecycle 15, conversion 2 and accounting 3 cases per platform against the db9ebf5 waveform baseline; see Step 2 Extraction Regressions below. |
 | T4 | 2026-09-24T20:11:32.646493+00:00 to 2026-09-24T22:17:39.619337+00:00 | Same candidate builds, IOCs and peers as T3 | Existing-endpoint/OID/batch subset PASS on both platforms; profile and context bindings remain pending until real bindings exist | failures 10, batch 10 with 20/21 OIDs at limits 1 and 20, and robustness 16 cases per platform; see Step 2 Extraction Regressions below. |
-| T5 | 2026-09-23T12:33:06-07:00 | Native API only; configuration/profile implementation not run | Pending | The native timeout/retry experiment below measures inherited settings; no startup admission or undersized-watchdog rejection was exercised. |
-| T6 | Not run | V3 algorithm matrix | Pending | none |
-| T7 | Not run | Real v3 agents | Pending | none |
+| T5 | 2026-09-25T09:13:08.886232+00:00 to 2026-09-25T10:11:52.341604+00:00 | Step 4 candidate on Debian 13/Net-SNMP 5.9.4.pre2 and Rocky 8/5.8; actual test IOC, real snmpd agents and UDP observer | Initial non-worker subset PASS on both platforms; worker, watchdog and helper cases pending | config suite: named commands and link syntax, legacy setters and files, the named-file, endpoint, engine ID, reservation, missing-argument and legacy file cases listed in tests/README.md, freeze after iocInit, IOC shell error propagation and a secret search. Not run in the suite: a credential file owned by another account, an unsupported legacy value, an unreadable legacy configuration file, a key derivation failure, and a legacy setter call after a record binds its host but before iocInit. The 2026-09-23 native timeout experiment remains separate evidence. |
+| T6 | 2026-09-25T09:13:08.886232+00:00 to 2026-09-25T10:11:52.341604+00:00 | Step 4 candidate on Debian 13/Net-SNMP 5.9.4.pre2 and Rocky 8/5.8; actual test IOC, real snmpd agents and UDP observer | Named-profile subset PASS on both platforms; device verification pending | Real authPriv GETs with SHA, SHA-224, SHA-256, SHA-384 and SHA-512 with AES128, noAuthNoPriv/authNoPriv/authPriv observed on the wire, the protocol suite's legacy v1/v2c/v3 cells, and MD5 and AES256 profiles rejected by policy; DES was not exercised. |
+| T7 | 2026-09-25T09:13:08.886232+00:00 to 2026-09-25T10:11:52.341604+00:00 | Step 4 candidate on Debian 13/Net-SNMP 5.9.4.pre2 and Rocky 8/5.8; actual test IOC, real snmpd agents and UDP observer | Subset PASS on both platforms; access denial pending | Wrong user, authentication secret, privacy secret and context each complete once as INVALID with UDF kept, the native snmpget oracle succeeds, and a corrected restart reads the value. No access-restricted view was configured. |
 | T8 | 2026-09-24T19:28:06.264006+00:00 | Actual pre-migration IOC and two native agents; 400 ms record deadline, 4 s transport timeout, 100 ms requested read interval | Baseline fails the proposed isolation criteria; worker candidate and restart qualification pending | Control: 0/1000 INVALID, p99 46.649 ms; blackholed discovery: 80/1000 INVALID, p99 408.889 ms. This is an actual IOC observation, distinct from the earlier native-only experiment. |
 | T9 | Not run | Startup/restart credential implementation | Pending | none |
 | T10 | Not run | Reusable-session implementation | Pending | none |
@@ -2380,7 +2395,7 @@ separately and cannot close an IOC test label.
 | T13 | Not run for M8 | APC laboratory integration | Pending | none |
 | T14 | 2026-09-23T14:04:35-07:00 | Four frozen plan/contract documents and source/evidence review; no replacement candidate | Partial; final implementation/evidence review pending | Full-plan convergence conv20260923_140435 records three independent PASS verdicts and zero new demonstrated plan defects. The prior watchdog correction remains represented by D9 and conv20260923_130832. Review basis and frozen identity are recorded above; final implementation/runtime acceptance remains unverified. |
 | T15 | 2026-09-25T04:08:56.389399+00:00 to 2026-09-25T04:10:30.522120+00:00 | Module adapter snmpNative.cpp in the test IOC through nativeProbe; real snmpd and UDP observer; Debian 13 Net-SNMP 5.9.4.pre2 and Rocky 8 5.8 | Adapter subset PASS 19/19 on both platforms; record-path, worker and platform-resource cases pending | Send success and immediate send failure, response copy, close with pending work, retries 0/1/3 compared with snmpget, RESEND callbacks, USM rejections, recovery after an agent restart, a foreign report ID, a failed SNMPv3 retransmission, re-entrant get, mixed deadlines and a socket at descriptor 1100; see Step 3 Native Session Adapter below. The 2026-09-23 native C probe runs remain separate retained evidence. |
-| T16 | Not run | Explicit/automatic engine identity implementation | Pending | none |
+| T16 | 2026-09-25T09:13:08.886232+00:00 to 2026-09-25T10:11:52.341604+00:00 | Step 4 candidate on Debian 13/Net-SNMP 5.9.4.pre2 and Rocky 8/5.8; actual test IOC, real snmpd agents and UDP observer | Parsing and initial exchange subset PASS on both platforms; reboot, changed identity, distinct context and T8 fault cases pending | Automatic, named explicit (0X upper case), host setter and file engine IDs read the value; contextEngineID set independently; a wrong explicit ID is sent as configured and fails; 5-byte and 32-byte IDs complete real exchanges with agents started under those IDs; every invalid format is rejected before any session opens. |
 | T17 | 2026-09-24T19:46:42.217277+00:00 | Archived 750ea26 IOC; actual ao/longout/stringout, native writable snmpd and external UDP fault proxy; Debian 13/Base 7.0.10 | Baseline 12/12 PASS; final candidate comparison pending | Success, agent error, queued coalescing, readback suppression and request/reply loss at retries 0/1/3/defaults passed. Native retransmissions and default-policy 60-second session retirement are recorded separately below. No worker or exactly-once device guarantee follows. |
 | T18 | 2026-09-23T12:33:06-07:00 | Native experiments only; worker/IPC/IOC implementation not run | Pending | Process separation and native timer measurements are preliminary evidence, not verification of the proposed watchdog, supervisor or IPC path. |
 
@@ -2595,6 +2610,87 @@ for the session mutex moves from 3800 to 3810. Sequencing 9/9 and failures
 10/10 pass on it in /tmp/snmp-m8-comments-tests-20260924-c, and the Rocky 8
 image compiles the same tree in /tmp/snmp-m8-rocky8-comments-20260924-c.
 Recheck by rebuilding and comparing `objdump -d` output per object.
+
+##### Step 4 Named Profiles And Engine Identity
+
+snmpApp/src/snmpConfig.cpp and snmpConfig.h validate and hold named profiles
+and endpoints as specified in docs/snmp-architecture.md "Named Profile And
+Endpoint Syntax" and "Engine Identity Settings". snmpRegister.cpp adds
+devSnmpLoadV3Profile, devSnmpDefineEndpoint and devSnmpSetEndpointParam, and
+every changed setter reports failure through iocshSetError. A record link
+`@endpoint:NAME - OID ...` binds a devSnmp_host keyed endpoint:NAME whose
+base session takes the endpoint address, profile, engine IDs and timeout,
+retry and batch overrides; legacy links are unchanged. Algorithm names resolve
+through snmpNativeAuthProtocol and snmpNativePrivProtocol, which call the
+library's usm_lookup_*_type and sc_get_*_oid, and keys through
+snmpNativeDeriveKey (generate_Ku). Both platforms resolve the same names;
+AES192/256 map to the non-standard nine-element OIDs, which is why policy
+excludes them.
+
+Legacy behavior changes: an unknown SNMP version, unknown SNMPv3 parameter or
+value, unreadable configuration file, invalid engine ID or key derivation
+failure marks the host invalid and its records fail initialization; the
+setter now accepts the documented def prefix, as the file parser did; the
+file parser splits a key from its value at the first space or tab, rejects
+lines over 1022 bytes whole and reports an unknown key by line number only;
+the security setters are rejected after a record binds the host and after
+iocInit; the "endpoint:" host prefix is reserved, including for
+devSnmpSetMaxOidsPerReq. A rejected devSnmpSetEndpointParam invalidates its
+endpoint, whose records then fail initialization. Configuration and binding
+diagnostics are flushed as they are printed so a redirected log keeps each
+line whole.
+
+The first review failed both lanes (rev20260924_231056, rev20260924_230641):
+the legacy file parser could print passphrase fragments, the max-OIDs setter
+bypassed the endpoint reservation, a rejected endpoint setting fell back to
+its default, the manual promised a setter def prefix the code lacked, and the
+boundary case and README overstated what they checked. User rulings on
+2026-09-25 made the setter accept def and made a rejected endpoint setting
+invalidate the endpoint. The recheck (fup20260925_014520, fup20260925_012920)
+found that two first-review findings had been neither corrected nor ruled,
+although this record then said all were corrected: a FIFO at a configuration
+path stalled startup, and an unterminated last line was accepted. It also
+found a legacy setter call missing its value left the host bindable, and that
+the result rows cited the runs before the corrections. User ruling on
+2026-09-25 treats an unterminated last line as truncated. Configuration files
+are now opened without blocking and checked as regular files first, an
+unterminated last line is rejected, and a missing setter argument invalidates
+its host.
+
+Final build /tmp/snmp-m8-config-20260925-f (module
+8d4513c74dc0225510e453732ce034a43753093c643d8928f562f1ed136a658b, test IOC
+026b5acbd154677e654490fb916afe44b7489f4307414b773a48dbedb4bcdbaf) passes
+config 8, native 19, protocol 5, legacy-set 12, sequencing 9, failures 10,
+lifecycle 15, batch 10, robustness 16, accounting 3 and conversion 2 in
+/tmp/snmp-m8-config-tests-20260925-j. The Rocky 8 build of the same sources
+(test IOC 32484760044db3f25d2176f9335e3a10d7a7a574293d6071773b5dc7927c2458)
+passes the same eleven suites and its own db9ebf5 waveform baseline in
+/tmp/snmp-m8-rocky8-config-20260925-c, whose container-command.txt holds the
+exact invocation. The M8 T5, T6, T7 and T16 rows cite these two runs.
+
+The build before the recheck corrections, /tmp/snmp-m8-config-20260925-d,
+passed all eleven suites on Debian 13 (/tmp/snmp-m8-config-tests-20260925-h)
+and all but legacy-set 11/12 on Rocky 8
+(/tmp/snmp-m8-rocky8-config-20260925-b). The failed case,
+readback_suppression, saw the shared-OID readback applied about 50 ms after
+the SET instead of after SetSkipReadbackMSec. Repeated on Rocky 8 it failed
+once in five on this build and once in eight on the committed step 3 build
+(/tmp/snmp-m8-rocky8-native-20260924-e/readback-repeat-*), with the same
+assertion, so it predates step 4. The suppression window compares wall-clock
+ticks that the send thread refreshes; the cause is not yet identified.
+Before the corrections, build /tmp/snmp-m8-config-20260924-b passed all
+eleven suites on both platforms (/tmp/snmp-m8-config-tests-20260924-d,
+/tmp/snmp-m8-rocky8-config-20260924-a). Retained failures: the first config run
+/tmp/snmp-m8-config-tests-20260924-b, where the invalid-configuration case
+read the IOC log before its output was flushed and the engine-boundary case
+used an agent restart that kept the configured engineID line; both were test
+defects, corrected in test_config.py and Agent.restart. After the review
+corrections, runs /tmp/snmp-m8-config-tests-20260925-e and -f failed on two
+expected messages that lacked their field names and on one diagnostic split
+across a stdio buffer boundary by another thread's output; the first was a
+test defect and the second led to the flushing above. None is relabeled.
+These results do not qualify worker, watchdog or helper configuration,
+reboot and changed-identity handling, or access denial.
 
 ##### Step 3 Native Session Adapter
 

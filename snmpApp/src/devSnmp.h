@@ -16,6 +16,7 @@
 #include <atomic>
 #include <memory>
 #include "snmpTypes.h"
+#include "snmpConfig.h"
 
 #include <net-snmp/net-snmp-config.h>
 #include <net-snmp/net-snmp-includes.h>
@@ -76,6 +77,10 @@ typedef struct {
   oid   *securityPrivProto;  // Library-owned static protocol identifier.
   size_t securityPrivProtoLen;
   int    securityLevel;
+  unsigned char securityEngineID[32];  // Explicit authoritative engine ID; empty selects discovery.
+  size_t securityEngineIDLen;
+  unsigned char contextEngineID[32];   // Explicit context engine ID; empty selects the default.
+  size_t contextEngineIDLen;
 } devSnmp_v3params;
 
 typedef struct snmp_session SNMP_SESSION;
@@ -576,10 +581,16 @@ class devSnmp_group
 //----------------------------------------------------------------------
 
 class devSnmp_host
-// one of these exists for every SNMP remote host
+// One of these exists for every legacy remote host name and for every named
+// endpoint bound by a record. A named endpoint host is keyed "endpoint:NAME",
+// reaches its configured address and takes its security settings from the
+// immutable endpoint profile. A legacy host whose startup configuration was
+// invalid refuses record binding. Security settings freeze once a record
+// binds the host and for every host after iocInit.
 {
   public:
     devSnmp_host(devSnmp_manager *pMgr, char *host, bool *okay);
+    devSnmp_host(devSnmp_manager *pMgr, char *key, const SnmpEndpointConfig *endpoint, bool *okay);
     virtual ~devSnmp_host(void);
     char *hostName(void);
     devSnmp_pv *addPV(configDataOid   *base,
@@ -594,10 +605,15 @@ class devSnmp_host
     void queueSetTransaction(devSnmp_setTransaction *pTrans);
 
     int getSnmpVersion(void);
-    void setSnmpVersion(int version);
-    void setSnmpV3Param(const char *param, const char *value, bool ignoreVersion=false);
-    void setSnmpV3ConfigFile(const char *fileName);
+    bool setSnmpVersion(int version);
+    bool setSnmpV3Param(const char *param, const char *value, bool ignoreVersion=false);
+    bool setSnmpV3ConfigFile(const char *fileName);
     void getSnmpV3Params(devSnmp_v3params *params);
+    const char *peerName(void);
+    const SnmpEndpointConfig *endpointConfig(void) { return endpoint; }
+    long sessionTimeoutUs(void);
+    int sessionRetries(void);
+    void invalidate(void) { configInvalid = true; }
 
     int getMaxOidsPerReq(void);
     void setMaxOidsPerReq(int maxoids);
@@ -616,7 +632,12 @@ class devSnmp_host
     int              maxOidsPerReq;
 
     devSnmp_v3params v3params;
+    const SnmpEndpointConfig *endpoint;
+    bool configInvalid;
+    bool hasBinding;
 
+    bool configurable(const char *what);
+    void initialize(devSnmp_manager *pMgr, char *host);
     devSnmp_group *findGroup(char *community);
     devSnmp_group *createGroup(char *community);
 };
@@ -628,13 +649,13 @@ class devSnmp_manager
   public:
     devSnmp_manager(void);
     virtual ~devSnmp_manager(void);
-    void setHostSnmpVersion(char *host, char *versionStr);
-    void setHostSnmpV3Param(char *host, char *param, char *value);
-    void setHostSnmpV3ConfigFile(char *host, char *fileName);
+    bool setHostSnmpVersion(char *host, char *versionStr);
+    bool setHostSnmpV3Param(char *host, char *param, char *value);
+    bool setHostSnmpV3ConfigFile(char *host, char *fileName);
     int getHostSnmpVersion(char *host);
     void getHostSnmpV3Params(char *host, devSnmp_v3params *v3params);
     int getHostMaxOidsPerReq(char *host);
-    void setMaxOidsPerReq(char *host, int maxoids);
+    bool setMaxOidsPerReq(char *host, int maxoids);
     devSnmp_pv *addPV(struct dbCommon *pRec, struct link *pLink, bool requestMode = false);
     void processing(epicsTimeStamp *pnow);
     void zeroCounters(void);
@@ -682,6 +703,7 @@ class devSnmp_manager
 
     devSnmp_host *findHost(char *host);
     devSnmp_host *createHost(char *host);
+    devSnmp_host *legacyHost(char *host);
 
 };
 //----------------------------------------------------------------------
@@ -707,6 +729,9 @@ extern "C" {
   int devSnmpSetSnmpVersion(char *hostName, char *versionStr);
   int devSnmpSetSnmpV3Param(char *hostName, char *paramName, char *value);
   int devSnmpSetSnmpV3ConfigFile(char *hostName, char *fileName);
+  int devSnmpLoadV3Profile(const char *name, const char *fileName);
+  int devSnmpDefineEndpoint(const char *name, const char *address, const char *profile);
+  int devSnmpSetEndpointParam(const char *name, const char *parameter, const char *value);
   int devSnmpSetMaxOidsPerReq(char *hostName, int maxoids);
   int devSnmpSetParam(const char *param, int value);
   int devSnmpSetDebug(int level);

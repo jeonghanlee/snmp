@@ -49,7 +49,8 @@ static void iocsh_devSnmpSetSnmpVersion(const iocshArgBuf *args)
   char *host = args[0].sval;
   char *vers = args[1].sval;
 
-  devSnmpSetSnmpVersion(host,vers);
+  iocshSetError(devSnmpSetSnmpVersion(host,vers));
+  fflush(stdout);  // keep each diagnostic whole in a redirected log
 }
 
 static const iocshArg iocsh_devSnmpSetSnmpVersion_Arg0 = { "host", iocshArgString };
@@ -68,7 +69,8 @@ static void iocsh_devSnmpSetSnmpV3Param(const iocshArgBuf *args)
   char *param = args[1].sval;
   char *value = args[2].sval;
 
-  devSnmpSetSnmpV3Param(host,param,value);
+  iocshSetError(devSnmpSetSnmpV3Param(host,param,value));
+  fflush(stdout);  // keep each diagnostic whole in a redirected log
 }
 
 static const iocshArg iocsh_devSnmpSetSnmpV3Param_Arg0 = { "host", iocshArgString };
@@ -86,7 +88,8 @@ static void iocsh_devSnmpSetSnmpV3ConfigFile(const iocshArgBuf *args)
   char *host  = args[0].sval;
   char *fname = args[1].sval;
 
-  devSnmpSetSnmpV3ConfigFile(host,fname);
+  iocshSetError(devSnmpSetSnmpV3ConfigFile(host,fname));
+  fflush(stdout);  // keep each diagnostic whole in a redirected log
 }
 
 static const iocshArg iocsh_devSnmpSetSnmpV3ConfigFile_Arg0 = { "host", iocshArgString };
@@ -97,12 +100,58 @@ static const iocshArg * const iocsh_devSnmpSetSnmpV3ConfigFile_Args[2] =
 static const iocshFuncDef iocsh_devSnmpSetSnmpV3ConfigFile_FuncDef = {"devSnmpSetSnmpV3ConfigFile",2,iocsh_devSnmpSetSnmpV3ConfigFile_Args};
 
 /*--------------------------------------------------------------------*/
+/* Named SNMPv3 profiles and endpoints; a failure sets the IOC shell error. */
+static void iocsh_devSnmpLoadV3Profile(const iocshArgBuf *args)
+{
+  iocshSetError(devSnmpLoadV3Profile(args[0].sval,args[1].sval));
+  fflush(stdout);  // keep each diagnostic whole in a redirected log
+}
+
+static const iocshArg iocsh_devSnmpLoadV3Profile_Arg0 = { "name", iocshArgString };
+static const iocshArg iocsh_devSnmpLoadV3Profile_Arg1 = { "filename", iocshArgString };
+static const iocshArg * const iocsh_devSnmpLoadV3Profile_Args[2] =
+  {&iocsh_devSnmpLoadV3Profile_Arg0,
+   &iocsh_devSnmpLoadV3Profile_Arg1};
+static const iocshFuncDef iocsh_devSnmpLoadV3Profile_FuncDef = {"devSnmpLoadV3Profile",2,iocsh_devSnmpLoadV3Profile_Args};
+
+static void iocsh_devSnmpDefineEndpoint(const iocshArgBuf *args)
+{
+  iocshSetError(devSnmpDefineEndpoint(args[0].sval,args[1].sval,args[2].sval));
+  fflush(stdout);  // keep each diagnostic whole in a redirected log
+}
+
+static const iocshArg iocsh_devSnmpDefineEndpoint_Arg0 = { "name", iocshArgString };
+static const iocshArg iocsh_devSnmpDefineEndpoint_Arg1 = { "address", iocshArgString };
+static const iocshArg iocsh_devSnmpDefineEndpoint_Arg2 = { "profile", iocshArgString };
+static const iocshArg * const iocsh_devSnmpDefineEndpoint_Args[3] =
+  {&iocsh_devSnmpDefineEndpoint_Arg0,
+   &iocsh_devSnmpDefineEndpoint_Arg1,
+   &iocsh_devSnmpDefineEndpoint_Arg2};
+static const iocshFuncDef iocsh_devSnmpDefineEndpoint_FuncDef = {"devSnmpDefineEndpoint",3,iocsh_devSnmpDefineEndpoint_Args};
+
+static void iocsh_devSnmpSetEndpointParam(const iocshArgBuf *args)
+{
+  iocshSetError(devSnmpSetEndpointParam(args[0].sval,args[1].sval,args[2].sval));
+  fflush(stdout);  // keep each diagnostic whole in a redirected log
+}
+
+static const iocshArg iocsh_devSnmpSetEndpointParam_Arg0 = { "name", iocshArgString };
+static const iocshArg iocsh_devSnmpSetEndpointParam_Arg1 = { "parameter", iocshArgString };
+static const iocshArg iocsh_devSnmpSetEndpointParam_Arg2 = { "value", iocshArgString };
+static const iocshArg * const iocsh_devSnmpSetEndpointParam_Args[3] =
+  {&iocsh_devSnmpSetEndpointParam_Arg0,
+   &iocsh_devSnmpSetEndpointParam_Arg1,
+   &iocsh_devSnmpSetEndpointParam_Arg2};
+static const iocshFuncDef iocsh_devSnmpSetEndpointParam_FuncDef = {"devSnmpSetEndpointParam",3,iocsh_devSnmpSetEndpointParam_Args};
+
+/*--------------------------------------------------------------------*/
 static void iocsh_devSnmpSetMaxOidsPerReq(const iocshArgBuf *args)
 {
   char *host = args[0].sval;
   char max   = args[1].ival;
 
-  devSnmpSetMaxOidsPerReq(host,max);
+  iocshSetError(devSnmpSetMaxOidsPerReq(host,max));
+  fflush(stdout);  // keep each diagnostic whole in a redirected log
 }
 
 static const iocshArg iocsh_devSnmpSetMaxOidsPerReq_Arg0 = { "host", iocshArgString };
@@ -194,6 +243,9 @@ void snmp_Register()
   iocshRegister(&iocsh_devSnmpSetSnmpVersion_FuncDef,      iocsh_devSnmpSetSnmpVersion);
   iocshRegister(&iocsh_devSnmpSetSnmpV3Param_FuncDef,      iocsh_devSnmpSetSnmpV3Param);
   iocshRegister(&iocsh_devSnmpSetSnmpV3ConfigFile_FuncDef, iocsh_devSnmpSetSnmpV3ConfigFile);
+  iocshRegister(&iocsh_devSnmpLoadV3Profile_FuncDef,       iocsh_devSnmpLoadV3Profile);
+  iocshRegister(&iocsh_devSnmpDefineEndpoint_FuncDef,      iocsh_devSnmpDefineEndpoint);
+  iocshRegister(&iocsh_devSnmpSetEndpointParam_FuncDef,    iocsh_devSnmpSetEndpointParam);
   iocshRegister(&iocsh_devSnmpSetParam_FuncDef,            iocsh_devSnmpSetParam);
   iocshRegister(&iocsh_snmpr_FuncDef,                      iocsh_snmpr);
   iocshRegister(&iocsh_snmpz_FuncDef,                      iocsh_snmpz);

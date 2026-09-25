@@ -617,7 +617,34 @@ for a helpful little perl script which provides a numeric definition such as:
       <td>-n CONTEXTNAME</td>
     </tr>
 
+    <tr>
+      <td>SecurityEngineID</td>
+      <td>(discovered)</td>
+      <td>Expected authoritative engine ID, as contiguous hex byte pairs with an
+          optional 0x prefix, 5 through 32 bytes, not all zero or all 0xFF. When
+          set, the configured ID is sent as given and a different agent identity
+          fails the request; it is never replaced by a discovered one.</td>
+      <td>-e ENGINE-ID</td>
+    </tr>
+
+    <tr>
+      <td>ContextEngineID</td>
+      <td>(authoritative engine)</td>
+      <td>Context engine ID, same format, set independently of SecurityEngineID.</td>
+      <td>-E ENGINE-ID</td>
+    </tr>
+
   </table>
+  <p>An unknown parameter, an unsupported value, an unknown SNMP version or an
+     unreadable configuration file marks the host's startup configuration
+     invalid: every record that references the host then fails initialization
+     with an error instead of running with partial settings. The command also
+     returns an IOC shell error. Once a record has bound the host, and for every
+     host after iocInit, these settings can no longer change. Diagnostics never
+     print a passphrase or a configuration file line. In a configuration file a
+     key and its value are separated by the first space or tab, lines longer
+     than 1022 bytes are rejected, and an unknown key is reported by line
+     number only.</p>
   </dd>
   <br>
 
@@ -631,6 +658,70 @@ for a helpful little perl script which provides a numeric definition such as:
      for what parameters are supported.</p>
   <p>It is strongly recommended that the permissions of this file be highly restricted,
      as it may need to contain plain-text passphrases.</p>
+  </dd>
+  <br>
+
+  <dt id="devSnmpLoadV3Profile"><b>devSnmpLoadV3Profile(name,filename)</b></dt>
+  <dd>
+  <p>Loads one immutable named SNMPv3 security profile. Names are 1 through 63
+     characters, start with a letter and use letters, digits, '_', '.' or
+     '-'. The absolute profile file holds one <i>field value</i> per line; blank
+     lines and full-line '#' comments are allowed. Fields are case-sensitive:</p>
+  <ul>
+    <li><b>securityName</b> (required, 1 through 32 bytes)</li>
+    <li><b>securityLevel</b> (required): noAuthNoPriv, authNoPriv or authPriv</li>
+    <li><b>authType</b> (authNoPriv and authPriv only): SHA, SHA-224, SHA-256,
+        SHA-384 or SHA-512</li>
+    <li><b>privType</b> (authPriv only): AES128</li>
+    <li><b>contextName</b> (optional, at most 32 bytes)</li>
+    <li><b>credentialFile</b> (authNoPriv and authPriv only): absolute path of
+        the credential file</li>
+  </ul>
+  <p>A value runs from the first non-whitespace byte after the field name to the
+     last non-whitespace byte of the line, so internal spaces are kept. Quoting,
+     escapes, environment substitution, includes and trailing comments are not
+     supported.</p>
+  <p>The credential file uses the same syntax with <b>authPassPhrase</b> and, for
+     authPriv, <b>privPassPhrase</b>, each 8 through 1024 bytes. It must be a
+     regular file, not a symbolic link, owned by root or the IOC user, with no
+     group or other permissions; a FIFO or device path is rejected rather than
+     waited on. Files are limited to 16 KiB and lines to 4096 bytes, and every
+     line, including the last, must end with a newline; an unterminated last
+     line is treated as truncated and rejected. Unknown or repeated fields, a field not used by the selected level,
+     an algorithm outside this list, a passphrase the library cannot derive a
+     key from, and a duplicate profile name are errors; the profile is then not
+     defined and the command returns an IOC shell error.</p>
+  </dd>
+  <br>
+
+  <dt id="devSnmpDefineEndpoint"><b>devSnmpDefineEndpoint(name,address,profile)</b></dt>
+  <dd>
+  <p>Defines a named SNMPv3 endpoint at a Net-SNMP transport address using a
+     loaded profile. Records select it with the host field
+     <tt>endpoint:NAME</tt> and the literal community placeholder <tt>-</tt>,
+     for example <tt>@endpoint:pduARead - sysName.0 STRING: 32</tt>; both Snmp
+     and SnmpRequest records accept it, and every other link field keeps its
+     meaning. An unknown endpoint or a different placeholder fails record
+     initialization. Two endpoints at the same address whose profiles share a
+     securityName must use the same protocols and passphrases. The
+     <tt>endpoint:</tt> prefix is reserved: devSnmpSetSnmpVersion,
+     devSnmpSetSnmpV3Param, devSnmpSetSnmpV3ConfigFile and
+     devSnmpSetMaxOidsPerReq refuse it.</p>
+  </dd>
+  <br>
+
+  <dt id="devSnmpSetEndpointParam"><b>devSnmpSetEndpointParam(name,parameter,value)</b></dt>
+  <dd>
+  <p>Sets one endpoint parameter before iocInit: <b>timeoutMSec</b> (1 through
+     60000), <b>retries</b> (0 through 5), <b>maxOidsPerReq</b> (1 through
+     1024), <b>securityEngineID</b> or <b>contextEngineID</b> (format as for
+     devSnmpSetSnmpV3Param). Numbers are complete decimal values. Omitted
+     parameters inherit SessionTimeout, SessionRetries and the default request
+     size. A rejected call marks the endpoint invalid: its records then fail
+     initialization instead of running with the default for that parameter.</p>
+  <p>Profiles, endpoints and their parameters cannot be deleted, redefined or
+     changed after iocInit. Changing credentials or engine settings requires
+     restarting the IOC.</p>
   </dd>
   <br>
 

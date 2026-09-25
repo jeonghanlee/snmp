@@ -1,0 +1,21 @@
+record(stringin, "$(P)$(R)Name") {
+    field(DESC, "Named endpoint request-mode read")
+    field(DTYP, "SnmpRequest")
+    field(INP, "@endpoint:$(EP) $(COMM=-) .1.3.6.1.2.1.1.5.0 STRING: 128")
+    field(FLNK, "$(P)$(R)AuditName")
+}
+record(sub, "$(P)$(R)AuditName") {
+    field(DESC, "Value and alarm at read completion")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)$(R)Name.UDF NPP")
+    field(INPB, "$(P)$(R)Name.PACT NPP")
+    field(INPC, "$(P)$(R)Name.SEVR NPP")
+    field(INPD, "$(P)$(R)Name.STAT NPP")
+    field(INPE, "$(P)$(R)Name.UDF NPP")
+}
+record(stringin, "$(P)$(R)LegacyName") {
+    field(DESC, "Named endpoint legacy polled read")
+    field(DTYP, "Snmp")
+    field(SCAN, "1 second")
+    field(INP, "@endpoint:$(EP) $(COMM=-) .1.3.6.1.2.1.1.5.0 STRING: 128")
+}

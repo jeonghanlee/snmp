@@ -219,11 +219,13 @@ class Agent:
                               capture_output=True, timeout=3)
 
     def restart(self, engine_id, boots):
-        """Restart the real agent with the same engine ID and a higher engineBoots."""
+        """Restart the real agent with engine_id (hex) and engineBoots; users are localized to it."""
         self.process.terminate()
         self.process.wait(timeout=3)
         config = self.work / "snmpd-restart.conf"
-        config.write_text(self.config.read_text() + f"oldEngineID 0x{engine_id}\nengineBoots {boots}\n")
+        base = "".join(line for line in self.config.read_text().splitlines(keepends=True)
+                       if not line.startswith("engineID "))
+        config.write_text(f"oldEngineID 0x{engine_id}\nengineBoots {boots}\n" + base)
         config.chmod(0o600)
         self.process = subprocess.Popen([self.executable, "-f", "-Lo", "-C", "-c", str(config),
                                          "-p", str(self.work / "snmpd.pid"), "-r"],

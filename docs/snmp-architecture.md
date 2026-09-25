@@ -10,7 +10,8 @@ process restart.
 The current implementation is described in [SnmpRequest](snmp-request.md).
 The [canonical milestone](milestone-db9ebf5.md#m8---extensible-snmpv3-architecture)
 owns implementation ordering, acceptance, test cases and observed results.
-The components below are proposed contracts, not existing APIs.
+The components below are proposed contracts, not existing APIs, except where a
+section states that the module implements them.
 
 Net-SNMP's documented, version-verified facilities are the implementation
 default. The module adds EPICS semantics and application policy; it does not
@@ -166,7 +167,10 @@ authNoPriv remain distinct explicit configurations, not recovery modes.
 
 ### Named Profile And Endpoint Syntax
 
-The proposed public commands are additive. They return zero on success and a
+The public commands are additive. devSnmpLoadV3Profile, devSnmpDefineEndpoint
+and devSnmpSetEndpointParam, the named link grammar and the profile and
+credential file grammar are implemented as specified here; the worker
+commands remain proposed. They return zero on success and a
 nonzero configuration status on failure; the iocsh wrapper must propagate the
 error. A failed definition is never published and never falls back to a legacy
 host binding.
@@ -254,8 +258,8 @@ The following additive settings use the existing
 devSnmpSetSnmpV3Param(hostname, parameter, value) command and the same parameter
 tokens in devSnmpSetSnmpV3ConfigFile(hostname, filename). They apply to that
 host's endpoint configuration, require SNMPv3 and must precede record loading.
-Named endpoint configuration uses the same field meanings; these are proposed
-settings, not options already implemented by the current module.
+Named endpoint configuration uses the same field meanings. Both settings are
+implemented for the host setter, the configuration file and named endpoints.
 
 | Parameter | Omitted | Explicit value and native mapping |
 | --- | --- | --- |

@@ -9,9 +9,10 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: commit M8 step 4, named profiles, endpoints and
-engine identity, then begin M8 step 5, the matching helper product with
-private IPC and supervised workers. Step 3 is committed as
+Next session entry point: start M9, request-driven writes, with its legacy
+baseline (Implementation Plan step 1) and the write contract in
+docs/snmp-architecture.md; M8 step 5 follows M9's accepted design. M8 step 4
+is committed as 8962312 and 6b507ab. Step 3 is committed as
 d34a6b3; it passes its native suite 19/19 and the regression suites on
 Debian 13 and Rocky 8, and its third bounded recheck (fup20260924_212921)
 passed on 2026-09-24 after the review and recheck findings were corrected.
@@ -471,6 +472,7 @@ the canonical result should name the safe evidence artifact.
 | G3 | Production deployment window and acceptance limits | External gate | Open | No | M6 | Operator approves exact candidate, window, and rollback; [detail](#g3---production-deployment-window-and-acceptance-limits). |
 | M7 | Controlled deployment and rollback | Milestone | Blocked | No | M6, G3 | Deployed artifact verified and rollback demonstrated; [detail](#m7---controlled-deployment-and-rollback). |
 | M8 | Extensible SNMPv3 architecture | Milestone | In progress | No | D3, D4, D6, D7, D8, D9, D10 | Separated record/request/security responsibilities using native Net-SNMP facilities, explicit engine identity, restart-only credential activation, compatible worker bounds, proven runtime isolation and compatibility evidence; [detail](#m8---extensible-snmpv3-architecture). |
+| M9 | Request-driven writes | Milestone | Not started | Yes | D3, D4, D11 | Opt-in outputs complete once after the agent answers or a terminal error, report failed writes as alarms, never drop an accepted write silently, and confirm the applied value without a timing window; legacy outputs unchanged; [detail](#m9---request-driven-writes). |
 
 Ready describes dependency readiness only; it is not implementation authority.
 Decision Date: 2026-09-24. All current implementation plans are accepted and
@@ -491,6 +493,8 @@ does not complete their verification or remove the physical conditions in G2/G3.
 | D8 | Exclude live credential/profile replacement from this design; changes require IOC process restart. Add explicit engineID configuration with automatic discovery as the default, real legacy SET regression tests, and test completion criteria aligned with implementation availability. This authorizes the document amendments, not replacement module implementation or deployment. | 2026-09-23 |
 | D9 | Preserve effective native timeout/retry settings and derive a finite worker watchdog bound. The finalized formula in [watchdog policy](decisions/ADR-20260923-worker-watchdog-policy.md) gives 150000 ms for inherited defaults, with 130 s of native intervals plus a selected 20 s allowance. Use the maximum endpoint requirement per worker; reject undersized explicit overrides without reducing native settings. Arm once before transaction IPC and never reset on progress. Numeric design is finalized; runtime/platform qualification, overall M8 plan acceptance and replacement implementation remain separate. | 2026-09-23 |
 | D10 | Qualify the M8 candidate on Debian 13 and Rocky 8 instead of Debian 12 and Rocky 9, and declare Net-SNMP 5.8 in the shipped test profiles. Retained Debian 12 and Rocky 9 observations remain historical evidence, not current platform coverage. | 2026-09-24 |
+| D11 | Add a request-driven write path for outputs, as the separate input DTYP did for reads, in its own milestone executed before M8 step 5. The legacy output path stays available. M8 steps 5 and 6 carry the accepted write contract through the worker. | 2026-09-25 |
+| D12 | Align request inputs with Base asynchronous input rules: a library timeout or request deadline raises TIMEOUT/INVALID and other failures READ/INVALID; a completion pass in which record support skips device support, as under simulation mode, discards the result and frees the slot; the completion callback uses the PRIO read when the request is admitted. The architecture records the Base active-record rules for scans, RPRO, database links and CP links. | 2026-09-25 |
 
 ### Milestone Details
 
@@ -2166,6 +2170,11 @@ tested candidate. Session recovery does not reload configuration or credentials.
   boundary. Step 6 replaces this session lifetime and must close the race
   with a reproducing test before its verification passes. Observed by code
   reading on 2026-09-24; not reproduced.
+- D12 aligns the step 2 read path with Base input rules; see Read Path Base
+  Alignment below. Decision Date: 2026-09-25.
+- D11 places request-driven writes in M9 before step 5. Step 5's worker IPC
+  and step 6's scheduler carry the write contract M9 accepts; step 5 starts
+  after M9's design is accepted. Decision Date: 2026-09-25.
 - Carry-forward to step 6: the legacy-set readback_suppression case fails
   intermittently on Rocky 8 (2 of 15 alternating repeats on each of the step 3
   and step 4 builds, 0 of 20 on Debian 13), applying a shared-OID readback
@@ -2785,6 +2794,148 @@ found wrong; and the first nineteen-case run -h, whose new assertion expected
 sendto where the library called sendmsg. None is relabeled. These results do not qualify record-path discovery isolation,
 worker processes, profiles or T12.
 
+##### Read Path Base Alignment
+
+A review of the request input device support against Base R7.0.10 record
+support (aiRecord.c, longinRecord.c, stringinRecord.c, dbAccess.c,
+dbDbLink.c, recGbl.c, dbScan.c) found three differences, corrected under D12:
+
+- A put to SIMM while a read was active made record support take the
+  simulated value without calling device support, so the slot stayed in its
+  consuming state and every later read was rejected. completed() now
+  discards such a result as failed and frees the slot; the trace records a
+  discarded event after FLNK.
+- Every failure raised READ. A library timeout after its retries and the
+  request deadline now raise TIMEOUT, including a reply the library discards
+  as malformed; every other failure, including admission, session open, send,
+  security, agent error status, varbind and conversion, keeps READ.
+- The completion callback priority was fixed at initialization. It now
+  takes PRIO when each request is admitted, so each request carries its own
+  priority as with callbackRequestProcessCallback; a PRIO change during an
+  active read applies from the next request.
+
+docs/snmp-architecture.md "Input Record Processing" records these rules and
+the Base active-record behavior: a scan finding the record active is dropped
+and the eleventh consecutive drop raises SCAN/INVALID; dbPutField to PROC
+sets RPRO, and on a Passive record so do dbPutField to another
+process-passive field and a FLNK or process-passive link in a chain started
+from dbPutField; a trigger in a chain started from a scan or a CP
+link is not repeated (Launchpad bug 1841634; R7.0.10 dbScan.c has no RPRO
+handling). The M9 write contract carries the same database-link, put-callback
+and simulation rules, including simulation switched off during a pending
+SDLY pass.
+
+Tests: lifecycle adds simulation_during_request (SIMM switched on during a
+held read, then a fresh device read after SIMM returns to NO) and
+priority_per_request (a read completes at PRIO HIGH while the real
+low-priority callback thread is occupied, and waits at PRIO LOW until it is
+released). Timeout cases
+in lifecycle, robustness, including the malformed response matrix, and
+accounting now expect TIMEOUT (STAT 10); varbind, transport and conversion
+failures still expect READ, and the agent-error case asserts SEVR only.
+
+Debian 13.7, Base 7.0.10, Net-SNMP 5.9.4.pre2: candidate built with
+tests/build_fixture.py at 2026-09-25T16:47:50Z into
+/tmp/snmp-read-base-deb13-20260925-a/build. lifecycle 16/16 (16:47:54Z to
+17:04:37Z), robustness 16/16, accounting 3/3, failures 10/10, sequencing 9/9
+and batch 10/10 (ending 17:29:28Z) pass. protocol 5/5 passes in protocol-c
+(17:30:34Z to 17:30:44Z) with snmpd and snmpget from
+/tmp/snmp-design-20260923/runtime in PATH; the first protocol invocation and
+protocol-b failed before any case ran because snmpd was not in PATH, and
+the protocol-b directory was removed, with its log kept as protocol-b.log.
+lifecycle ran with test sources whose dirty-diff hash is 230d3b36; the later
+suites ran after the malformed-case expectation change, hash 748234c4. The
+module sources are the same in both.
+
+Negative control: the same tree with the discard in completed() removed,
+built as mutant-no-discard, fails simulation_during_request (--cycles 1,
+mutant-lifecycle): no SNMP request is sent after SIMM returns to NO. The
+source was restored before the Rocky build, which carries hash 748234c4.
+
+Rocky 8.10, Base 7.0.10, Net-SNMP 5.8-33.el8_10: the container command of
+Step 2 Extraction Regressions with --ulimit nofile=4096 and $OUT set to
+/tmp/snmp-read-base-rocky8-20260925-a ran driver.sh there
+(2026-09-25T17:31:32Z to 18:15:00Z; executions.json). lifecycle 16/16,
+robustness 16/16, accounting 3/3, failures 10/10, sequencing 9/9 and batch
+10/10 pass. Not rerun on either platform: conversion, legacy, legacy-set,
+native, config and pressure; the changed code is limited to the request
+input path.
+
+Independent third-person review on 2026-09-25 (rev20260925_122419, charter
+C11) verified the code and evidence and returned FAIL on three minor
+findings, all document or test defects, corrected under User ruling U022: the
+FLNK wording above (a FLNK in a chain started from dbPutField sets RPRO on a
+Passive record), the SCAN alarm count, and the missing
+PRIO test, now lifecycle priority_per_request. The SDLY and
+process-passive-field notes were added to the architecture; the PRIO sampling
+note went into the snmpEpics.cpp begin() comment and the bullet above, as the
+architecture already stated that PRIO is read when the request is admitted.
+After these corrections (dirty-diff hash b46fb439), lifecycle passes 17/17 on
+Debian 13 in /tmp/snmp-read-base-deb13-20260925-b (2026-09-25T19:49:18Z to
+20:06:05Z) and on Rocky 8 in /tmp/snmp-read-base-rocky8-20260925-b
+(2026-09-26T08:36:59Z to 08:54:38Z; container-command.txt retains the exact
+command, including --ulimit nofile=4096). A PRIO mutant, built from a private
+clone with the candidate diff and the begin() priority line removed, fails
+priority_per_request because the HIGH completion never arrives
+(mutant-prio-lifecycle, partial single-case run). Two earlier mutant build
+attempts failed before building, one from a damaged rsync copy of the
+repository and one on an existing output directory; they are retained with
+-rsync-failed and -exists-failed names.
+
+The bounded recheck (fup20260926_021457, charter C11.1) confirmed these
+corrections and the evidence above and returned FAIL on one minor finding:
+the corrected RPRO sentences omitted that Base sets RPRO for a
+process-passive field or link only on a Passive record (dbAccess.c
+dbPutField, dbDbLink.c dbDbPutValue and dbScanPassive), PROC excepted. The
+architecture and this section now state that condition; only document text
+changed.
+
+The second recheck (fup20260926_025120, charter C11.2) confirmed that
+correction and returned FAIL on one minor finding: this section credited the
+architecture with a PRIO sampling note it did not receive. The sentence now
+names where that note went, and the architecture also states that a database
+link writing PROC in a chain started from dbPutField sets RPRO on any record.
+Only document text changed.
+The third recheck (fup20260926_025321, charter C11.3) passed with no
+must-fix or minor finding; its informational notes on CA links and two long
+lines were applied to the documents.
+
+The second-person review (rev20260926_030600, charter C12) read the changed
+text as an IOC integrator and returned FAIL on three minor findings, applied
+with its informational notes under User direction to apply all findings,
+including the out-of-scope observation:
+a CA put with callback goes through dbProcessNotify and is held, not
+reprocessed through RPRO; a reply the library discards as malformed ends in
+its timeout and therefore TIMEOUT, so the alarm rule no longer names
+"protocol" failures under READ; and the M9 contract now covers simulation
+switched off during a pending SDLY pass. The alarm sentence in
+docs/snmp-request.md, which documentation/devSnmp.html links as the request
+contract, was updated in the same way. Only document text and one code
+comment changed.
+
+A third-person pass on those corrections (fup20260926_115023, charter C13)
+returned FAIL on two minor findings, applied with its informational notes
+under User direction to apply all findings: a CA put with callback processes
+the record once more only for PROC or for a process-passive field of a
+Passive record, otherwise it only stores the value; and the READ list names session open and
+security failures again and is stated as every failure other than a timeout.
+It verified on the real IOC that a SIML change during an active read takes
+effect at the next pass and that a malformed reply ends as TIMEOUT. Only
+document text and the same code comment changed.
+
+The second-person recheck (fup20260926_115626, charter C14) returned FAIL on
+two minor findings, applied with its informational notes under User
+direction to apply all findings, including the informational ones: for PROC
+the put-callback pass runs before the callback completes, so the client waits
+for a new SNMP read; the SIML sentence follows the discard sentence and
+states that the active read is consumed normally; the database-link RPRO rule
+is its own paragraph; and the milestone quotes User directions in English.
+That a security failure raises READ follows from the code, where only a
+library timeout sets the timeout class; no request-path test asserts STAT
+for a security failure. Only document text changed.
+The second-person recheck of those corrections (fup20260926_120043, charter
+C15) passed with no must-fix or minor finding.
+
 ##### Full-Plan Review Evidence
 
 The 2026-09-23 review reports distinguish new execution from retained evidence:
@@ -3063,6 +3214,137 @@ acceptance or the unexecuted platform matrix.
   full v3 IOC verification and final implementation review remain pending.
   Decision Date: 2026-09-24. The overall plan is accepted and replacement
   implementation is authorized; physical execution remains subject to G2/G3.
+
+#### M9 - Request-driven writes
+
+Origin: db9ebf5 / M9
+Identity History: none
+GitHub Issue: none
+Status: Not started
+
+##### Summary
+
+Add an opt-in output path in which record processing sends one SNMP SET and
+the record completes only when the agent answers or a terminal error is
+known, as SnmpRequest does for inputs. The legacy `Snmp` output path stays
+available unchanged.
+
+##### Legacy SET Behavior
+
+The legacy output path in devSnmp.cpp has these properties, which motivate
+this milestone. L4 to L6 are observed in the step 1 SET baseline (M8 / T17)
+and the step 4 runs; L1 to L3 and L7 follow from the code.
+
+- L1, completion before delivery: snmpAoWrite, snmpLoWrite and snmpSoWrite
+  format the value, call devSnmp_pv::set and return success. The record
+  completes, and FLNK and put-callback run, before any packet is sent.
+- L2, silent failure: devSnmp_oid::setReplyProcessing only counts an agent
+  error or a timeout. No alarm is raised, the record keeps the value the
+  device refused, and the lost setting is not retried.
+- L3, silent coalescing: devSnmp_oid::set replaces a pending setting for the
+  same OID and devSnmp_host keeps one queued transaction per OID, so an
+  earlier accepted write can disappear without a trace.
+- L4, timing-based readback: a readback within SetSkipReadbackMSec of the
+  last SET is ignored by comparing wall-clock ticks the send thread
+  refreshes. On Rocky 8 the readback was applied about 50 ms after a SET in 2
+  of 15 repeats. By code reading, a poll answered after the window can also
+  overwrite a newer write, and readback needs legacy polling of the same OID.
+- L5, no outcome identity: a reply lost after the device applied a SET is
+  retransmitted by the library's retries and can apply again; the module
+  cannot tell which attempt succeeded (M8 / T17).
+- L6, slow failure: with inherited timeout and retry settings a lost SET
+  ends only through the 60 s stale-session retirement (M8 / T17).
+- L7, text-only transfer: values reach the PDU as printf text with a type
+  letter, and the response varbind is ignored.
+
+##### Scope
+
+A new output device support for ao, longout and stringout that selects the
+request-driven write path, reusing the typed request/result boundary, EPICS
+completion adapter, native adapter and named endpoints of M8 steps 2 to 4 on
+the current transport. Includes the write contract in
+docs/snmp-architecture.md, device support and DBD entries, the user manual,
+and a real-agent test suite.
+
+Out of scope: removing or changing the legacy `Snmp` output path; bo, mbbo
+and waveform outputs; module-level retries beyond the library's; exactly-once
+device application, which SNMP cannot guarantee; moving writes into worker
+processes (M8 steps 5 and 6).
+
+##### Completion Criteria
+
+- Each accepted write sends one SET request and completes the record exactly
+  once, after the agent's response or a terminal error, with PACT held until
+  then and FLNK after the value is applied.
+- An agent error, timeout, send failure or security failure raises a write
+  alarm on the record; no accepted write is dropped without a completion.
+- Writes arriving while a write is in progress follow a documented,
+  observable policy; none disappears silently.
+- The applied value is confirmed from the agent's response, not from a timing
+  window, and a stale read cannot overwrite a newer write.
+- The failure latency is bounded by the effective timeout and retries.
+- Legacy output records behave as the step 1 SET baseline on Debian 13 and
+  Rocky 8.
+
+##### Dependencies And Decisions
+
+- D11 creates this milestone and orders it before M8 step 5. D3 and D4 apply
+  to the new output DTYP as they did to the input DTYP.
+- Reuses M8 steps 2 to 4, committed as 28ddf10, d34a6b3 and 8962312.
+- User direction 2026-09-25: design by Base rules. The proposed contract is
+  docs/snmp-architecture.md "Request-Driven Writes": Base RPRO handles writes
+  during an active write; the SET response confirms the value, stored in ao
+  RBV; failures set INVALID with WRITE or TIMEOUT status; request outputs do
+  not use the legacy poll cache; the DTYP is `SnmpRequest`. The contract
+  awaits review and owner acceptance.
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. Baseline: rerun the step 1 legacy-set suite on Debian 13 and Rocky 8 and
+   reproduce L1 to L6 with real-agent evidence, including the readback case
+   repeated on both platforms.
+2. Contract: add a request-driven write section to docs/snmp-architecture.md
+   that answers the open design questions and states record, transport and
+   failure behavior.
+3. Review: independent third-person and second-person review of the
+   contract, convergence, and owner acceptance of the plan.
+4. Implement the device support, DBD entries, typed SET request and
+   completion on the current transport.
+5. Verify with a new real-agent suite, the legacy-set baseline and the
+   regression suites on both platforms; review, record and commit.
+
+##### Test Plan
+
+| Label | Check | Method | Environment | Pass condition |
+| --- | --- | --- | --- | --- |
+| T1 | Legacy baseline | Legacy-set suite and repeated readback case before any change | Actual IOC, writable snmpd, Debian 13 and Rocky 8 | L1 to L6 observed with evidence; baseline counts recorded. |
+| T2 | Completion | Write through the new DTYP with a held and a released reply | Actual IOC, writable snmpd, UDP observer | PACT held until the response; one completion; FLNK after the value is applied. |
+| T3 | Failures | Agent error, request loss, reply loss, send failure and USM failure | Real agent and fault proxy | One completion with a write alarm per write; bounded latency; no silent drop. |
+| T4 | Concurrent writes | Writes while a write is active, to one and to several OIDs | Actual IOC | Behavior matches the accepted policy; every accepted write accounted for. |
+| T5 | Value confirmation | Response value, device-side change and a shared readback input | Actual IOC and writable agent | Confirmed value comes from the agent; no stale overwrite; no timing window. |
+| T6 | Compatibility | Legacy outputs, named endpoints and request-mode inputs together | Actual IOC | Legacy baseline unchanged; new path works through legacy hosts and named endpoints. |
+| T7 | Platforms and review | Full suites on Debian 13 and Rocky 8; independent review | Both platforms | All suites pass or failures are explained; review accepted. |
+
+##### Verification Results
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | Not run | Legacy baseline | Pending | none |
+| T2 | Not run | New DTYP completion | Pending | none |
+| T3 | Not run | Failure classes | Pending | none |
+| T4 | Not run | Concurrent writes | Pending | none |
+| T5 | Not run | Value confirmation | Pending | none |
+| T6 | Not run | Compatibility | Pending | none |
+| T7 | Not run | Platforms and review | Pending | none |
+
+##### Closure Evidence
+
+- None.
 
 ## Backlog
 

@@ -124,6 +124,167 @@ do not leave PACT set with no completion owner. Bound session, batch, retry and
 diagnostic storage separately. A late network response may release transport
 resources after record timeout, but cannot change the terminal result.
 
+### Input Record Processing
+
+Request inputs follow Base asynchronous input processing for ai, longin and
+stringin. The first pass admits the request, sets PACT and returns; the
+completion pass runs in a Base callback at the record's PRIO read when the
+request was admitted, under the record lock, and record support converts,
+checks alarms, posts monitors and processes FLNK before PACT clears.
+
+A failed completion sets severity INVALID with status TIMEOUT for a library
+timeout after its retries, including a reply the library discards as
+malformed, or for the request deadline, and READ for every other failure:
+admission, session open, send, security, agent error status, varbind and
+conversion. These are menuAlarmStat choices.
+
+While PACT is set, Base dbProcess does not call record processing. A periodic
+scan that finds the record active is dropped; after ten consecutive drops
+Base raises severity INVALID with status SCAN, so RequestTimeoutMSec longer
+than ten scan periods can raise that alarm; Base skips it while the record is
+already INVALID. A put through dbPutField to PROC
+sets RPRO on any record, and so does a database link that writes PROC in a
+chain that started from dbPutField. On a Passive record, a put through
+dbPutField to any other process-passive field, such as VAL, also sets RPRO,
+and so does a FLNK or process-passive database link in a chain that started
+from dbPutField. The record then reads again after completion. A trigger in a
+chain that started from a scan or a CP link is not repeated. A CA put without
+callback, including one through a CA link, reaches the record through
+dbPutField and follows these rules. A CA put with callback, as from caput -c
+or an Async Soft Channel output over a CA link, goes through dbProcessNotify
+instead: Base holds it while the record is active and never sets RPRO. After
+the current completion it stores the value; for a put to PROC, or to a
+process-passive field of a Passive record, it then processes the record once
+more and completes the callback after that pass, so the client waits for a
+new SNMP read. Otherwise the callback completes once the value is stored. An
+Async Soft Channel output over a database link uses an ordinary database-link
+put.
+
+If simulation mode is switched on while a read is active, record support
+takes the simulated value and does not call device support. The module
+discards the SNMP result as failed after that pass and frees the slot, so the
+next pass after simulation ends reads the device again. A change arriving
+through SIML is read only at the start of a pass: the active read consumes
+its device value normally, and simulation takes effect at the next pass. If
+simulation mode is switched off while a delayed simulation pass (SDLY) is
+pending, that pass calls device support with no request and completes with
+READ/INVALID and VAL unchanged; no request is sent and the next pass reads
+the device.
+
+## Request-Driven Writes
+
+This section is a proposed contract for milestone M9; the module does not
+implement it yet. It applies Base asynchronous output processing, as described
+for ao, longout and stringout in their record references, to one SNMP SET per
+processing pass. The legacy `Snmp` output path is unchanged.
+
+### Binding
+
+`DTYP="SnmpRequest"` selects the request-driven write path for ao, longout and
+stringout, as it does the read path for ai, longin and stringin. The OUT field
+keeps the legacy output syntax: host or `endpoint:NAME`, community or `-`,
+OID, mask, buffer length and the set type letter with optional flags. Legacy
+hosts and named endpoints both apply. Initialization performs no device read;
+VAL comes from the database or autosave and PINI follows Base rules.
+
+### Processing
+
+First pass: record support fetches and converts the value as usual (OVAL and
+RVAL for ao). The device write routine copies the value selected by the legacy
+rules (ao OVAL, or RVAL with the raw flag; longout and stringout VAL) into an
+owned typed request, admits it without network I/O under the record lock, sets
+PACT and returns success. The value is captured here; a later change to the
+record does not alter a queued request.
+
+Completion: the terminal result of that one SET schedules the Base callback,
+which processes the record again with PACT still set. The device routine
+applies the result, then record support checks monitors, processes FLNK and
+clears PACT, following the Record Processing steps of each output record
+type. A CA put with callback completes only after this pass. No completion
+occurs before the agent answers or a terminal error is known.
+
+### Writes During An Active Write
+
+While PACT is set, dbProcess does not call record processing. A put through
+dbPutField, as from a CA put without callback or from dbpf, to a
+process-passive field of an active Passive record, or to the PROC field of
+any active record, stores its value and sets RPRO; at the end of the
+completion pass, recGblFwdLink queues one more processing through scanOnce,
+which sends the latest value. A CA put with callback, as from caput -c or an
+Async Soft Channel output over a CA link, goes through dbProcessNotify
+instead: Base holds it while the record is active, then stores the value; for
+a put to PROC, or to a process-passive field of a Passive record, it
+processes the record once more and the callback completes after that pass,
+otherwise the callback completes without another pass and the value is sent
+at the record's next processing.
+
+Database links follow the dbPutField rule: a database link that writes PROC
+sets RPRO on any record, and on a Passive record so does a process-passive
+database link or a FLNK, when the chain started from dbPutField. In a chain
+that started from a scan or a CP link the value is stored without
+reprocessing and is sent at the record's next processing. Values overwritten
+while the record was active are not sent. This is Base behavior, not module
+coalescing: the record's final value is always sent, and each reprocessing
+pass is one more SET. The module keeps no per-OID pending value for request
+outputs and never merges two records'
+writes.
+
+### Result And Confirmation
+
+A write succeeds when the agent returns a response with error status zero and
+exactly one varbind for the requested OID. For ao, the response value, when
+it is an integer within DBF_LONG, is stored in RBV, the field the ao
+reference assigns to device support for the value read back from the device;
+VAL keeps the value written. A response value that differs from the value sent
+changes RBV only and raises no alarm. longout and stringout have no readback
+field; their result is the alarm state. Request outputs never read the
+legacy poll cache, need no polling of their OID and use no timing window.
+
+### Failures
+
+Every accepted write completes once. A failed write leaves VAL at the value
+written and RBV unchanged, and sets severity INVALID with status:
+
+| Terminal result | Alarm status |
+| --- | --- |
+| Agent error status, or a response without exactly one matching varbind | WRITE |
+| Library timeout after its retries, or the request deadline | TIMEOUT |
+| Send failure, security error, protocol error, session closed, admission full | WRITE |
+
+These are menuAlarmStat choices. IVOA acts, as in Base, on alarms raised
+during a processing pass before the write routine runs; a failure raised by a
+completion pass does not block a later write.
+
+If simulation mode is switched on while a write is active, record support
+does not call device support in the completion pass. The module then
+discards that SET result as failed after the pass and frees the record's
+slot; the agent may already have applied the value. If simulation mode is
+switched off while a delayed simulation pass (SDLY) is pending, that pass
+calls device support with no request and completes with WRITE/INVALID; no SET
+is sent.
+
+### Delivery, Ordering And Deadline
+
+The module sends each accepted write in one SET transaction and never resends
+it after a terminal result. Net-SNMP retransmissions within that transaction
+reuse the request ID; if a reply is lost after the agent applied the value,
+the agent may apply it again. For a non-idempotent OID, set retries to zero on
+its endpoint. SNMP provides no exactly-once guarantee.
+
+A record has at most one write in flight. Writes from different records to
+one host follow that host's existing serialization in arrival order, with
+legacy settings. Each SET carries one OID; writes are not batched. The request
+deadline, RequestTimeoutMSec, applies as it does to reads. A late response
+after a terminal result cannot change that result.
+
+Request outputs share the shutdown disposition of request inputs: pending
+writes are abandoned without synthetic completion during IOC teardown.
+
+### Out Of Scope
+
+bo, mbbo and waveform outputs; write batching; module-level retries; and
+exactly-once device application.
+
 ## Security Configuration
 
 Separate named endpoint definitions from reusable security profiles. Endpoint

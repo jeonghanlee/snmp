@@ -1103,7 +1103,7 @@ devSnmp_session::~devSnmp_session(void)
 {
   if (!is_setting && oidList) {
     for (int i = 0; i < oidList->count(); ++i)
-      ((devSnmp_oid *)oidList->itemAt(i))->finishRequests(this, NULL);
+      ((devSnmp_oid *)oidList->itemAt(i))->finishRequests(this, NULL, false);
   }
   close();
   if (oidList) {
@@ -1151,7 +1151,8 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
           }
         }
       }
-      oidArray[i]->finishRequests(this, matches == 1 ? matched : NULL);
+      oidArray[i]->finishRequests(this, matches == 1 ? matched : NULL,
+                                  op == NETSNMP_CALLBACK_OP_TIMED_OUT);
     }
   }
 
@@ -1800,13 +1801,14 @@ bool devSnmp_oid::claimRequests(devSnmp_session *session)
  * host. For a session deleted as stale after 60 s without completion, a
  * late reply on the read thread can overlap the destructor; that race on
  * the session itself predates this scratch and remains open. Each slot
- * copies the scratch under its own mutex. */
-void devSnmp_oid::finishRequests(devSnmp_session *session, netsnmp_variable_list *value)
+ * copies the scratch under its own mutex. timedOut marks a library timeout
+ * after its retries; every other missing value is a read failure. */
+void devSnmp_oid::finishRequests(devSnmp_session *session, netsnmp_variable_list *value, bool timedOut)
 {
   if (!requestValue) return;
   snmpNativeCopyValue(*requestValue, value);
   for (unsigned i = 0; i < requests.size(); ++i)
-    requests[i]->finish(session->traceId(), *requestValue);
+    requests[i]->finish(session->traceId(), *requestValue, timedOut);
 }
 void devSnmp_oid::dispatchRequests(devSnmp_session *session, long wireId)
 {

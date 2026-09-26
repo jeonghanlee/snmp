@@ -37,6 +37,10 @@ def verify(scenario):
         events = [e for e in scenario.driver if (e["record"], e["generation"]) == key]
         audit = next(a for a in scenario.audits if a["record"].replace("Audit", "") == record and a["count"] == generation)
         applied, complete = events[-2:]
+        if expected["failure"] == "simulated":
+            # The discard follows FLNK, so no FLNK snapshot shows it.
+            failed[record] = failed.get(record, 0) + 1
+            continue
         snapshots = [row for row in rows if row["record"] == record and row["generation"] == generation
                      and applied["time"] <= row["time"] <= audit["time"]]
         test.assertEqual(len(snapshots), 1, (key, "Missing unique FLNK diagnostic"))

@@ -49,7 +49,7 @@ class AccountingTest(ScenarioTest):
             for count, mode in enumerate(("normal", "drop", "normal"), 1):
                 s.peer.mode = mode
                 s.put("A.PROC")
-                s.done("A", count, 101, severity=3 if mode == "drop" else 0, status=1 if mode == "drop" else 0)
+                s.done("A", count, 101, severity=3 if mode == "drop" else 0, status=10 if mode == "drop" else 0)
                 row = sample(s)["A"]
                 self.assertEqual((row["accepted"], row["completed"]), (count, count))
                 self.assertEqual(row["last_valid_generation"], 1 if count == 2 else count)

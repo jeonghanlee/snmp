@@ -129,7 +129,10 @@ FLNK before clearing PACT. Waveform and output records continue to use
 is rejected. PassivePollMSec does not schedule request inputs. A local FLNK
 chain starts its next record after the source result is consumed; a fanout
 submits its targets without waiting for their asynchronous completions.
-Acquisition errors preserve the previous value and report READ/INVALID.</p>
+Acquisition errors preserve the previous value and report INVALID severity:
+TIMEOUT for a library timeout or the request deadline, READ otherwise. If
+simulation mode starts while a read is active, the record takes the simulated
+value and the SNMP result is discarded.</p>
 
 <p>See <a href="../examples/request-inputs.iocsh">request-inputs.iocsh</a> and
 <a href="../examples/request-inputs.db">request-inputs.db</a> for a loader and

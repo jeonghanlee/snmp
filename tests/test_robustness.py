@@ -31,7 +31,7 @@ class RobustnessTest(ScenarioTest):
                 time.sleep(LATE_SECONDS)
                 s.peer.release()
                 time.sleep(RECEIVE_SECONDS)
-            s.done("A", 2, 101, severity=3, status=1)
+            s.done("A", 2, 101, severity=3, status=10)
             s.peer.hold = False
             s.peer.values[1] = 202
             s.put("A.PROC")
@@ -63,8 +63,8 @@ class RobustnessTest(ScenarioTest):
                 time.sleep(RECEIVE_SECONDS)
                 self.assertEqual([r["oids"] for r in s.peer.requests[first:]], [[1]],
                                  "Expired queued record emitted an application GET")
-            s.done("A", 2, 101, severity=3, status=1)
-            s.done("B", 2, 102, severity=3, status=1, failure="queued")
+            s.done("A", 2, 101, severity=3, status=10)
+            s.done("B", 2, 102, severity=3, status=10, failure="queued")
             s.put("Both.PROC")
             s.done("A", 3, 909)
             s.done("B", 3, 808)
@@ -104,8 +104,9 @@ class RobustnessTest(ScenarioTest):
                         bad = set()
                     else:
                         bad = set(range(1, 22))
+                    # A malformed reply is discarded by the library and ends in its timeout.
                     s.done_results({"R" + str(n): (100 if n in bad else 200) + n for n in range(1, 22)},
-                                   number + 2, {"R" + str(n) for n in bad})
+                                   number + 2, {"R" + str(n) for n in bad}, 10 if mode == "malformed" else 1)
                     s.peer.mode = "normal"
                     s.peer.faults.clear()
                     s.put("Many21.PROC")
@@ -125,7 +126,7 @@ class RobustnessTest(ScenarioTest):
                 s.peer.values[1] = 909
                 s.put("A.PROC")
                 s.wait(lambda: len(s.peer.held) == 1, "old request held")
-                s.done("A", number + 2, 101, severity=3, status=1)
+                s.done("A", number + 2, 101, severity=3, status=10)
                 s.peer.values[1] = 202
                 s.put("A.PROC")
                 s.wait(lambda: len(s.peer.held) == 2, "fresh request held")
@@ -153,7 +154,7 @@ class RobustnessTest(ScenarioTest):
                 first = len(s.peer.requests)
                 s.peer.mode = "drop"
                 s.put("A.PROC")
-                s.done("A", 3 * cycle + 2, 101, severity=3, status=1)
+                s.done("A", 3 * cycle + 2, 101, severity=3, status=10)
                 wire = s.peer.requests[first:]
                 self.assertEqual(len(wire), 3, "Native retry count differs from initial plus two retries")
                 self.assertEqual(len({r["id"] for r in wire}), 1)

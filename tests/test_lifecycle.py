@@ -9,7 +9,8 @@ from request_cases import ScenarioTest
 CASES = ("idle_and_held_values", "immediate_responses", "late_waiter", "serial_chain",
          "active_put", "active_ten_puts", "put_completion", "five_active_scans",
          "extended_scan_alarm", "two_host_fanout", "invalid_fanout_link", "pini",
-         "disable", "terminal_errors", "transport_failures")
+         "disable", "simulation_during_request", "priority_per_request", "terminal_errors",
+         "transport_failures")
 
 
 class LifecycleTest(ScenarioTest):
@@ -219,6 +220,53 @@ class LifecycleTest(ScenarioTest):
                 s.peer.release()
                 s.done("A", cycle + 1, value)
 
+    def test_simulation_during_request(self):
+        with self.scenario("simulation", hold=True) as s:
+            count = 0
+            for cycle in range(self.cycles()):
+                value, simulated = 1000 + cycle, 5000 + cycle
+                s.peer.values[1] = value
+                s.put("A.PROC")
+                s.wait(lambda: len(s.peer.held) == 1, "held response")
+                s.put("A.SVAL", simulated)
+                s.put("A.SIMM", "YES")
+                s.peer.release()
+                count += 1
+                s.done("A", count, simulated, failure="simulated")
+                s.put("A.SIMM", "NO")
+                s.put("A.PROC")
+                s.wait(lambda: len(s.peer.held) == 1, "held response after simulation")
+                s.peer.release()
+                count += 1
+                s.done("A", count, value)
+        verify_diagnostics(s)
+
+    def test_priority_per_request(self):
+        """The completion callback takes PRIO when each request is admitted."""
+        with self.scenario("priority") as s:
+            s.put("A.PROC")
+            s.done("A", 1, 101)
+            s.put("A.PRIO", "HIGH")
+            s.runtime.process.stdin.write("requestSustainCallbacks()\n")
+            s.runtime.process.stdin.flush()
+            s.wait(lambda: "SNMPSUSTAIN ready" in (s.work / "ioc.log").read_text(),
+                   "low-priority callback thread occupied")
+            try:
+                s.peer.values[1] = 202
+                s.put("A.PROC")
+                s.done("A", 2, 202)
+                s.put("A.PRIO", "LOW")
+                s.peer.values[1] = 303
+                s.put("A.PROC")
+                time.sleep(3)
+                self.assertEqual(s.get("A.PACT"), "1", "LOW completion ran while the low thread was occupied")
+                self.assertEqual(s.get("AuditA"), "2")
+            finally:
+                s.runtime.process.stdin.write("requestReleaseCallbacks()\n")
+                s.runtime.process.stdin.flush()
+            s.done("A", 3, 303)
+        verify_diagnostics(s)
+
     def test_terminal_errors(self):
         with self.scenario("errors", timeout_us=200000) as s:
             count = 0
@@ -236,7 +284,7 @@ class LifecycleTest(ScenarioTest):
                         s.peer.mode = mode
                     s.put("A.PROC")
                     count += 1
-                    s.done("A", count, value, severity=3, status=1)
+                    s.done("A", count, value, severity=3, status=10 if mode == "drop" else 1)
                     s.peer.mode = "normal"
                     s.peer.values[1] = value + 5000
                     s.put("A.PROC")

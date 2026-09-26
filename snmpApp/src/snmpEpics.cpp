@@ -48,6 +48,15 @@ devSnmp_epics::~devSnmp_epics()
     delete acquisition;
 }
 
+/* Runs under the record lock with no completion pending. Each request takes
+ * the record's PRIO when it is admitted; a PRIO change during an active read
+ * applies from the next request. */
+bool devSnmp_epics::begin()
+{
+    callbackSetPriority(record->prio, &callback);
+    return acquisition->begin();
+}
+
 bool devSnmp_epics::schedule(SnmpIdentity handle)
 {
     if (!handle || handle > completions.size() || !completions[handle - 1]) return false;
@@ -90,9 +99,19 @@ static int requestReadStart(dbCommon *record, devSnmp_pv **pv)
   *pv = (devSnmp_pv *)record->dpvt;
   if (devSnmpExiting() || !*pv || !(*pv)->request()) return -1;
   if (record->pact) return 0;
-  if (!(*pv)->request()->begin()) return -1;
+  if (!(*pv)->epics()->begin()) return -1;
   record->pact = true;
   return 1;
+}
+
+/* A library timeout after its retries, which includes a reply the library
+ * discards as malformed, or the request deadline raises TIMEOUT; every other
+ * failure, such as admission, session open, send, security, agent error
+ * status, varbind or conversion, raises READ.
+ * Called before consumed() releases the result. */
+static epicsEnum16 requestFailure(int start, devSnmp_pv *pv)
+{
+  return start == 0 && pv->request()->timedOut() ? TIMEOUT_ALARM : READ_ALARM;
 }
 
 static long requestAiRead(aiRecord *record)
@@ -117,7 +136,7 @@ static long requestAiRead(aiRecord *record)
     }
   }
   if (status >= 0) record->udf = false;
-  else recGblSetSevr(record, READ_ALARM, INVALID_ALARM);
+  else recGblSetSevr(record, requestFailure(start, pv), INVALID_ALARM);
   if (start == 0) pv->request()->consumed(status >= 0);
   return status;
 }
@@ -132,7 +151,7 @@ static long requestLiRead(longinRecord *record)
   if (good) {
     record->val = value;
     record->udf = false;
-  } else recGblSetSevr(record, READ_ALARM, INVALID_ALARM);
+  } else recGblSetSevr(record, requestFailure(start, pv), INVALID_ALARM);
   if (start == 0) pv->request()->consumed(good);
   return good ? 0 : -1;
 }
@@ -147,7 +166,7 @@ static long requestSiRead(stringinRecord *record)
   if (good) {
     memcpy(record->val, value, sizeof(value));
     record->udf = false;
-  } else recGblSetSevr(record, READ_ALARM, INVALID_ALARM);
+  } else recGblSetSevr(record, requestFailure(start, pv), INVALID_ALARM);
   if (start == 0) pv->request()->consumed(good);
   return good ? 0 : -1;
 }

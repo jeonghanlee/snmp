@@ -118,7 +118,7 @@ class Scenario:
             self.test.assertAlmostEqual(float(observed[record]), value, delta=1e-9)
             self.expect(record, count, value)
 
-    def done_results(self, values, count, failed):
+    def done_results(self, values, count, failed, status=1):
         fields = [field for record in values for field in
                   ("Audit" + record, record + ".PACT", record + ".SEVR", record + ".STAT", record)]
         observed = {}
@@ -128,11 +128,11 @@ class Scenario:
                        for record in values)
         self.wait(sample, "all mixed results completed")
         for record, value in values.items():
-            severity, status = (3, 1) if record in failed else (0, 0)
+            severity, stat = (3, status) if record in failed else (0, 0)
             self.test.assertEqual(observed[record + ".SEVR"], str(severity))
-            self.test.assertEqual(observed[record + ".STAT"], str(status))
+            self.test.assertEqual(observed[record + ".STAT"], str(stat))
             self.test.assertAlmostEqual(float(observed[record]), value, delta=1e-9)
-            self.expect(record, count, value, severity, status)
+            self.expect(record, count, value, severity, stat)
 
     @contextmanager
     def completion_put(self, record):
@@ -194,6 +194,8 @@ class Scenario:
             elif expected["failure"] == "queued":
                 names.remove("claimed")
                 names.remove("dispatch")
+            elif expected["failure"] == "simulated":
+                names[names.index("applied")] = "discarded"
             test.assertEqual([r["event"] for r in events], names, key)
             stamps = [row["time"] for row in events]
             test.assertEqual(stamps, sorted(stamps), key)
@@ -208,7 +210,7 @@ class Scenario:
                        identity["oid"] in entry["numeric_oids"]]
             if expected["failure"] == "queued":
                 test.assertEqual(matches, [])
-            elif expected["failure"]:
+            elif expected["failure"] in ("open", "send"):
                 test.assertEqual(matches, [], "Failed outer transport unexpectedly transmitted")
                 candidates = [i for i, fault in enumerate(faults)
                               if events[1]["time"] <= fault["time"] <= events[-3]["time"]]
@@ -230,13 +232,20 @@ class Scenario:
             test.assertEqual(len(seen[key]), 1, "Duplicate FLNK")
             audit = seen[key][0]
             test.assertEqual(audit["pact"], 1)
-            test.assertLessEqual(events[-2]["time"], audit["time"])
+            if expected["failure"] == "simulated":
+                # Record support skipped device support; the slot discards
+                # the result after the FLNK pass returns.
+                test.assertLessEqual(events[-3]["time"], audit["time"])
+                test.assertLessEqual(audit["time"], events[-2]["time"])
+            else:
+                test.assertLessEqual(events[-2]["time"], audit["time"])
             test.assertLessEqual(audit["time"], events[-1]["time"])
             test.assertAlmostEqual(float(audit["value"]), expected["value"], delta=1e-9, msg=str(key))
             test.assertEqual(audit["severity"], expected["severity"], key)
             test.assertEqual(audit["status"], expected["status"], key)
             test.assertEqual(audit["undefined"], 0, key)
-            test.assertEqual(events[-2]["success"], expected["severity"] == 0, key)
+            test.assertEqual(events[-2]["success"], expected["severity"] == 0 and
+                             expected["failure"] != "simulated", key)
             if expected["raw"] is not None:
                 test.assertEqual(audit["raw"], expected["raw"], key)
             if expected["text"] is not None:

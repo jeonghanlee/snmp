@@ -25,7 +25,11 @@ extern int snmpRequestTrace;
  * support calls consumed(), completed(), dbScanUnlock. completed() always
  * releases the pending callback and counts a completion only when processed
  * is true; the caller passes processed=false when beginConsumption()
- * refused. No other thread may call the completion-side functions. */
+ * refused. A processed pass in which record support never called device
+ * support, as under simulation mode, discards the result as failed so the
+ * slot returns to Idle. timedOut() reports whether the consumed failure was
+ * a library timeout or the request deadline. No other thread may call the
+ * completion-side functions. */
 class devSnmp_request {
 public:
     devSnmp_request(const SnmpBinding &binding, const SnmpCompletion &completion);
@@ -34,7 +38,7 @@ public:
     bool pending();
     bool claim(SnmpIdentity transaction);
     void dispatched(SnmpIdentity transaction, long wireId);
-    void finish(SnmpIdentity transaction, const SnmpValue &value);
+    void finish(SnmpIdentity transaction, const SnmpValue &value, bool timedOut);
     unsigned capacity() const { return binding.capacity; }
     void service();
     bool completionWanted();
@@ -47,6 +51,7 @@ public:
     bool hasNativeLong();
     bool hasNativeDouble();
     bool valid();
+    bool timedOut();
     static void start();
     static bool configurationOpen();
     static bool shutdown();
@@ -60,7 +65,7 @@ private:
     epicsMutex mutex;
     State state;
     SnmpValue result;
-    bool stopping, callbackPending;
+    bool stopping, callbackPending, timeout;
     unsigned long long generation;
     unsigned long long transaction;
     long wireId;
@@ -73,7 +78,7 @@ private:
         unsigned long long appliedAt, completedAt, lastValidAt;
     } statistics;
     bool expire();
-    void ready(bool success);
+    void ready(bool success, bool timedOut);
     void event(const char *name, bool success);
     static void worker(void *argument);
 };

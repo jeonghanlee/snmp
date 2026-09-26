@@ -118,10 +118,11 @@ complete an idle or waiting request record.
 The `snmpComplete` worker checks deadlines and retries rejected Base callback
 queue insertions every 10 ms without taking a network or record lock. The
 accepted callback takes the record lock, invokes record support, and consumes
-the result once. Device support supplies VAL or RVAL and reports success or
-READ/INVALID; Base performs conversion, alarm/monitor handling, FLNK, and PACT
-clear. A failed acquisition preserves the previous value. Successful unchanged
-values still complete and execute FLNK.
+the result once. Device support supplies VAL or RVAL and reports success,
+TIMEOUT/INVALID for a library timeout or the request deadline, or
+READ/INVALID for any other failure; Base performs conversion, alarm/monitor
+handling, FLNK, and PACT clear. A failed acquisition preserves the previous
+value. Successful unchanged values still complete and execute FLNK.
 
 Ordinary periodic processing while PACT is set does not create concurrent
 acquisitions. CA PROC puts follow Base RPRO behavior and can request one later

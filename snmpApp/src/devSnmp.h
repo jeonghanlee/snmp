@@ -346,7 +346,7 @@ class devSnmp_oid
     bool claimRequests(devSnmp_session *session);
     void dispatchRequests(devSnmp_session *session, long wireId);
     bool legacyPollingEnabled(void) { return legacyPolling; }
-    void finishRequests(devSnmp_session *session, netsnmp_variable_list *value);
+    void finishRequests(devSnmp_session *session, netsnmp_variable_list *value, bool timedOut);
     void enableLegacyPolling(void) { legacyPolling = true; }
     void periodicProcessing(epicsTimeStamp *pnow);
 
@@ -457,6 +457,7 @@ class devSnmp_pv
 
     bool hasValue();
     devSnmp_request *request() { return pRequest; }
+    devSnmp_epics *epics() { return pEpics; }
     bool usesRawValue() const;
     bool getValueString(char *str, int maxsize);
     bool getValueDouble(double *value);

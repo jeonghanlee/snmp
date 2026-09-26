@@ -15,6 +15,7 @@ public:
                   unsigned oidLength, SnmpIdentity profile);
     ~devSnmp_epics();
     devSnmp_request *request() { return acquisition; }
+    bool begin();
 
 private:
     dbCommon *record;

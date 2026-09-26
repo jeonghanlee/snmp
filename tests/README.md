@@ -363,7 +363,9 @@ Protocol/legacy cases have empty request/audit files where that instrumentation
 is inapplicable; emptiness never counts as sequencing evidence.
 
 The bounded trace is disabled by default. When enabled it records accepted,
-claimed, dispatch-attempt, terminal-result, applied and completed events.
+claimed, dispatch-attempt, terminal-result, applied and completed events; a
+result that record support never consumed, as under simulation mode, is
+recorded as discarded after FLNK instead of applied.
 Transaction IDs correlate all claimed members; native wire ID plus numeric OID
 is checked against the separate UDP observation. FLNK time is compared only
 with monotonic events in the same IOC. A peer arrival timestamp is not a
@@ -409,7 +411,7 @@ python3 tests/run_snmp.py "${SNMP_TEST_ARGS[@]}" --suite batch
 
 | Suite | Cases | Default repetitions |
 | --- | --- | --- |
-| lifecycle | 15 | 100 ordinary cycles per variant; 1000 immediate responses |
+| lifecycle | 17 | 100 ordinary cycles per variant; 1000 immediate responses; priority_per_request once |
 | batch | 10 | 100 cycles per case, split across four fresh IOCs |
 | conversion | 2 | 100 value cycles per case |
 
@@ -426,7 +428,12 @@ Lifecycle coverage includes a ten-second idle interval, held and unchanged
 values, late same-OID waiters, A-to-B-to-C FLNK, ordinary active PROC/RPRO,
 CA put-notify, five actual active periodic scans, the separate extended
 SCAN alarm, two-host fanout, an invalid fanout link, 100 fresh PINI starts,
-disable before/during acquisition and terminal error recovery. The actual
+disable before/during acquisition, simulation mode switched on during an
+acquisition followed by a fresh device read, a PRIO change observed by
+completing at HIGH and waiting at LOW while the real low-priority callback
+thread is occupied, and terminal error recovery.
+Dropped replies must report TIMEOUT/INVALID; missing and wrong-type replies
+report READ/INVALID. The actual
 record LCNT and put-notify pointer establish the scan and notification
 preconditions; no internal Base or driver call is replaced. Put-notify must
 stay pending through its own acquisition, and client timeout text is a

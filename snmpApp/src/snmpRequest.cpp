@@ -36,7 +36,7 @@ std::atomic<bool> configurationLocked(false);
 
 devSnmp_request::devSnmp_request(const SnmpBinding &input, const SnmpCompletion &target)
     : binding(input), completion(target), state(Idle), result(input.capacity),
-      stopping(false), callbackPending(false), generation(0), transaction(0),
+      stopping(false), callbackPending(false), timeout(false), generation(0), transaction(0),
       wireId(0), accepted(0), deadline(0)
 {
     unsigned used = 0;
@@ -170,6 +170,7 @@ bool devSnmp_request::begin()
     }
     ++generation;
     result.valid = result.hasLong = result.hasDouble = false;
+    timeout = false;
     transaction = 0;
     wireId = 0;
     accepted = epicsMonotonicGet();
@@ -210,7 +211,7 @@ void devSnmp_request::dispatched(SnmpIdentity identity, long nativeId)
     event("dispatch", true);
 }
 
-void devSnmp_request::finish(SnmpIdentity identity, const SnmpValue &value)
+void devSnmp_request::finish(SnmpIdentity identity, const SnmpValue &value, bool timedOut)
 {
     epicsGuard<epicsMutex> guard(mutex);
     if (stopping || state != InFlight || transaction != identity || expire()) return;
@@ -231,14 +232,15 @@ void devSnmp_request::finish(SnmpIdentity identity, const SnmpValue &value)
         result.hasLong = value.hasLong;
         result.hasDouble = value.hasDouble;
     }
-    if (!expire()) ready(result.valid);
+    if (!expire()) ready(result.valid, timedOut && !result.valid);
 }
 
 /* Terminal arbitration runs under the request mutex on every entry path.
  * A ready result is immutable even while callback admission is delayed. */
-void devSnmp_request::ready(bool success)
+void devSnmp_request::ready(bool success, bool timedOut)
 {
     result.valid = success;
+    timeout = !success && timedOut;
     if (!success) result.hasLong = result.hasDouble = false;
     state = Ready;
     statistics.terminalAt = epicsMonotonicGet();
@@ -248,7 +250,7 @@ void devSnmp_request::ready(bool success)
 bool devSnmp_request::expire()
 {
     if ((state == Queued || state == InFlight) && epicsMonotonicGet() >= deadline) {
-        ready(false);
+        ready(false, true);
         return true;
     }
     return false;
@@ -289,6 +291,12 @@ bool devSnmp_request::beginConsumption()
 void devSnmp_request::completed(bool processed, bool pactClear)
 {
     epicsGuard<epicsMutex> guard(mutex);
+    if (processed && state == Consuming) {
+        statistics.appliedAt = epicsMonotonicGet();
+        ++statistics.failedCount;
+        event("discarded", false);
+        state = Idle;
+    }
     if (processed) {
         statistics.completedAt = epicsMonotonicGet();
         ++statistics.completedCount;
@@ -317,6 +325,12 @@ bool devSnmp_request::valid()
 {
     epicsGuard<epicsMutex> guard(mutex);
     return state == Consuming && result.valid;
+}
+
+bool devSnmp_request::timedOut()
+{
+    epicsGuard<epicsMutex> guard(mutex);
+    return state == Consuming && !result.valid && timeout;
 }
 
 bool devSnmp_request::raw(char *value, unsigned capacity)

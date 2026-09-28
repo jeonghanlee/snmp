@@ -8,8 +8,10 @@ including algorithm changes, credential activation at IOC startup and device
 recovery. Security profile, credential and engine identity changes require IOC
 process restart.
 The current implementation is described in [SnmpRequest](snmp-request.md).
-The [canonical milestone](milestone-db9ebf5.md#m8---extensible-snmpv3-architecture)
-owns implementation ordering, acceptance, test cases and observed results.
+The canonical milestone owns implementation ordering, acceptance, test cases
+and observed results: [M8](milestone-db9ebf5.md#m8---extensible-snmpv3-architecture)
+for this architecture and [M9](milestone-db9ebf5.md#m9---request-driven-writes)
+for "Request-Driven Writes".
 The components below are proposed contracts, not existing APIs, except where a
 section states that the module implements them.
 
@@ -19,7 +21,7 @@ duplicate a protocol/security facility because an internal abstraction would
 be convenient. An exported symbol is evidence of availability, not by itself
 a stability, thread-safety, or interoperability guarantee.
 
-**Out of scope:** changed output semantics, an all-record fanout barrier,
+**Out of scope:** changes to the legacy output path, an all-record fanout barrier,
 automatic security downgrade, proprietary cryptography, firmware updates,
 production rollout, live credential/profile replacement and changing PVA schemas.
 Additional SNMP security models may fit behind the backend boundary later; this
@@ -139,26 +141,27 @@ admission, session open, send, security, agent error status, varbind and
 conversion. These are menuAlarmStat choices.
 
 While PACT is set, Base dbProcess does not call record processing. A periodic
-scan that finds the record active is dropped; after ten consecutive drops
-Base raises severity INVALID with status SCAN, so RequestTimeoutMSec longer
-than ten scan periods can raise that alarm; Base skips it while the record is
-already INVALID. A put through dbPutField to PROC
-sets RPRO on any record, and so does a database link that writes PROC in a
-chain that started from dbPutField. On a Passive record, a put through
-dbPutField to any other process-passive field, such as VAL, also sets RPRO,
-and so does a FLNK or process-passive database link in a chain that started
-from dbPutField. The record then reads again after completion. A trigger in a
-chain that started from a scan or a CP link is not repeated. A CA put without
-callback, including one through a CA link, reaches the record through
-dbPutField and follows these rules. A CA put with callback, as from caput -c
-or an Async Soft Channel output over a CA link, goes through dbProcessNotify
-instead: Base holds it while the record is active and never sets RPRO. After
-the current completion it stores the value; for a put to PROC, or to a
-process-passive field of a Passive record, it then processes the record once
-more and completes the callback after that pass, so the client waits for a
-new SNMP read. Otherwise the callback completes once the value is stored. An
-Async Soft Channel output over a database link uses an ordinary database-link
-put.
+scan that finds the record active is dropped; after ten consecutive drops Base
+raises severity INVALID with status SCAN, so RequestTimeoutMSec longer than
+ten scan periods can raise that alarm; Base skips it while the record is
+already INVALID. A put through dbPutField to PROC sets RPRO on any record, and
+so does a database link that writes PROC in a chain that started from
+dbPutField. On a Passive record, a put through dbPutField to any other
+process-passive field, such as VAL, also sets RPRO, and so does a FLNK or
+process-passive database link in a chain that started from dbPutField. The
+record then reads again after completion. A CP or CPP link update is processed
+through db_process, which sets PUTF, or RPRO on an active record, so a chain
+it starts follows the dbPutField rules. A trigger in a chain that started from
+a scan, an event or an I/O Intr is not repeated. A CA put without callback,
+including one through a CA link, reaches the record through dbPutField and
+follows these rules. A CA put with callback, as from caput -c or an Async Soft
+Channel output over a CA link, goes through dbProcessNotify instead: Base
+holds it while the record is active and never sets RPRO. After the current
+completion it stores the value; for a put to PROC, or to a process-passive
+field of a Passive record, it then processes the record once more and
+completes the callback after that pass, so the client waits for a new SNMP
+read. Otherwise the callback completes once the value is stored. An Async Soft
+Channel output over a database link uses an ordinary database-link put.
 
 If simulation mode is switched on while a read is active, record support
 takes the simulated value and does not call device support. The module
@@ -178,35 +181,198 @@ implement it yet. It applies Base asynchronous output processing, as described
 for ao, longout and stringout in their record references, to one SNMP SET per
 processing pass. The legacy `Snmp` output path is unchanged.
 
+### Why Writes Are Asynchronous
+
+An SNMP SET is a network round trip, so no device support can finish it inside
+one record processing pass. The legacy path queues the value and returns
+success at once; every legacy defect follows from that: the record, its FLNK
+and a put callback complete before a packet exists, an agent error or a
+timeout raises no alarm, a queued value can be replaced unseen, and the device
+value is inferred from a poll cache behind a timing window. Base asynchronous
+device support is the mechanism made for this case: the first pass admits the
+SET for sending and sets PACT, the record stays active, and the agent's answer
+or a terminal error completes it, so the alarm reports the real result, a put
+callback ends when the agent has answered, and FLNK runs after the result.
+This is what the read path gained with SnmpRequest inputs.
+
+The cost is that the record is open between the two passes. Base handles a
+value that arrives then through RPRO and the rules under Writes During An
+Active Write, but longout OOPT does not fit this shape: Base repeats the
+OOPT test in the completion pass and updates PVAL there, so under "On
+Change" and the two Transition settings, which compare VAL with PVAL, a
+value put during the write is never sent and a retry of a failed value
+sends nothing; "When Zero" and "When Non-zero" look at VAL alone and do not
+lose values, but they still skip the completion call. The contract therefore
+keeps
+OOPT at "Every Time" on request outputs and leaves the "send only when the
+value changed" decision to a synchronous record in front of the output, as
+described under Binding. The same holds for every asynchronous output
+support, including StreamDevice and asyn; it is a property of the
+combination, not of this module.
+
 ### Binding
 
 `DTYP="SnmpRequest"` selects the request-driven write path for ao, longout and
 stringout, as it does the read path for ai, longin and stringin. The OUT field
 keeps the legacy output syntax: host or `endpoint:NAME`, community or `-`,
 OID, mask, buffer length and the set type letter with optional flags. Legacy
-hosts and named endpoints both apply. Initialization performs no device read;
-VAL comes from the database or autosave and PINI follows Base rules.
+hosts and named endpoints both apply. The set type selects the SNMP type:
+
+| Record | Set type | SNMP type | Value sent |
+| --- | --- | --- | --- |
+| ao | `i` | INTEGER | OVAL, or RVAL with the `R` flag |
+| ao | `F` | Opaque float | OVAL |
+| longout | `i` | INTEGER | VAL |
+| stringout | `s` | OCTET STRING | VAL up to its terminating null |
+
+The `R` flag selects RVAL and is accepted only on ao with set type `i`, where
+the record's unit conversion produces it. Any other record and set type pair,
+`R` on ao `F`, `R` on longout or stringout, or any flag other than `R` fails
+the binding with a record error. The mask is not used. The buffer length must
+be 2 through 65536 bytes, as for request inputs; for a request output it
+bounds only the octets a stringout sends (at most 39, the VAL field's
+capacity) and plays no part in the response, which is decoded as a typed
+value, never through the legacy text view; the match itself is defined under
+Result And Confirmation. SCAN may be any value except I/O Intr, which fails
+the binding. A longout must keep OOPT at "Every Time" for the reason given
+under Why Writes Are Asynchronous; any other OOPT fails the binding. OOPT is
+not a protected field and can be changed while the IOC runs, and device
+support has no hook on a field put, so the module watches the field instead.
+At binding it subscribes to `<record>.OOPT` through the IOC's own monitor
+service: dbChannelCreate and dbChannelOpen on the field, one module event
+context from db_init_events and db_start_events with the thread name
+`snmpOopt` (unique and within the 15 characters a thread name carries, so
+tests can find it), then db_add_event with DBE_VALUE and db_event_enable; this
+is the path the CA server and in-IOC CA links use. dbPut posts a DBE_VALUE
+event for every put to a field other than VAL, so a change to OOPT reaches the
+module's event thread right after the put. The callback takes the record lock
+and reads OOPT from the record, never from the value carried in the event,
+because the event holds the value at the time of the put and a first pass or a
+completion callback may already have restored the field; if the field reads
+"Every Time" the callback does nothing (its own restore posts such an event).
+Otherwise it sets OOPT back to "Every Time", posts the field, logs the record
+name and the value it replaced, and publishes WRITE/INVALID without processing
+the record in the way dbProcess publishes its SCAN alarm: recGblSetSevrMsg,
+recGblResetAlarms and db_post_events on VAL, so SEVR and STAT change at once
+and no pending severity carries into the next pass. No SET is sent. The write
+routine on every first pass reads OOPT as well and, if it still finds another
+value, restores and posts it, logs it, raises WRITE/INVALID with recGblSetSevr
+only and returns a negative status without sending; record processing
+publishes that alarm, so the write routine must not publish it itself, or the
+monitor() step would overwrite it with NO_ALARM. The completion callback also
+restores a changed OOPT before record processing, posts it and logs it, and
+then reports the write it holds exactly as the agent answered: a success
+completes with NO_ALARM and, for ao, the RBV update; a failure completes with
+its own status. The OOPT change is not a result of that SET and does not alter
+its report; when the completion callback restores it before the monitor event
+runs, the change therefore leaves a log line and no alarm. One window remains:
+a put to OOPT followed, before the event thread runs, by a put of a value that
+the new setting's own test rejects (under "On Change" the value PVAL holds;
+under "When Zero", "When Non-zero" and the Transition settings any value their
+test refuses) reaches Base's OOPT test before any of these checks, and that
+value is not sent. The monitor then restores OOPT and publishes WRITE/INVALID,
+so the loss is reported but the value must be put again. A site that must
+close that window, or wants the change refused instead of reverted, makes OOPT
+read-only through access security; that is a site setting and not part of this
+contract. Where a site must avoid repeated SETs of an unchanged value, compare
+the value before the record in a synchronous calcout that drives the longout
+through OUT with PP: DOPT "Use OCAL" with OCAL returning the requested value,
+and OOPT "When Non-zero" on a CALC condition such as "the request differs from
+the value last handed over, or the last write failed", where the value last
+handed over is the calcout's own OVAL read through an input link and a failed
+write is the longout's STAT being WRITE or TIMEOUT (SEVR alone would also
+retry on a SCAN alarm or a limit alarm; the STAT test still retries after the
+OOPT monitor's WRITE alarm, which is wanted, since a value lost in the
+monitor's window must be put again); the
+calcout's comparison runs once per input and never in a completion pass. When
+the calcout is processed by a put or a CP link, a value it hands to an active
+output sets RPRO and is sent after completion. When it is periodically
+scanned, its condition must also require the output's PACT to be clear, so
+that nothing is handed to an active output and the next scan repeats the
+comparison, and the failure branch then retries at the scan rate while the
+device refuses; a scanned calcout with OOPT "On Change" does not work, because
+calcout updates PVAL on every pass and a change consumed while the output was
+active is never output.
+
+Initialization performs no device read and sends nothing. ao init_record
+returns 2 so VAL comes from the database or autosave without RVAL
+conversion; PINI follows Base rules.
 
 ### Processing
 
 First pass: record support fetches and converts the value as usual (OVAL and
-RVAL for ao). The device write routine copies the value selected by the legacy
-rules (ao OVAL, or RVAL with the raw flag; longout and stringout VAL) into an
-owned typed request, admits it without network I/O under the record lock, sets
-PACT and returns success. The value is captured here; a later change to the
-record does not alter a queued request.
+RVAL for ao). The device write routine, under the record lock and before any
+network I/O, checks and if needed restores OOPT (longout) and runs the
+encoding checks of the table
+below on the record's typed value (ao OVAL as double, ao RVAL and longout
+VAL as long, stringout VAL as text). If a check fails, it raises
+WRITE/INVALID, does not set PACT and returns a negative status, as Base
+defines for a failed write; the record completes in that same pass, with
+FLNK and any put callback, and nothing is queued. A CA put without callback
+then receives ECA_PUTFAIL, because dbPutField returns the process status and
+the CA server reports a negative one; a CA put with callback completes
+normally, because dbProcessNotify discards the process status, and sees the
+result only in the alarm. Otherwise
+it copies the checked value into an owned typed request, admits it, sets
+PACT and returns 0. The value is captured here; a later change to the record
+does not alter a queued request.
 
-Completion: the terminal result of that one SET schedules the Base callback,
-which processes the record again with PACT still set. The device routine
-applies the result, then record support checks monitors, processes FLNK and
-clears PACT, following the Record Processing steps of each output record
-type. A CA put with callback completes only after this pass. No completion
-occurs before the agent answers or a terminal error is known.
+Encoding: the native adapter's SET encoder turns the checked typed value
+into the SNMP type from the table above with snmp_pdu_add_variable, as
+binary, never through printf text and snmp_add_var as the legacy path does
+(L7). This is the one place where a record value changes representation; the
+encoder receives only values that passed these checks in the write routine:
+
+| Set type | Check before encoding | Encoded as |
+| --- | --- | --- |
+| `i` from ao OVAL | finite, integral, within INTEGER32 | ASN_INTEGER |
+| `i` from ao RVAL or longout VAL | within INTEGER32 | ASN_INTEGER |
+| `F` from ao OVAL | finite and within the single-precision float range | ASN_OPAQUE_FLOAT, 4 bytes |
+| `s` from stringout VAL | fits the buffer length | ASN_OCTET_STR |
+
+A value that fails its check is never queued or sent; the first pass
+completes with WRITE/INVALID and the record keeps the value. The
+double-to-float narrowing loses precision by design, since the device holds
+a float; a negative zero is encoded as 0.0, as the legacy path does, because
+some devices reject it. Record-level limits such as ao DRVH and
+DRVL are the user's way to keep values inside the device range and may
+make this check unreachable, but the check stays: it is what keeps the
+module from ever performing a conversion whose result C++ leaves undefined.
+On a platform whose Net-SNMP build lacks opaque special types, binding a
+record with set type `F` fails with a record error.
+
+Completion: the terminal result of that one SET schedules the Base callback.
+The callback takes the record lock and, for a failed write, raises the alarm
+from the Failures table with recGblSetSevr before it calls record processing,
+so the alarm appears in that pass whether or not record support calls device
+support. Record processing then runs with PACT still set: the device write
+routine stores the result and returns 0, and record support checks alarms,
+posts monitors, processes FLNK and clears PACT, following the Record
+Processing steps of each output record type. A CA put with callback on that
+pass completes only after it. No completion occurs before the agent answers
+or a terminal error is known.
+
+Record support can finish a completion pass without calling device support:
+simulation mode switched on during the write, or IVOA "Don't drive outputs"
+after a put moved VAL into an INVALID limit. The alarm raised before
+processing still reports the result; the module then frees the record's slot
+and records the result as discarded. If simulation mode is switched off while
+a delayed simulation pass (SDLY) is pending, that pass calls device support
+with no request and completes with WRITE/INVALID; no SET is sent. A SIML
+change is read only at the start of a pass, as for inputs.
 
 ### Writes During An Active Write
 
-While PACT is set, dbProcess does not call record processing. A put through
-dbPutField, as from a CA put without callback or from dbpf, to a
+While PACT is set, dbProcess does not call record processing. Every
+processing request that reaches dbProcess while the record is active, from a
+scan, a FLNK, a process-passive database link or a link that writes PROC, is
+dropped and counted in LCNT, including one in a dbPutField chain that also
+set RPRO; the eleventh consecutive drop makes Base raise INVALID with status
+SCAN unless the record is already INVALID. A direct put through dbPutField,
+a CA put with callback held by dbProcessNotify, and a CP or CPP update of
+the active record itself, set RPRO or wait without reaching dbProcess, so
+they are not counted. A put
+through dbPutField, as from a CA put without callback or from dbpf, to a
 process-passive field of an active Passive record, or to the PROC field of
 any active record, stores its value and sets RPRO; at the end of the
 completion pass, recGblFwdLink queues one more processing through scanOnce,
@@ -220,70 +386,87 @@ at the record's next processing.
 
 Database links follow the dbPutField rule: a database link that writes PROC
 sets RPRO on any record, and on a Passive record so does a process-passive
-database link or a FLNK, when the chain started from dbPutField. In a chain
-that started from a scan or a CP link the value is stored without
+database link or a FLNK, when the chain started from dbPutField or from a
+CP or CPP link update, which db_process treats as a put. In a chain that
+started from a scan, an event or an I/O Intr the value is stored without
 reprocessing and is sent at the record's next processing. Values overwritten
 while the record was active are not sent. This is Base behavior, not module
-coalescing: the record's final value is always sent, and each reprocessing
-pass is one more SET. The module keeps no per-OID pending value for request
-outputs and never merges two records'
-writes.
+coalescing: a reprocessing pass is one more write with its own deadline and
+result, and a value stored without reprocessing waits for the record's next
+processing. The module keeps no per-OID pending value for request outputs
+and never merges two writes.
 
 ### Result And Confirmation
 
 A write succeeds when the agent returns a response with error status zero and
-exactly one varbind for the requested OID. For ao, the response value, when
-it is an integer within DBF_LONG, is stored in RBV, the field the ao
-reference assigns to device support for the value read back from the device;
-VAL keeps the value written. A response value that differs from the value sent
-changes RBV only and raises no alarm. longout and stringout have no readback
-field; their result is the alarm state. Request outputs never read the
-legacy poll cache, need no polling of their OID and use no timing window.
+exactly one varbind whose OID and SNMP type both equal those sent. A response
+that repeats the OID with another type, or with no value, is not a match and
+fails as WRITE: the agent did not accept the request as sent. For ao with set
+type `i`, the response INTEGER, when within DBF_LONG, is stored in RBV in the
+units sent (raw with the `R` flag, engineering otherwise); with set type `F`
+the response float is not stored, since RBV is DBF_LONG. Base posts RBV only
+when it changes. An SNMP agent answers a SET by returning the values it
+accepted, so RBV confirms that the agent accepted the value, not that the
+device holds it. Where the device value matters, read the same OID with a
+separate SnmpRequest input. longout and stringout have no readback field;
+their result is the alarm state. Request outputs never read the legacy poll
+cache, need no polling of their OID and use no timing window.
 
 ### Failures
 
-Every accepted write completes once. A failed write leaves VAL at the value
-written and RBV unchanged, and sets severity INVALID with status:
+Every admitted write completes its record exactly once, except at IOC
+teardown as stated below. A failed write leaves
+VAL as record processing left it and RBV unchanged, and raises severity
+INVALID with status:
 
 | Terminal result | Alarm status |
 | --- | --- |
-| Agent error status, or a response without exactly one matching varbind | WRITE |
-| Library timeout after its retries, or the request deadline | TIMEOUT |
-| Send failure, security error, protocol error, session closed, admission full | WRITE |
+| Agent error status, or a response without exactly one varbind matching the OID and type sent | WRITE |
+| Value not encodable, send failure, security error, admission full | WRITE |
+| No response: library timeout after its retries, a reply the library discards, retirement of a session that sent the SET, or the request deadline | TIMEOUT |
 
-These are menuAlarmStat choices. IVOA acts, as in Base, on alarms raised
-during a processing pass before the write routine runs; a failure raised by a
-completion pass does not block a later write.
-
-If simulation mode is switched on while a write is active, record support
-does not call device support in the completion pass. The module then
-discards that SET result as failed after the pass and frees the record's
-slot; the agent may already have applied the value. If simulation mode is
-switched off while a delayed simulation pass (SDLY) is pending, that pass
-calls device support with no request and completes with WRITE/INVALID; no SET
-is sent.
+These are menuAlarmStat choices. TIMEOUT means the outcome is unknown: the
+SET may not have been sent, or the agent may have applied it without a reply
+arriving. IVOA acts, as in Base, on alarms raised during a processing pass
+before the write routine runs. Because the callback raises a failure before
+the completion pass, IVOA sees it in that pass: with "Don't drive outputs"
+record support skips the write routine, so the alarm stands and an ao does
+not receive the RBV update, and with "Set output to IVOV" Base changes VAL
+only on a first pass, so VAL is untouched. A failure raised by a completion
+pass does not block a later write.
 
 ### Delivery, Ordering And Deadline
 
-The module sends each accepted write in one SET transaction and never resends
-it after a terminal result. Net-SNMP retransmissions within that transaction
-reuse the request ID; if a reply is lost after the agent applied the value,
-the agent may apply it again. For a non-idempotent OID, set retries to zero on
-its endpoint. SNMP provides no exactly-once guarantee.
+Request writes use their own queue on each host, separate from the legacy
+per-OID settings. Each admitted write is one SET transaction carrying one OID,
+never replaced by or merged with another write, and never resent by the
+module after a terminal result. The host sends queued request SETs one
+transaction at a time in admission order, and a queued request SET goes before
+polls queued after it. A request SET does not change the legacy pending
+setting or the SetSkipReadbackMSec window of any legacy record.
 
-A record has at most one write in flight. Writes from different records to
-one host follow that host's existing serialization in arrival order, with
-legacy settings. Each SET carries one OID; writes are not batched. The request
-deadline, RequestTimeoutMSec, applies as it does to reads. A late response
-after a terminal result cannot change that result.
+Net-SNMP retransmissions within a transaction reuse the request ID; if a reply
+is lost after the agent applied the value, the agent may apply it again. For a
+non-idempotent OID, bind the record to a named endpoint with retries 0; a
+legacy host shares the global SessionRetries with all its reads. SNMP
+provides no exactly-once guarantee.
+
+The request deadline, RequestTimeoutMSec, applies as it does to reads. A write
+still queued at its deadline completes with TIMEOUT and is not sent. A write
+whose SET is on the wire at its deadline completes with TIMEOUT while the
+transaction runs to its own end, and a late response cannot change the
+result. The record may then admit its next write; that write waits in the
+queue behind the earlier transaction, so one record never has two SETs on
+the wire. With inherited transport settings a lost SET holds the host for
+about 60 s until session retirement, and writes queued behind it expire.
 
 Request outputs share the shutdown disposition of request inputs: pending
 writes are abandoned without synthetic completion during IOC teardown.
 
 ### Out Of Scope
 
-bo, mbbo and waveform outputs; write batching; module-level retries; and
-exactly-once device application.
+bo, mbbo and waveform outputs; other set types; write batching; module-level
+retries; and exactly-once device application.
 
 ## Security Configuration
 

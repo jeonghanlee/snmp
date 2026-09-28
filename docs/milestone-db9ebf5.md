@@ -9,9 +9,10 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: start M9, request-driven writes, with its legacy
-baseline (Implementation Plan step 1) and the write contract in
-docs/snmp-architecture.md; M8 step 5 follows M9's accepted design. M8 step 4
+Next session entry point: M9, request-driven writes: baseline (step 1) and
+contract review with owner acceptance (steps 2 and 3) are done; next is step
+4, implementation under docs/snmp-architecture.md "Request-Driven Writes",
+once the owner authorizes it; M8 step 5 follows M9's accepted design. M8 step 4
 is committed as 8962312 and 6b507ab. Step 3 is committed as
 d34a6b3; it passes its native suite 19/19 and the regression suites on
 Debian 13 and Rocky 8, and its third bounded recheck (fup20260924_212921)
@@ -472,7 +473,7 @@ the canonical result should name the safe evidence artifact.
 | G3 | Production deployment window and acceptance limits | External gate | Open | No | M6 | Operator approves exact candidate, window, and rollback; [detail](#g3---production-deployment-window-and-acceptance-limits). |
 | M7 | Controlled deployment and rollback | Milestone | Blocked | No | M6, G3 | Deployed artifact verified and rollback demonstrated; [detail](#m7---controlled-deployment-and-rollback). |
 | M8 | Extensible SNMPv3 architecture | Milestone | In progress | No | D3, D4, D6, D7, D8, D9, D10 | Separated record/request/security responsibilities using native Net-SNMP facilities, explicit engine identity, restart-only credential activation, compatible worker bounds, proven runtime isolation and compatibility evidence; [detail](#m8---extensible-snmpv3-architecture). |
-| M9 | Request-driven writes | Milestone | Not started | Yes | D3, D4, D11 | Opt-in outputs complete once after the agent answers or a terminal error, report failed writes as alarms, never drop an accepted write silently, and confirm the applied value without a timing window; legacy outputs unchanged; [detail](#m9---request-driven-writes). |
+| M9 | Request-driven writes | Milestone | In progress | No | D3, D4, D11, D13, D14, D15, D16, D17 | Opt-in outputs complete once after the agent answers or a terminal error, report failed writes as alarms, never drop an admitted write silently, and report the value the agent accepted without a timing window; legacy outputs unchanged; [detail](#m9---request-driven-writes). |
 
 Ready describes dependency readiness only; it is not implementation authority.
 Decision Date: 2026-09-24. All current implementation plans are accepted and
@@ -495,6 +496,11 @@ does not complete their verification or remove the physical conditions in G2/G3.
 | D10 | Qualify the M8 candidate on Debian 13 and Rocky 8 instead of Debian 12 and Rocky 9, and declare Net-SNMP 5.8 in the shipped test profiles. Retained Debian 12 and Rocky 9 observations remain historical evidence, not current platform coverage. | 2026-09-24 |
 | D11 | Add a request-driven write path for outputs, as the separate input DTYP did for reads, in its own milestone executed before M8 step 5. The legacy output path stays available. M8 steps 5 and 6 carry the accepted write contract through the worker. | 2026-09-25 |
 | D12 | Align request inputs with Base asynchronous input rules: a library timeout or request deadline raises TIMEOUT/INVALID and other failures READ/INVALID; a completion pass in which record support skips device support, as under simulation mode, discards the result and frees the slot; the completion callback uses the PRIO read when the request is admitted. The architecture records the Base active-record rules for scans, RPRO, database links and CP links. | 2026-09-25 |
+| D13 | Revise the request-driven write contract after its first review: request SETs use their own per-host queue, one transaction per write in admission order, never merged with or replacing another write; the completion callback raises the failure alarm before record processing so a skipped write routine still reports it; values are encoded from the record's typed value per set type, and an unencodable value is not sent; ao RBV reports the value the agent accepted, not device state; TIMEOUT means an unknown outcome and delivery holds only within the request deadline. | 2026-09-26 |
+| D14 | Request longout records must keep OOPT at Every Time: any other OOPT fails the binding, and because OOPT can be changed at run time and device support has no hook on a field put, the module subscribes to each bound record's OOPT through the IOC monitor service (dbEvent, event thread snmpOopt) and, when the field read under the record lock is not Every Time, restores Every Time, posts the field, logs it and publishes WRITE/INVALID without processing the record, as dbProcess publishes its SCAN alarm; the write routine on every first pass restores it, raises WRITE/INVALID through recGblSetSevr for record processing to publish, and returns a negative status without sending; the completion callback restores it before record processing and reports the write exactly as the agent answered, since the OOPT change is not a result of that SET. One window remains, an OOPT put followed within the event latency by a put of a value the new setting's test rejects, which is then reported by the monitor's alarm and which access security on OOPT closes. Base repeats the OOPT test in the completion pass and would otherwise silently drop a value put during a write or a retry of a failed value. Sites that must avoid repeated SETs of an unchanged value compare the value before the record in a synchronous calcout gated on a CALC condition. | 2026-09-26 |
+| D15 | Request SETs are encoded from the record's typed value by the native adapter with snmp_pdu_add_variable, never through text and snmp_add_var; each set type has a check in front of that one conversion point (INTEGER32 range and integrality, finite single-precision float range, buffer length), and a value that fails is not sent and completes WRITE/INVALID. Record limits such as DRVH/DRVL remain the user's tool; the module check is the guarantee against an undefined conversion. A negative zero is encoded as 0.0, as the legacy path does. | 2026-09-26 |
+| D16 | A SET response matches only when its single varbind carries the OID and the SNMP type that were sent; a response with the same OID and another type fails as WRITE. | 2026-09-26 |
+| D17 | The `R` flag on a request output is accepted only on ao with set type `i`, where RVAL exists; on ao `F`, longout or stringout it fails the binding, as any unsupported flag or record and set type pair does. | 2026-09-26 |
 
 ### Milestone Details
 
@@ -2917,8 +2923,9 @@ A third-person pass on those corrections (fup20260926_115023, charter C13)
 returned FAIL on two minor findings, applied with its informational notes
 under User direction to apply all findings: a CA put with callback processes
 the record once more only for PROC or for a process-passive field of a
-Passive record, otherwise it only stores the value; and the READ list names session open and
-security failures again and is stated as every failure other than a timeout.
+Passive record, otherwise it only stores the value; and the READ list names
+session open and security failures again and is stated as every failure
+other than a timeout.
 It verified on the real IOC that a SIML change during an active read takes
 effect at the next pass and that a malformed reply ends as TIMEOUT. Only
 document text and the same code comment changed.
@@ -3220,7 +3227,7 @@ acceptance or the unexecuted platform matrix.
 Origin: db9ebf5 / M9
 Identity History: none
 GitHub Issue: none
-Status: Not started
+Status: In progress
 
 ##### Summary
 
@@ -3232,8 +3239,8 @@ available unchanged.
 ##### Legacy SET Behavior
 
 The legacy output path in devSnmp.cpp has these properties, which motivate
-this milestone. L4 to L6 are observed in the step 1 SET baseline (M8 / T17)
-and the step 4 runs; L1 to L3 and L7 follow from the code.
+this milestone. L1 to L6 are observed in the Legacy SET Baseline below (T1);
+L7 follows from the code.
 
 - L1, completion before delivery: snmpAoWrite, snmpLoWrite and snmpSoWrite
   format the value, call devSnmp_pv::set and return success. The record
@@ -3247,8 +3254,9 @@ and the step 4 runs; L1 to L3 and L7 follow from the code.
 - L4, timing-based readback: a readback within SetSkipReadbackMSec of the
   last SET is ignored by comparing wall-clock ticks the send thread
   refreshes. On Rocky 8 the readback was applied about 50 ms after a SET in 2
-  of 15 repeats. By code reading, a poll answered after the window can also
-  overwrite a newer write, and readback needs legacy polling of the same OID.
+  of 15 repeats on the M8 step 3 and step 4 builds. By code reading, a poll
+  answered after the window can also overwrite a newer write, and readback
+  needs legacy polling of the same OID.
 - L5, no outcome identity: a reply lost after the device applied a SET is
   retransmitted by the library's retries and can apply again; the module
   cannot tell which attempt succeeded (M8 / T17).
@@ -3263,8 +3271,9 @@ A new output device support for ao, longout and stringout that selects the
 request-driven write path, reusing the typed request/result boundary, EPICS
 completion adapter, native adapter and named endpoints of M8 steps 2 to 4 on
 the current transport. Includes the write contract in
-docs/snmp-architecture.md, device support and DBD entries, the user manual,
-and a real-agent test suite.
+docs/snmp-architecture.md, device support and DBD entries, a SET encoder in
+the native adapter, a per-host request write queue, an OOPT monitor through
+the IOC event service, the user manual, and a real-agent test suite.
 
 Out of scope: removing or changing the legacy `Snmp` output path; bo, mbbo
 and waveform outputs; module-level retries beyond the library's; exactly-once
@@ -3273,16 +3282,18 @@ processes (M8 steps 5 and 6).
 
 ##### Completion Criteria
 
-- Each accepted write sends one SET request and completes the record exactly
-  once, after the agent's response or a terminal error, with PACT held until
-  then and FLNK after the value is applied.
-- An agent error, timeout, send failure or security failure raises a write
-  alarm on the record; no accepted write is dropped without a completion.
+- Each admitted write sends at most one SET transaction, none if it expires
+  in the queue, and completes the record exactly once, after the agent's
+  response or a terminal error, with PACT held until then and FLNK after the
+  result is applied.
+- An agent error, send failure or security failure raises WRITE/INVALID, and
+  an unknown outcome raises TIMEOUT/INVALID, including when record support
+  skips the write routine; no admitted write ends without a completion.
 - Writes arriving while a write is in progress follow a documented,
   observable policy; none disappears silently.
-- The applied value is confirmed from the agent's response, not from a timing
-  window, and a stale read cannot overwrite a newer write.
-- The failure latency is bounded by the effective timeout and retries.
+- The value the agent accepted is reported from its response (ao RBV), not
+  from a timing window, and a stale read cannot overwrite a newer write.
+- The failure latency is bounded by the request deadline.
 - Legacy output records behave as the step 1 SET baseline on Debian 13 and
   Rocky 8.
 
@@ -3292,27 +3303,33 @@ processes (M8 steps 5 and 6).
   to the new output DTYP as they did to the input DTYP.
 - Reuses M8 steps 2 to 4, committed as 28ddf10, d34a6b3 and 8962312.
 - User direction 2026-09-25: design by Base rules. The proposed contract is
-  docs/snmp-architecture.md "Request-Driven Writes": Base RPRO handles writes
-  during an active write; the SET response confirms the value, stored in ao
-  RBV; failures set INVALID with WRITE or TIMEOUT status; request outputs do
-  not use the legacy poll cache; the DTYP is `SnmpRequest`. The contract
-  awaits review and owner acceptance.
+  docs/snmp-architecture.md "Request-Driven Writes"; D13 records the owner's
+  choices after the first contract review, and D14 to D17 the rulings of the
+  2026-09-26 meeting after the rechecks (OOPT, encoding, response match, R
+  flag). The contract passed both review lanes on 2026-09-27 and the owner
+  accepted it and this plan the same day.
 
 ##### Implementation Plan
 
-Plan Status: draft
-Plan Acceptance: none
+Plan Status: accepted
+Plan Acceptance: 2026-09-27, owner acceptance of docs/snmp-architecture.md "Request-Driven Writes" and this detail after the C17 review series
 Implementation Authorization: none
 Superseded Plan Artifacts: none
 
 1. Baseline: rerun the step 1 legacy-set suite on Debian 13 and Rocky 8 and
    reproduce L1 to L6 with real-agent evidence, including the readback case
-   repeated on both platforms.
+   repeated on both platforms. Done: see Legacy SET Baseline and T1.
 2. Contract: add a request-driven write section to docs/snmp-architecture.md
-   that answers the open design questions and states record, transport and
-   failure behavior.
+   that states binding, record processing, writes during an active write,
+   result confirmation, failure alarms, delivery, ordering, deadline and
+   scope. Done: "Request-Driven Writes" states the contract under Base rules
+   and is marked as a proposal awaiting step 3.
 3. Review: independent third-person and second-person review of the
-   contract, convergence, and owner acceptance of the plan.
+   contract, convergence, and owner acceptance of the plan. Review done: the
+   C17 series (rev20260926_134614, rev20260926_135358 and their follow-ups
+   through fup20260927_193303 and fup20260927_193724) ended with both lanes
+   passing on the current text after the owner's rulings D13 to D17; the
+   owner accepted the contract and the plan on 2026-09-27.
 4. Implement the device support, DBD entries, typed SET request and
    completion on the current transport.
 5. Verify with a new real-agent suite, the legacy-set baseline and the
@@ -3323,24 +3340,60 @@ Superseded Plan Artifacts: none
 | Label | Check | Method | Environment | Pass condition |
 | --- | --- | --- | --- | --- |
 | T1 | Legacy baseline | Legacy-set suite and repeated readback case before any change | Actual IOC, writable snmpd, Debian 13 and Rocky 8 | L1 to L6 observed with evidence; baseline counts recorded. |
-| T2 | Completion | Write through the new DTYP with a held and a released reply | Actual IOC, writable snmpd, UDP observer | PACT held until the response; one completion; FLNK after the value is applied. |
-| T3 | Failures | Agent error, request loss, reply loss, send failure and USM failure | Real agent and fault proxy | One completion with a write alarm per write; bounded latency; no silent drop. |
-| T4 | Concurrent writes | Writes while a write is active, to one and to several OIDs | Actual IOC | Behavior matches the accepted policy; every accepted write accounted for. |
-| T5 | Value confirmation | Response value, device-side change and a shared readback input | Actual IOC and writable agent | Confirmed value comes from the agent; no stale overwrite; no timing window. |
-| T6 | Compatibility | Legacy outputs, named endpoints and request-mode inputs together | Actual IOC | Legacy baseline unchanged; new path works through legacy hosts and named endpoints. |
-| T7 | Platforms and review | Full suites on Debian 13 and Rocky 8; independent review | Both platforms | All suites pass or failures are explained; review accepted. |
+| T2 | Binding and completion | Each record and set type pair, rejected pairs, `R` on ao `F`, longout and stringout, other flags, I/O Intr, longout OOPT other than Every Time at binding, and changed at run time by caput both between writes and during an active write; ao init from the database; PINI; writes with a held and a released reply | Actual IOC, writable snmpd, UDP observer | Rejected bindings fail; a failed first-pass check gives ECA_PUTFAIL to a CA put without callback and a normal completion with the alarm to a CA put with callback; a run-time OOPT change is restored to Every Time and posted by the module's monitor callback right after the put, SEVR and STAT show WRITE/INVALID at once with a log line and no record processing, and the next legitimate write under each IVOA setting completes with its own result; a change that a first pass still finds is restored with no SET and WRITE/INVALID published by record processing, and one that a completion callback finds is restored while the write completes with the agent's result, both reached by holding the module's event thread snmpOopt with the owned-thread pause fixture (tests/owned_thread.py) during the OOPT put, as the read-path tests hold snmpComplete, and after the thread is released the record keeps the result of that pass and the released event does nothing; the same value put again afterwards is sent; no SET at init; PACT held until the response; one completion; FLNK after the result is applied. |
+| T3 | Failures | Agent error, varbind mismatch, request loss, reply loss, send failure, USM failure, admission full, unencodable values (non-integral or out-of-range INTEGER, non-finite or out-of-float-range Opaque float, over-long string), queued expiry at the deadline, late response after the deadline, session retirement | Real agent, fault proxy and socket fault | One completion per write with the status in the contract table; no silent drop; latency within the deadline. |
+| T4 | Concurrent writes | dbPutField, CA put with callback, database links, CP-link and FLNK chains, and a scan-started chain during an active write; several records and OIDs on one host; scans during a write | Actual IOC | Behavior matches the contract rules; every admitted write accounted for; SCAN alarm only after ten dropped processing requests from scans, FLNK or database links. |
+| T5 | Value confirmation | ao RBV for INTEGER responses within and beyond DBF_LONG, with and without the `R` flag; a response varbind with the same OID but another type, injected by the fault proxy; a shared readback input | Actual IOC, writable agent and fault proxy | RBV holds the accepted INTEGER in the units sent, and a response beyond DBF_LONG succeeds with RBV unchanged; a type mismatch fails as WRITE with RBV unchanged; no stale overwrite; no timing window. |
+| T6 | Skipped write routine | SIMM on during a write, SDLY with SIMM off, IVOA "Don't drive outputs" and IVOV | Actual IOC and fault proxy | The failure alarm appears in the completion pass; the slot is freed; no SET for the SDLY case. |
+| T7 | Compatibility and shutdown | Legacy outputs, named endpoints and request-mode inputs together; request SETs next to legacy settings on one OID, a request SET queued behind polls and a legacy readback window around a request SET; IOC exit with writes pending | Actual IOC | Legacy baseline unchanged; request SETs never replace legacy settings, go before polls queued after them and leave the legacy readback window unchanged; clean exit without synthetic completion. |
+| T8 | Platforms and review | Full suites on Debian 13 and Rocky 8, including Opaque float SETs against a real agent on each, which needs an Opaque float OID added to the agent fixture; independent review | Both platforms | All suites pass or failures are explained; review accepted. |
+
+##### Legacy SET Baseline
+
+Evidence: /tmp/snmp-m9-baseline-deb13-20260926-a and
+/tmp/snmp-m9-baseline-rocky8-20260926-a, each with driver.sh, the build
+(clean tree at 965dd64), the legacy-set run, 20 readback repeats and
+m9-baseline-observations.json written by m9-baseline-extract.py from the
+suite's own results, record samples, wire log, agent write log and CA log.
+The Rocky 8 readback repeats ran after an uncommitted milestone edit; the
+build, fixtures and tests were those of the clean 965dd64 tree. The Rocky 8
+container command is in container-command.txt. Both platforms show the same
+behavior except L4:
+
+- L1: five CA puts (AnalogSet 11.1, 22.2, 33.3, IntegerSet 444, TextSet
+  queued) returned and all three records showed PACT 0 while a GET was
+  held; the first SET left only after the GET was released.
+- L2: the agent answered each SET with error status 17; the records kept the
+  refused value with severity 0 and no alarm, and the module sent no retry.
+- L3: of the three AnalogSet puts only 33.3 reached the wire (raw 333); 11.1
+  and 22.2 were accepted and never sent.
+- L4: the readback case failed in 5 of 20 repeats on Rocky 8 and 0 of 20 on
+  Debian 13, each time with the shared-OID readback (77.7) replacing the
+  written value (25.5) inside SetSkipReadbackMSec.
+- L5: with the reply lost after application, the agent applied each SET
+  1, 2, 4 and 6 times for retries 0, 1, 3 and the inherited policy.
+- L6: with inherited timeout and retries, lost requests and lost replies
+  ended through stale-session retirement, and host traffic resumed 59.3 to
+  59.9 s after the command; short policies ended by native timeout and
+  traffic resumed after 0.24 to 0.89 s. These are wire times; the harness
+  saw the log line later.
+
+Also observed: while the agent refused SETs, a stringout readback error wrote
+the text INVALID into TextSet VAL, with severity 0 at the next sample
+(snmpSoReadback copies that text on a read error).
 
 ##### Verification Results
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
-| T1 | Not run | Legacy baseline | Pending | none |
-| T2 | Not run | New DTYP completion | Pending | none |
+| T1 | 2026-09-26T20:13:24Z to 20:31:44Z | Committed 965dd64 built with tests/build_fixture.py; Debian 13/Net-SNMP 5.9.4.pre2 and Rocky 8/5.8-33.el8_10; actual IOC, writable snmpd, UDP fault proxy | PASS: L1 to L6 observed on both platforms | legacy-set 12/12 on each; readback case repeated 20 times, 0 failures on Debian 13 and 5 on Rocky 8; see Legacy SET Baseline above. |
+| T2 | Not run | Binding and completion | Pending | none |
 | T3 | Not run | Failure classes | Pending | none |
 | T4 | Not run | Concurrent writes | Pending | none |
 | T5 | Not run | Value confirmation | Pending | none |
-| T6 | Not run | Compatibility | Pending | none |
-| T7 | Not run | Platforms and review | Pending | none |
+| T6 | Not run | Skipped write routine | Pending | none |
+| T7 | Not run | Compatibility and shutdown | Pending | none |
+| T8 | Not run | Platforms and review | Pending | none |
 
 ##### Closure Evidence
 

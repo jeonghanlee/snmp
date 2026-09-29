@@ -13,7 +13,7 @@ import threading
 import time
 
 from ioc import ROOT, digest, write_json
-from snmp_peer import items, oid_text
+from snmp_peer import integer, items, oid_text, tlv
 
 
 CONTACT = ".1.3.6.1.2.1.1.4.0"
@@ -64,6 +64,16 @@ def foreign_report_id(packet):
     return packet[:field + 2] + b"\x05" + packet[field + 3:]
 
 
+def too_big_response(packet):
+    """Replace a real v2c response with tooBig at the UDP boundary."""
+    top = list(items(next(items(packet))[1]))
+    if int.from_bytes(top[0][1], "big") != 1 or top[2][0] != 0xA2:
+        raise ValueError("tooBig injection requires an SNMPv2c response")
+    fields = list(items(top[2][1]))
+    response = fields[0][2] + integer(1) + integer(0) + tlv(0x30, b"")
+    return tlv(0x30, top[0][2] + top[1][2] + tlv(0xA2, response))
+
+
 class Proxy:
     def __init__(self, work, port):
         self.front = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
@@ -86,11 +96,13 @@ class Proxy:
             while not self.stop.is_set():
                 with self.lock:
                     released, self.released = self.released, []
-                for packet, key, address, request_pdu in released:
-                    self.clients[key] = (address, request_pdu)
-                    self.back.send(packet)
+                for packet, key, address, request_pdu, discard in released:
+                    if not discard:
+                        self.clients[key] = (address, request_pdu)
+                        self.back.send(packet)
                     metadata = packet_metadata(packet)
-                    metadata.update(event="release", action="forward", time=time.monotonic_ns())
+                    metadata.update(event="release", action="drop" if discard else "forward",
+                                    time=time.monotonic_ns())
                     self.record(metadata)
                 ready, _, _ = select.select([self.front, self.back], [], [], 0.05)
                 for sock in ready:
@@ -106,6 +118,11 @@ class Proxy:
                     drop = mode == ("drop-requests" if request else "drop-replies")
                     hold = request and mode == "hold-requests"
                     metadata["action"] = "drop" if drop else "hold" if hold else "forward"
+                    if not request and mode == "too-big" and destination:
+                        original_error = metadata.get("error")
+                        packet = too_big_response(packet)
+                        metadata.update(packet_metadata(packet), original_error=original_error,
+                                        action="forward-too-big")
                     if not request and mode == "report-foreign-id" and metadata.get("pdu") == 0xA8 \
                             and metadata.get("id") == 0:
                         packet = foreign_report_id(packet)
@@ -133,14 +150,14 @@ class Proxy:
         self.log.flush()
 
     def fault(self, mode, pdu=None):
-        if mode not in ("normal", "drop-requests", "drop-replies", "hold-requests", "report-foreign-id"):
+        if mode not in ("normal", "drop-requests", "drop-replies", "hold-requests", "report-foreign-id", "too-big"):
             raise ValueError("Unknown UDP fault mode")
         with self.lock:
             self.mode, self.pdu = mode, pdu
 
-    def release(self):
+    def release(self, discard=False):
         with self.lock:
-            self.released.extend(self.held)
+            self.released.extend(item + (discard,) for item in self.held)
             self.held.clear()
 
     def close(self):

@@ -16,14 +16,14 @@
 
 static_assert(sizeof(oid) == sizeof(unsigned long), "Native OID elements must match binding storage");
 
-void snmpNativeCopyValue(SnmpValue &result, const variable_list *value)
+void snmpNativeCopyValue(SnmpValue &result, const variable_list *value, bool legacy)
 {
   result.valid = result.hasLong = result.hasDouble = false;
   result.kind = SnmpValue::Empty;
   result.length = 0;
   result.oid.clear();
-  if (!value || value->type == SNMP_NOSUCHOBJECT ||
-      value->type == SNMP_NOSUCHINSTANCE || value->type == SNMP_ENDOFMIBVIEW) return;
+  if (!value || (!legacy && (value->type == SNMP_NOSUCHOBJECT ||
+      value->type == SNMP_NOSUCHINSTANCE || value->type == SNMP_ENDOFMIBVIEW))) return;
   result.wireType = value->type;
   // The library's float and double printers need a few hundred bytes of room
   // regardless of the printed length, so format into a scratch buffer. A text
@@ -32,7 +32,10 @@ void snmpNativeCopyValue(SnmpValue &result, const variable_list *value)
   // applies its own text rule when the slot finishes.
   std::vector<char> scratch(result.text.size() < 1024 ? 1024 : result.text.size());
   int count = snprint_value(&scratch[0], scratch.size(), value->name, value->name_length, value);
-  if (count < 0 || static_cast<unsigned>(count) >= result.text.size()) return;
+  if (legacy) {
+    scratch.back() = '\0';
+    count = std::min(strlen(&scratch[0]), result.text.size() - 1);
+  } else if (count < 0 || static_cast<unsigned>(count) >= result.text.size()) return;
   memcpy(&result.text[0], &scratch[0], count + 1);
   switch (value->type) {
   case ASN_INTEGER:
@@ -84,6 +87,7 @@ void snmpNativeCopyValue(SnmpValue &result, const variable_list *value)
   case ASN_BIT_STR:
   case ASN_IPADDRESS:
   case ASN_OPAQUE:
+    if (legacy) { result.kind = SnmpValue::Octets; break; }
     if (value->val_len > result.bytes.size() || (value->val_len && !value->val.string)) return;
     result.kind = SnmpValue::Octets;
     result.length = static_cast<unsigned>(value->val_len);
@@ -228,7 +232,8 @@ bool SnmpNativeSession::get(SnmpIdentity transaction, const std::vector<std::vec
 
 bool SnmpNativeSession::transact(SnmpIdentity transaction,
                                 const std::vector<std::vector<unsigned long> > &oids,
-                                unsigned capacity, SnmpWireType wireType, const SnmpValue *payload, long *wireId)
+                                unsigned capacity, SnmpWireType wireType, const SnmpValue *payload, long *wireId,
+                                char legacyType, const char *legacyText, bool legacyResults)
 {
     if (wireId) *wireId = 0;
     if (!handle || closing) {
@@ -251,11 +256,12 @@ bool SnmpNativeSession::transact(SnmpIdentity transaction,
             return false;
         }
     }
-    if (payload && oids.size() != 1) {
+    bool write = payload || legacyText;
+    if (write && oids.size() != 1) {
         lastError = "SET requires one binding";
         return false;
     }
-    snmp_pdu *pdu = snmp_pdu_create(payload ? SNMP_MSG_SET : SNMP_MSG_GET);
+    snmp_pdu *pdu = snmp_pdu_create(write ? SNMP_MSG_SET : SNMP_MSG_GET);
     if (!pdu) {
         lastError = "PDU allocation failed";
         return false;
@@ -266,7 +272,9 @@ bool SnmpNativeSession::transact(SnmpIdentity transaction,
         return false;
     }
     for (size_t i = 0; i < oids.size(); ++i) {
-        if (oids[i].empty() || (payload
+        if (oids[i].empty() || (legacyText
+            ? snmp_add_var(pdu, &oids[i][0], oids[i].size(), legacyType, legacyText) != 0
+            : payload
             ? !snmpNativeAddSetVariable(pdu, &oids[i][0], oids[i].size(), wireType, *payload)
             : !snmp_add_null_var(pdu, (const oid *)&oids[i][0], oids[i].size()))) {
             snmp_free_pdu(pdu);
@@ -279,13 +287,17 @@ bool SnmpNativeSession::transact(SnmpIdentity transaction,
     exchange->requestId = pdu->reqid;
     exchange->messageId = pdu->msgid;
     exchange->terminal = false;
-    exchange->write = payload != NULL;
+    exchange->write = write;
     exchange->oids = oids;
     exchange->result.outcome = SnmpNativeResult::ProtocolError;
     exchange->result.errorStatus = 0;
     exchange->result.errorIndex = 0;
     exchange->result.resends = 0;
     exchange->result.values.assign(oids.size(), SnmpValue(capacity));
+    if (legacyResults) {
+        exchange->result.legacyValues.assign(oids.size(), SnmpValue(1024));
+        exchange->result.legacyMatches.assign(oids.size(), SnmpLegacyMissing);
+    }
     exchanges[exchange->requestId] = exchange;
     sendingId = exchange->requestId;
     int sent = snmp_sess_async_send(handle, pdu, dispatch, this);
@@ -390,6 +402,9 @@ int SnmpNativeSession::dispatch(int operation, snmp_session *, int requestId, sn
             result.outcome = SnmpNativeResult::Response;
             result.errorStatus = pdu->errstat;
             result.errorIndex = pdu->errindex;
+            size_t returned = 0;
+            for (const variable_list *v = pdu->variables; v; v = v->next_variable) ++returned;
+            const variable_list *position = pdu->variables;
             for (size_t i = 0; i < exchange->oids.size(); ++i) {
                 const std::vector<unsigned long> &expected = exchange->oids[i];
                 const variable_list *matched = NULL;
@@ -404,6 +419,16 @@ int SnmpNativeSession::dispatch(int operation, snmp_session *, int requestId, sn
                 }
                 bool exact = !exchange->write || (pdu->variables && !pdu->variables->next_variable);
                 snmpNativeCopyValue(result.values[i], matches == 1 && exact ? matched : NULL);
+                if (!result.legacyValues.empty() && pdu->errstat == SNMP_ERR_NOERROR &&
+                    returned == exchange->oids.size()) {
+                    /* Legacy polling compares each positional OID after its
+                     * response-count check; typed requests match independently. */
+                    bool same = position && !snmp_oid_compare(expected.data(), expected.size(),
+                                                              position->name, position->name_length);
+                    result.legacyMatches[i] = same ? SnmpLegacyMatched : SnmpLegacyMismatch;
+                    snmpNativeCopyValue(result.legacyValues[i], same ? position : NULL, true);
+                }
+                if (position) position = position->next_variable;
             }
         } else if (pdu && pdu->command == SNMP_MSG_REPORT) {
             return 1;

@@ -14,9 +14,12 @@ KINDS = {5: "integer", 6: "integer", 7: "string"}
 def main():
     state, log_path = map(Path, sys.argv[1:])
     while True:
-        command = sys.stdin.readline().strip()
-        if not command:
+        line = sys.stdin.readline()
+        if not line:
             return
+        command = line.strip()
+        if not command:
+            continue
         if command == "PING":
             print("PONG", flush=True)
             continue

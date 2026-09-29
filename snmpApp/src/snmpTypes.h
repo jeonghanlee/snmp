@@ -9,6 +9,8 @@ typedef unsigned long long SnmpIdentity;
 
 enum SnmpOperation { SnmpGet, SnmpSet };
 
+enum SnmpLegacyMatch { SnmpLegacyMissing, SnmpLegacyMatched, SnmpLegacyMismatch };
+
 /* SNMP type a request output sends and expects back; the transport maps it
  * to the library's ASN constant so the adapter stays free of Net-SNMP. */
 enum SnmpWireType { SnmpWireNone = 0, SnmpWireInteger, SnmpWireFloat, SnmpWireOctets };

@@ -2,17 +2,17 @@
 
 ## Scope
 
-This opt-in Linux runtime executes SnmpRequest GETs and SETs in child
+This opt-in Linux runtime executes SnmpRequest and legacy Snmp GETs and SETs in child
 processes. Each configured address has one persistent worker; bindings at
 that address serialize their native transactions. Different addresses have
 independent Net-SNMP state and transport progress deadlines.
 
-Legacy Snmp records, waveform records, legacy v3 host configuration, batching,
-bounded queue admission and the final mixed-operation runtime remain outside
-this implementation stage. An IOC that does not select workers retains its
-existing transport. Selecting workers rejects unsupported legacy bindings;
-it does not fall back to parent-side native operations. Qualification status
-is recorded in [the milestone document](milestone-db9ebf5.md).
+Legacy polling, native text formatting, output readback suppression and queued
+SET replacement use the same worker transport as request records. An IOC that
+does not select workers retains its existing transport. Selecting workers
+does not fall back to parent-side native operations. Hardware and final
+platform/resource qualification are separate from implementation; current
+status is recorded in [the milestone document](milestone-db9ebf5.md).
 
 ## Startup
 
@@ -38,8 +38,8 @@ For v3, load a named profile with `devSnmpLoadV3Profile`, define the address
 with `devSnmpDefineEndpoint`, set endpoint parameters, and bind records using
 `endpoint:name` and the literal `-` community placeholder. The profile and
 engine grammar remains in [the architecture](snmp-architecture.md).
-For v1/v2c, existing host/version and community link settings are supported.
-Load only supported SnmpRequest records, then call `iocInit`.
+Existing v3 host setters/files and v1/v2c host/version/community links are also
+supported. Load records after their configuration, then call `iocInit`.
 
 Local binding resolves the OID, security algorithms and key material inside
 the worker. Startup does not require discovery or a responding agent.
@@ -47,6 +47,73 @@ The log reports a binding ID, child PID, epoch and effective `progressMSec`.
 A missing helper, build mismatch, invalid OID or invalid native security
 configuration fails the affected binding. Check startup errors and actual
 record alarms; IOC process exit zero is not binding acceptance.
+
+## Admission And Sessions
+
+Each address has one FIFO for request GET/SET and legacy polling/SET. Admission
+order is dispatch order across those classes. Only contiguous compatible GETs
+can share a transaction; a SET or a different session configuration ends a
+batch. Shared OIDs occupy one native varbind while each request retains its
+own result capacity, generation and deadline. `maxOidsPerReq` and both IPC
+frame directions bound each batch.
+
+The default count limit is 1024 pending commands per worker, excluding its
+active native transaction. `devSnmpSetQueueSize(address, count)` selects a
+positive integer up to 2147483647 for one configured address; other address
+workers retain their limits. Use the exact address from the record link or
+named endpoint, including any transport prefix and port, not the endpoint name.
+Set it after command registration and before `iocInit()` in `st.cmd`:
+
+```iocsh
+epicsEnvSet("SNMP_QUEUE_SIZE", "1024")
+devSnmpSetQueueSize("$(SNMP_HOST)", $(SNMP_QUEUE_SIZE))
+```
+
+`SNMP_HOST` must already identify the target address in the startup script.
+Repeat the command with another address and count for another device.
+The same `devSnmpSetQueueSize` command also applies after `iocInit()`. Increasing
+the limit allows new admissions immediately. Decreasing it preserves every
+queued ticket, FIFO position and deadline; new tickets are rejected while
+the count is at or above the new limit. An existing queued legacy SET may
+still replace its value without adding a ticket. Zero and negative values
+are rejected without changing the limit. Changes during shutdown are rejected.
+An empty, whitespace-containing or longer-than-255-character address is rejected.
+After IOC startup, an address without a configured worker is also rejected.
+`snmpr(0)` prints `pending_limit` and the address for each worker. Changing the environment
+variable alone does not resize queues: invoke the setter to apply its value.
+Live changes are not persisted; IOC restart uses `st.cmd` or the default.
+Credential and endpoint configuration freeze rules are unchanged.
+
+The separate 1 MiB charged-data limit remains fixed. Each command is charged its
+encoded payload plus 40 bytes: one 32-byte frame header, member count and
+length field. This reserves a complete single-command transaction even when
+later batching shares framing. Byte accounting does not represent total
+process RSS. Request admission failure completes once with READ/INVALID or
+WRITE/INVALID, subject to Base alarm priority. Legacy write admission failure
+returns a write error; a rejected legacy poll remains eligible for a later poll.
+
+A pending legacy SET to the same OID replaces its value at the existing FIFO
+position. Request SETs never coalesce. The supervisor removes expired queued
+requests without transmission and resolves the matching generation's timeout
+after releasing the queue lock, even while the completion thread is delayed.
+Admission counts retained tickets until dispatch or the supervisor expiry pass
+removes them. An expired active request completes at its record
+deadline while its native transaction continues to own the worker; a later
+request cannot bypass that transaction or receive its result.
+
+Compatible bindings share a persistent native session. Address, protocol,
+community or profile/security configuration, context, engine IDs and native
+timeout/retries must match. Record capacity, OID and operation do not determine
+session ownership. Native terminal transport/security failure closes the
+session outside the callback; a later command opens a new session. Native
+discovery, timeliness handling and retransmission remain Net-SNMP operations.
+An explicit security engine ID stays fixed across recovery.
+
+Legacy replies retain positional OID comparison after the response-count
+check. Repeated mismatches beyond `MaxOidCompFailures` invalidate the cached
+reading. A missing variable instead permits an immediate poll without
+incrementing that counter. A valid matching reply resets the counter and
+restores the cache. Request records retain independent unique-OID matching.
 
 ## Deadlines And Recovery
 
@@ -88,6 +155,9 @@ reaping is reported as incomplete shutdown.
 ## Diagnostics And Reproduction
 
 `snmpr` reports worker PID, epoch, state, binding count and watchdog budget.
+`SNMPQUEUE` reports pending command/byte counts, their high-water values and
+admission rejections. Repeated reports contain the same trace history;
+sequence numbers identify events across those reports.
 Enable `RequestTrace=1` before loading records when transaction correlation is
 needed. Parent `dispatch` records IPC ownership transfer with `wire=0`.
 Child `SNMPWIRE` entries correlate the parent transaction ID and worker epoch
@@ -99,5 +169,9 @@ one diagnostic line per attempted application transaction while tracing is on.
 Run the [worker tests](../tests/README.md#worker-process-boundary) against an
 isolated build. Preserve the build manifest, source and helper/module hashes,
 actual startup files, IOC logs, UDP observations and result files together.
-The worker suite does not qualify hardware, mixed legacy traffic, bounded
-queue capacity, batching or production timing.
+Use the scheduler, legacy-set and batch suites with the explicit matching
+helper for mixed traffic, queue count and batching checks. The worker suite
+also tests warm session reuse and engine recovery. These suites do not qualify
+hardware, production timing or a one-hour resource soak. Current record SET
+payloads reach the count limit before the 1 MiB byte limit; byte-bound
+qualification remains a separate acceptance item.

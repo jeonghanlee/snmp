@@ -13,7 +13,7 @@ struct variable_list;
 /* Copies one native varbind into owned typed storage. The result is valid only
  * for a supported, non-exception type whose value and bounded legacy text fit
  * the storage reserved in result. Native storage is never retained. */
-void snmpNativeCopyValue(SnmpValue &result, const variable_list *value);
+void snmpNativeCopyValue(SnmpValue &result, const variable_list *value, bool legacy = false);
 
 /* Appends one varbind for a request SET from an owned typed payload, as
  * binary through snmp_pdu_add_variable, never through text. wireType selects
@@ -55,7 +55,9 @@ bool snmpNativeResolveBudget(long &timeoutUs, int &retries);
  * was accepted. SecurityError: the library reported a USM failure
  * (SEC_ERROR); a report it recovers from is not an outcome. ProtocolError:
  * another message type or an unknown callback operation. Closed: the session
- * closed first. resends counts the library's RESEND callbacks. */
+ * closed first. resends counts the library's RESEND callbacks. Legacy values
+ * retain positional OID and response-count classification separately from
+ * the typed unique-OID result view. */
 struct SnmpNativeResult {
     enum Outcome { Response, Timeout, SendFailed, SecurityError, ProtocolError, Closed };
     Outcome outcome;
@@ -63,6 +65,8 @@ struct SnmpNativeResult {
     long errorIndex;
     unsigned resends;
     std::vector<SnmpValue> values;
+    std::vector<SnmpValue> legacyValues;
+    std::vector<SnmpLegacyMatch> legacyMatches;
 };
 
 /* Owner of one Net-SNMP Single Session handle and of the state of every
@@ -104,7 +108,8 @@ public:
     /* An optional wireId receives the accepted native request ID for trace
      * correlation only; zero means that no application PDU was accepted. */
     bool transact(SnmpIdentity transaction, const std::vector<std::vector<unsigned long> > &oids,
-                  unsigned capacity, SnmpWireType wireType, const SnmpValue *payload, long *wireId = NULL);
+                  unsigned capacity, SnmpWireType wireType, const SnmpValue *payload, long *wireId = NULL,
+                  char legacyType = 0, const char *legacyText = NULL, bool legacyResults = false);
     void close();
     bool isOpen() const { return handle != 0; }
     size_t pending() const { return exchanges.size() + deferred.size(); }

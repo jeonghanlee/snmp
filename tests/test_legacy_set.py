@@ -7,19 +7,21 @@ import tempfile
 import time
 import unittest
 
-from ioc import IOC, ROOT, settings, write_json
+from ioc import IOC, ROOT, settings, trace_evidence, write_json
 from snmp_agent import Agent, Proxy
 
 
 CASES = ("success", "agent_error", "queued_coalescing", "readback_suppression",
          "request_loss_zero", "request_loss_one", "request_loss_three", "request_loss_defaults",
-         "reply_loss_zero", "reply_loss_one", "reply_loss_three", "reply_loss_defaults")
+         "reply_loss_zero", "reply_loss_one", "reply_loss_three", "reply_loss_defaults",
+         "phase_agent_error", "phase_request_loss", "phase_reply_loss")
 OUTPUTS = (("AnalogSet", "AnalogRead", 5, 25.5, 255, 2),
            ("IntegerSet", "IntegerRead", 6, -77, -77, 2),
            ("TextSet", "TextRead", 7, "applied", "applied", 4))
 SHORT_TIMEOUT_US = 200000
 QUEUE_TIMEOUT_US = 4000000
 SKIP_READBACK_MS = 1000
+PHASE_SKIP_READBACK_MS = 5000
 
 
 class LegacySetTest(unittest.TestCase):
@@ -35,18 +37,24 @@ class LegacySetTest(unittest.TestCase):
         self.host = host
         suffix = self._testMethodName.rsplit("_", 1)[-1]
         self.retries = {"zero": 0, "one": 1, "three": 3, "defaults": 5}.get(suffix, 0)
+        self.phase_test = self._testMethodName.startswith("test_phase_")
+        if self.phase_test:
+            self.retries = 1
+        self.skip_readback_ms = PHASE_SKIP_READBACK_MS if self.phase_test else SKIP_READBACK_MS
         self.timeout_us = 10000000 if suffix == "defaults" else SHORT_TIMEOUT_US
         if self._testMethodName == "test_queued_coalescing":
             self.timeout_us = QUEUE_TIMEOUT_US
         lines = ['devSnmpSetParam("DebugLevel", 2)',
                  'devSnmpSetParam("PassivePollMSec", 100)',
                  'devSnmpSetParam("DataStaleTimeoutMSec", 500)',
-                 f'devSnmpSetParam("SetSkipReadbackMSec", {SKIP_READBACK_MS})',
+                 f'devSnmpSetParam("SetSkipReadbackMSec", {self.skip_readback_ms})',
                  f'devSnmpSetSnmpVersion("{host}", "SNMP_VERSION_2c")']
         if suffix != "defaults":
             lines += [f'devSnmpSetParam("SessionTimeout", {self.timeout_us})',
                       f'devSnmpSetParam("SessionRetries", {self.retries})']
         lines.append(f'dbLoadRecords("{ROOT}/tests/legacy_set.db", "P=SNMPTEST:,HOST={host}")')
+        if self.phase_test:
+            lines.append(f'dbLoadRecords("{ROOT}/tests/legacy_set_audit.db", "P=SNMPTEST:")')
         runtime_dir = self.work / "ioc"
         runtime_dir.mkdir()
         self.runtime = IOC(runtime_dir, lines)
@@ -58,7 +66,90 @@ class LegacySetTest(unittest.TestCase):
                               self.runtime.get("TextSet") == r'\"initial\"', "native startup readback")
         self.assertEqual(self.sets(), [], "Startup or readback emitted a SET")
         write_json(self.work / "policy.json", {"timeout_us": self.timeout_us, "retries": self.retries,
-                   "overrides_omitted": suffix == "defaults", "skip_readback_ms": SKIP_READBACK_MS})
+                   "overrides_omitted": suffix == "defaults", "skip_readback_ms": self.skip_readback_ms})
+
+    def phase_audits(self, output, after):
+        _, rows = trace_evidence(self.runtime.work)
+        return [row for row in rows if row["record"] == "SNMPTEST:Audit" + output and row["time"] > after]
+
+    def phase_aligned(self, mode):
+        observations = []
+        for output, readback, key, value, raw, kind in OUTPUTS:
+            initial = self.state()["values"][str(key)]
+            self.change_state(reject=mode == "agent-error")
+            self.proxy.fault("hold-requests", 0xA3)
+            first = len(self.sets())
+            start = time.monotonic_ns()
+            self.runtime.put(output, value)
+            def command_audits():
+                return [row for row in self.phase_audits(output, start) if row["text"] == str(value)]
+            self.runtime.wait_for(lambda: bool(self.proxy.held) and command_audits(),
+                                  "held SET and actual command FLNK")
+            command = command_audits()[0]
+            self.assertEqual((command["pact"], command["status"], command["severity"], command["undefined"]),
+                             (1, 0, 0, 0))
+            self.assertEqual(len(self.sets()) - first, 1, "Command barrier exceeded native retry interval")
+            release = time.monotonic_ns()
+            self.proxy.fault("normal" if mode == "agent-error" else mode)
+            self.proxy.release(discard=mode == "drop-requests")
+            oid = f".1.3.6.1.4.1.55555.{key}.0"
+            def terminal_seen():
+                self.runtime.process.stdin.write("requestDiagnostics\n")
+                self.runtime.process.stdin.flush()
+                return f"SET {oid} failed :" in (self.runtime.work / "ioc.log").read_text()
+            self.runtime.wait_for(terminal_seen, "actual native SET terminal callback")
+            terminal_observed = time.monotonic_ns()
+            invalid = None
+            if mode != "agent-error":
+                self.runtime.wait_for(lambda: any(row["status"] == 1 and row["severity"] == 3
+                                                  for row in self.phase_audits(output, release)),
+                                      "real stale-cache READ/INVALID FLNK")
+                invalid = next(row for row in self.phase_audits(output, release)
+                               if row["status"] == 1 and row["severity"] == 3)
+                self.assertEqual(invalid["text"], "INVALID" if isinstance(raw, str) else command["text"],
+                                 "Stale output differs from the native legacy record contract")
+            writes = self.sets()[first:]
+            self.assertEqual(len(writes), 1 if mode == "agent-error" else self.retries + 1)
+            self.assertEqual(len({row["id"] for row in writes}), 1)
+            for row in writes:
+                self.assertEqual(row["varbinds"], [{"oid": oid, "type": kind, "value": raw}])
+            expected = raw if mode == "drop-replies" else initial
+            self.oracle(key, expected)
+            recovered_after = time.monotonic_ns()
+            self.change_state()
+            self.proxy.fault("normal")
+            expected_value = expected / 10 if key == 5 else expected
+            self.stable(output, readback, expected_value, expected)
+            self.runtime.wait_for(lambda: any(row["severity"] == 0 for row in
+                                              self.phase_audits(output, recovered_after)),
+                                  "actual readback recovery FLNK")
+            recovered = [row for row in self.phase_audits(output, recovered_after) if row["severity"] == 0][-1]
+            self.assertEqual((recovered["pact"], recovered["status"], recovered["undefined"]), (1, 0, 0))
+            responses = [row for row in self.proxy.records if row["event"] == "response" and
+                         row.get("id") == writes[0]["id"] and row["time"] > release]
+            if mode == "agent-error":
+                self.assertTrue(responses and responses[0]["error"] != 0)
+                self.assertGreater(recovered["time"], responses[0]["time"])
+            elif mode == "drop-replies":
+                self.assertTrue(responses and all(row["action"] == "drop" for row in responses))
+            else:
+                self.assertEqual(responses, [])
+            self.assertEqual(len(self.sets()) - first, len(writes), "Recovery replayed a SET")
+            observations.append(dict(output=output, mode=mode, command=command, invalid=invalid,
+                                     recovered=recovered, release_ns=release,
+                                     terminal_observed_ns=terminal_observed, recovery_started_ns=recovered_after,
+                                     writes=writes, responses=responses,
+                                     all_audits=self.phase_audits(output, start)))
+            write_json(self.work / "phase-observations.json", observations)
+
+    def test_phase_agent_error(self):
+        self.phase_aligned("agent-error")
+
+    def test_phase_request_loss(self):
+        self.phase_aligned("drop-requests")
+
+    def test_phase_reply_loss(self):
+        self.phase_aligned("drop-replies")
 
     def sets(self):
         return [row for row in self.proxy.records if row["event"] == "request" and row.get("pdu") == 0xA3]

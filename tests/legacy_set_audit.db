@@ -1,0 +1,36 @@
+record(ao, "$(P)AnalogSet") {
+    field(FLNK, "$(P)AuditAnalogSet")
+}
+record(sub, "$(P)AuditAnalogSet") {
+    field(DESC, "Legacy analog state at actual FLNK")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)AnalogSet NPP")
+    field(INPB, "$(P)AnalogSet.PACT NPP")
+    field(INPC, "$(P)AnalogSet.SEVR NPP")
+    field(INPD, "$(P)AnalogSet.STAT NPP")
+    field(INPE, "$(P)AnalogSet.UDF NPP")
+    field(INPF, "$(P)AnalogSet.RBV NPP")
+}
+record(longout, "$(P)IntegerSet") {
+    field(FLNK, "$(P)AuditIntegerSet")
+}
+record(sub, "$(P)AuditIntegerSet") {
+    field(DESC, "Legacy integer state at actual FLNK")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)IntegerSet NPP")
+    field(INPB, "$(P)IntegerSet.PACT NPP")
+    field(INPC, "$(P)IntegerSet.SEVR NPP")
+    field(INPD, "$(P)IntegerSet.STAT NPP")
+    field(INPE, "$(P)IntegerSet.UDF NPP")
+}
+record(stringout, "$(P)TextSet") {
+    field(FLNK, "$(P)AuditTextSet")
+}
+record(sub, "$(P)AuditTextSet") {
+    field(DESC, "Legacy text state at actual FLNK")
+    field(SNAM, "requestAudit")
+    field(INPB, "$(P)TextSet.PACT NPP")
+    field(INPC, "$(P)TextSet.SEVR NPP")
+    field(INPD, "$(P)TextSet.STAT NPP")
+    field(INPE, "$(P)TextSet.UDF NPP")
+}

@@ -384,6 +384,10 @@ class devSnmp_oid
     void finishRequests(devSnmp_session *session, netsnmp_variable_list *value, bool timedOut);
     void enableLegacyPolling(void) { legacyPolling = true; }
     void periodicProcessing(epicsTimeStamp *pnow);
+    void attachWorker(uint64_t binding);
+    void workerPoll(epicsTimeStamp *pnow);
+    static void workerNotify(void *context, bool write, bool terminal, const SnmpValue *value,
+                             unsigned outcome, long error, SnmpLegacyMatch match);
 
     int getDataLength(void);
     void setDataLength(int length);
@@ -393,7 +397,7 @@ class devSnmp_oid
     int getPollMSec(void);
     void setPollMSec(int msec);
 
-    void set(char set_type, char *str);
+    bool set(char set_type, char *str);
     bool needsSet(void);
     devSnmp_setting *getNextSetting(void);
     void debugSetStart();
@@ -440,6 +444,8 @@ class devSnmp_oid
     epicsMutexId      valMutex;
     epicsMutexId      setMutex;
     devSnmp_setting  *settingToSend;
+    void             *workerBinding;
+    bool              workerUpdate;
     int               flagged_read_bad;
     snmpTimeObject    pollStart;
     snmpTimeObject    lastSetSent;
@@ -504,7 +510,7 @@ class devSnmp_pv
     void processRecord(bool asyncUpdate = false);
     bool doingProcess(void);
 
-    void set(char *str);
+    bool set(char *str);
     bool wasSetRecently(void);
     char getSetType(void);
     void debugSetStart();
@@ -779,6 +785,7 @@ extern "C" {
   int devSnmpSetSnmpV3ConfigFile(char *hostName, char *fileName);
   int devSnmpLoadV3Profile(const char *name, const char *fileName);
   int devSnmpConfigureWorkers(const char *executable, int maximum);
+  int devSnmpSetQueueSize(const char *address, int pending);
   int devSnmpDefineEndpoint(const char *name, const char *address, const char *profile);
   int devSnmpSetEndpointParam(const char *name, const char *parameter, const char *value);
   int devSnmpSetMaxOidsPerReq(char *hostName, int maxoids);

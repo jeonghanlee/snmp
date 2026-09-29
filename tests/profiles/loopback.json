@@ -15,7 +15,7 @@
     "deadline_completion_seconds": 1,
     "healthy_max_seconds": 1,
     "healthy_p99_delta_seconds": 0.1,
-    "pending_per_worker": 256,
+    "pending_per_worker": 1024,
     "queue_bytes_per_worker": 1048576
   }
 }

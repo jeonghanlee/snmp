@@ -88,7 +88,7 @@ def verified_baseline(test, suite, case, fixtures):
 
 class IOC:
     def __init__(self, work, lines, prefix="SNMPTEST:", require_shutdown=True, process_env=None, terminal=False,
-                 executable=None):
+                 executable=None, startup_timeout=None):
         self.work = Path(work)
         self.config = settings()
         self.executable = Path(executable or self.config["ioc"]).resolve()
@@ -175,7 +175,9 @@ class IOC:
                 if slave is not None:
                     os.close(slave)
             self.metadata["pid"] = self.process.pid
-            self.wait_for(lambda: self.get("TestInstance") == self.instance, "owned IOC instance readiness")
+            self.metadata["startup_timeout"] = startup_timeout if startup_timeout is not None else self.deadline
+            self.wait_for(lambda: self.get("TestInstance") == self.instance, "owned IOC instance readiness",
+                          timeout=startup_timeout)
             self.verify_runtime()
             if terminal:
                 self.wait_for(lambda: self.terminal_prompts() > 0, "interactive terminal prompt")
@@ -359,10 +361,17 @@ def trace_evidence(work):
     work = Path(work)
     log = (work / "ioc.log").read_text()
     driver, flnk = [], []
+    reported = {}
     for match in re.finditer(r"SNMPREQ (\d+) (\d+) (\S+) (\d+) (\w+) ([01])([^\n]*)", log):
         sequence, stamp, record, generation, event, success, extra = match.groups()
-        driver.append(dict(sequence=int(sequence), time=int(stamp), record=record,
-                           generation=int(generation), event=event, success=bool(int(success)), extra=extra.strip()))
+        row = dict(sequence=int(sequence), time=int(stamp), record=record,
+                   generation=int(generation), event=event, success=bool(int(success)), extra=extra.strip())
+        if row["sequence"] in reported:
+            if reported[row["sequence"]] != row:
+                raise AssertionError("A repeated trace sequence changed its recorded event")
+        else:
+            reported[row["sequence"]] = row
+            driver.append(row)
     for match in re.finditer(r"SNMPAUDIT (\d+) (\S+) (\S+) (\d+) (\d+) (\d+)([^\n]*)", log):
         stamp, record, value, pact, severity, count, extra = match.groups()
         row = dict(time=int(stamp), record=record, value=value, pact=int(pact),
@@ -375,3 +384,14 @@ def trace_evidence(work):
     for name, rows in (("driver.jsonl", driver), ("flnk.jsonl", flnk)):
         (work / name).write_text("".join(json.dumps(row) + "\n" for row in rows))
     return driver, flnk
+
+
+def worker_wire_evidence(test, log):
+    """Correlate actual helper transaction identities with native request IDs."""
+    result = {}
+    if settings().get("worker_helper"):
+        for match in re.finditer(r"SNMPWIRE (\d+) epoch=(\d+) tx=(\d+) wire=(\d+)", log):
+            stamp, epoch, transaction, native_id = map(int, match.groups())
+            test.assertNotIn(transaction, result, "Worker replayed an application transaction")
+            result[transaction] = (stamp, epoch, native_id)
+    return result

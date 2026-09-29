@@ -1,8 +1,10 @@
 #include "snmpSupervisor.h"
 #include "snmpRequest.h"
+#include "snmpScheduler.h"
 #include "snmpWorkerBuild.h"
 #include <algorithm>
 #include <atomic>
+#include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
@@ -13,6 +15,7 @@
 #include <signal.h>
 #include <spawn.h>
 #include <stdio.h>
+#include <string.h>
 #include <sys/socket.h>
 #include <sys/wait.h>
 #include <thread>
@@ -22,10 +25,14 @@ extern char **environ;
 namespace {
 using namespace snmpIpc;
 const unsigned defaultMaximum = 32;
+const size_t maximumAddressLength = 255;
 const uint64_t secondNS = 1000000000;
 
+struct Child;
 struct Entry {
-    uint64_t id;
+    uint64_t id, session;
+    Child *child;
+    SnmpLegacyTarget legacy;
     SnmpWorkerBinding config;
     std::vector<unsigned long> oid;
     devSnmp_request *request;
@@ -38,14 +45,16 @@ struct Child {
     uint64_t epoch, limitMSec, due, retryAt, transaction;
     unsigned backoff;
     size_t setupIndex;
-    Entry *active;
+    std::vector<SnmpTicket> active;
+    SnmpScheduler queue;
     std::vector<std::unique_ptr<Entry> > entries;
-    Child(const std::string &a) : state(Dead), address(a), pid(0), epoch(0), limitMSec(0), due(0),
-        retryAt(0), transaction(0), backoff(1), setupIndex(0), active(NULL) {}
+    Child(const std::string &a, size_t pending) : state(Dead), address(a), pid(0), epoch(0), limitMSec(0), due(0),
+        retryAt(0), transaction(0), backoff(1), setupIndex(0), queue(pending) {}
 };
 struct Supervisor {
     std::string executable;
     unsigned maximum;
+    std::map<std::string, size_t> queueLimits;
     uint64_t overrideMSec, nextEpoch, nextBinding, nextTransaction;
     bool locked;
     std::atomic<bool> stopping;
@@ -59,13 +68,49 @@ struct Supervisor {
  * not run static destructors against that storage after EPICS teardown. */
 Supervisor &owner() { static Supervisor *s = new Supervisor; return *s; }
 
+Entry *entry(Child &c, uint64_t id)
+{
+    for (size_t i = 0; i < c.entries.size(); ++i)
+        if (c.entries[i]->id == id) return c.entries[i].get();
+    return NULL;
+}
+void deliver(Child &c, const SnmpTicket &ticket, const SnmpValue &value, unsigned outcome, long error,
+             SnmpLegacyMatch match = SnmpLegacyMissing)
+{
+    Entry &e = *entry(c, ticket.binding);
+    if (e.request) e.request->finish(c.transaction, value, outcome == 1);
+    else if (e.legacy.notify) e.legacy.notify(e.legacy.context, ticket.write, true, &value, outcome, error, match);
+}
 void failActive(Child &c, bool timeout)
 {
-    if (c.active && c.active->request) {
-        SnmpValue failure(c.active->config.capacity);
-        c.active->request->finish(c.transaction, failure, timeout);
+    for (size_t i = 0; i < c.active.size(); ++i) {
+        SnmpValue failure(std::max(1024u, c.active[i].capacity));
+        deliver(c, c.active[i], failure, timeout ? 1 : 2, 0);
     }
-    c.active = NULL; c.transaction = 0;
+    c.active.clear(); c.transaction = 0;
+}
+SnmpTicket ticket(Entry &e, unsigned long long generation, uint64_t due,
+                  const SnmpValue *payload, char type = 0, const char *text = NULL)
+{
+    SnmpTicket job;
+    job.binding = e.id; job.session = e.session; job.generation = generation;
+    job.deadline = due; job.capacity = e.config.capacity; job.maxOids = e.config.maxOids;
+    job.write = payload || text; job.coalesce = e.config.legacy && job.write; job.oid = e.oid;
+    Writer w;
+    w.u64(e.id); w.u64(e.config.profile); w.u64(due);
+    w.u32(job.write ? SnmpSet : SnmpGet); w.u32(e.oid.size());
+    for (size_t i = 0; i < e.oid.size(); ++i) w.u32(e.oid[i]);
+    if (job.write) {
+        if (e.config.legacy) { w.u32(static_cast<unsigned char>(type)); w.string(text); }
+        else w.value(*payload);
+    }
+    job.command.swap(w.bytes);
+    return job;
+}
+bool admitRequest(void *context, unsigned long long generation, uint64_t due, const SnmpValue *payload)
+{
+    Entry &e = *static_cast<Entry *>(context);
+    return e.child->queue.admit(ticket(e, generation, due, payload));
 }
 void retire(Child &c, const char *reason, bool timeout = false)
 {
@@ -155,56 +200,83 @@ bool receive(Child &c, const Frame &f)
         ++c.setupIndex;
         return bindNext(c);
     }
-    if (c.state != Child::Busy || f.kind != Result || f.transaction != c.transaction || !c.active) return false;
-    Entry &e = *c.active;
-    uint64_t binding = r.u64(); unsigned outcome = r.u32();
-    uint64_t errorStatus = r.u64(), errorIndex = r.u64();
-    r.u32();
-    SnmpValue value(std::max(1024u, e.config.capacity));
-    if (binding != e.id || outcome > 5 || !r.value(value) || !r.done() || errorStatus > INT_MAX ||
-        errorIndex > INT_MAX) return false;
-    if (outcome != 0 || errorStatus) value.valid = false;
-    if (e.config.operation == SnmpSet) {
-        unsigned expected = e.config.wireType == SnmpWireInteger ? 2 :
-                            e.config.wireType == SnmpWireFloat ? 0x78 : 4;
-        if (value.wireType != expected) value.valid = false;
+    if (c.state != Child::Busy || f.kind != Result || f.transaction != c.transaction || c.active.empty()) return false;
+    unsigned count = r.u32();
+    if (count != c.active.size()) return false;
+    struct ResultValue {
+        SnmpValue value;
+        unsigned outcome;
+        long error;
+        SnmpLegacyMatch match;
+        ResultValue(unsigned capacity) : value(capacity), outcome(0), error(0), match(SnmpLegacyMissing) {}
+    };
+    std::vector<ResultValue> results;
+    for (unsigned i = 0; i < count; ++i) {
+        Entry &e = *entry(c, c.active[i].binding);
+        uint64_t binding = r.u64(); unsigned outcome = r.u32();
+        uint64_t errorStatus = r.u64(), errorIndex = r.u64();
+        r.u32();
+        unsigned match = r.u32();
+        results.push_back(ResultValue(std::max(1024u, e.config.capacity)));
+        ResultValue &result = results.back();
+        result.outcome = outcome;
+        if (binding != e.id || outcome > 5 || match > SnmpLegacyMismatch ||
+            (!e.config.legacy && match != SnmpLegacyMissing) || !r.value(result.value, false, e.config.legacy) ||
+            errorStatus > INT_MAX || errorIndex > INT_MAX) return false;
+        result.match = static_cast<SnmpLegacyMatch>(match);
+        result.error = errorStatus;
+        if (outcome != 0 || errorStatus) result.value.valid = false;
+        if (c.active[i].write && !e.config.legacy) {
+            unsigned expected = e.config.wireType == SnmpWireInteger ? 2 :
+                                e.config.wireType == SnmpWireFloat ? 0x78 : 4;
+            if (result.value.wireType != expected) result.value.valid = false;
+        }
     }
-    e.request->finish(c.transaction, value, outcome == 1);
-    c.active = NULL; c.transaction = 0; c.state = Child::Idle;
+    if (!r.done()) return false;
+    for (unsigned i = 0; i < count; ++i)
+        deliver(c, c.active[i], results[i].value, results[i].outcome, results[i].error, results[i].match);
+    c.active.clear(); c.transaction = 0; c.state = Child::Idle;
     c.backoff = 1;
     return true;
 }
 void dispatch(Child &c)
 {
     Supervisor &s = owner();
-    Entry *next = NULL;
-    for (size_t i = 0; i < c.entries.size(); ++i) {
-        Entry *e = c.entries[i].get();
-        if (e->request && e->request->pending() &&
-            (!next || e->request->acceptedAt() < next->request->acceptedAt())) next = e;
-    }
-    if (!next || s.nextTransaction == UINT64_MAX) return;
-    SnmpValue payload(next->config.capacity);
-    uint64_t originalDeadline;
+    if (s.nextTransaction == UINT64_MAX) return;
+    std::vector<SnmpTicket> pending = c.queue.take();
+    if (pending.empty()) return;
     uint64_t transaction = ++s.nextTransaction;
-    if (!next->request->claimWorker(transaction, payload, originalDeadline)) return;
-    c.active = next; c.transaction = transaction;
+    for (size_t i = 0; i < pending.size(); ++i) {
+        Entry &e = *entry(c, pending[i].binding);
+        if (!e.request || e.request->claimWorker(transaction, pending[i].generation))
+            c.active.push_back(std::move(pending[i]));
+    }
+    if (c.active.empty()) return;
+    c.transaction = transaction;
     if (!deadline(c.limitMSec, c.due)) { failActive(c, false); return; }
     Writer w;
-    w.u64(next->id); w.u64(next->config.profile); w.u64(originalDeadline);
-    w.u32(next->config.operation); w.u32(next->oid.size());
-    for (size_t i = 0; i < next->oid.size(); ++i) w.u32(next->oid[i]);
-    if (next->config.operation == SnmpSet) w.value(payload);
+    w.u32(c.active.size());
+    for (size_t i = 0; i < c.active.size(); ++i) w.blob(c.active[i].command.data(), c.active[i].command.size());
     Frame f = {Transaction, c.epoch, transaction, w.bytes};
     if (!c.channel.queue(f)) { retire(c, "output ownership"); return; }
     c.state = Child::Busy;
-    /* From this point even a failed first write leaves a SET outcome unknown.
-     * There is no transaction requeue on retirement or restart. */
-    next->request->dispatched(transaction, 0);
+    /* IPC handoff freezes every member. Retirement cannot requeue a SET,
+     * including when the first write fails without observable progress. */
+    for (size_t i = 0; i < c.active.size(); ++i) {
+        Entry &e = *entry(c, c.active[i].binding);
+        if (e.request) e.request->dispatched(transaction, 0);
+        else if (e.legacy.notify) e.legacy.notify(e.legacy.context, c.active[i].write, false, NULL, 0, 0,
+                                                SnmpLegacyMissing);
+    }
 }
 void service(Child &c, bool dispatchAllowed)
 {
     uint64_t current = now();
+    std::vector<SnmpTicket> expired = c.queue.expire();
+    for (size_t i = 0; i < expired.size(); ++i) {
+        Entry &e = *entry(c, expired[i].binding);
+        if (e.request) e.request->expireWorker(expired[i].generation);
+    }
     if (c.state == Child::Dead) {
         if (dispatchAllowed && current >= c.retryAt && reap(c) && !spawn(c)) retire(c, "spawn failed");
         return;
@@ -242,6 +314,38 @@ void run()
 
 bool snmpSupervisorEnabled() { return !owner().executable.empty(); }
 void snmpSupervisorLock() { owner().locked = true; }
+bool snmpSupervisorSetQueueSize(const char *address, int pending, std::string &error)
+{
+    Supervisor &s = owner();
+    std::lock_guard<std::mutex> guard(s.mutex);
+    size_t length = address ? strlen(address) : 0;
+    if (!length || length > maximumAddressLength) {
+        error = "queue address must contain 1 through 255 non-whitespace characters";
+        return false;
+    }
+    for (size_t i = 0; i < length; ++i) {
+        if (isspace(static_cast<unsigned char>(address[i]))) {
+            error = "queue address must contain 1 through 255 non-whitespace characters";
+            return false;
+        }
+    }
+    if (pending <= 0 || s.stopping) {
+        error = "queue size must be positive and cannot change during shutdown";
+        return false;
+    }
+    Child *child = NULL;
+    for (size_t i = 0; i < s.children.size(); ++i)
+        if (s.children[i]->address == address) child = s.children[i].get();
+    if (s.thread.joinable() && !child) {
+        error = "queue address has no configured worker";
+        return false;
+    }
+    /* Each queue serializes limit changes with admission. Existing tickets
+     * retain their order and deadlines even when occupancy exceeds the limit. */
+    s.queueLimits[address] = static_cast<size_t>(pending);
+    if (child) child->queue.setPendingLimit(static_cast<size_t>(pending));
+    return true;
+}
 bool snmpSupervisorConfigure(const char *path, int maximum, std::string &error)
 {
     Supervisor &s = owner();
@@ -283,7 +387,9 @@ uint64_t snmpSupervisorBind(const SnmpWorkerBinding &binding, std::vector<unsign
         if (s.children[i]->address == binding.address) child = s.children[i].get();
     if (!child) {
         if (s.children.size() >= s.maximum) { error = "worker process limit reached"; return 0; }
-        s.children.push_back(std::unique_ptr<Child>(new Child(binding.address)));
+        std::map<std::string, size_t>::const_iterator setting = s.queueLimits.find(binding.address);
+        size_t pending = setting == s.queueLimits.end() ? SnmpScheduler::defaultPending : setting->second;
+        s.children.push_back(std::unique_ptr<Child>(new Child(binding.address, pending)));
         child = s.children.back().get();
     }
     Child &c = *child;
@@ -291,6 +397,9 @@ uint64_t snmpSupervisorBind(const SnmpWorkerBinding &binding, std::vector<unsign
     c.limitMSec = s.overrideMSec ? s.overrideMSec : std::max(c.limitMSec, required);
     std::unique_ptr<Entry> e(new Entry);
     e->id = ++s.nextBinding; e->config = binding; e->request = NULL;
+    e->child = &c; e->legacy = {NULL, NULL}; e->session = e->id;
+    for (size_t i = 0; i < c.entries.size(); ++i)
+        if (binding.sameSession(c.entries[i]->config)) { e->session = c.entries[i]->session; break; }
     uint64_t identity = e->id;
     c.entries.push_back(std::move(e));
     bool ok = c.state == Child::Idle ? bindNext(c) : c.state == Child::Dead && spawn(c);
@@ -318,7 +427,26 @@ void snmpSupervisorAttach(uint64_t binding, devSnmp_request *request)
     Supervisor &s = owner();
     for (size_t i = 0; i < s.children.size(); ++i)
         for (size_t j = 0; j < s.children[i]->entries.size(); ++j)
-            if (s.children[i]->entries[j]->id == binding) s.children[i]->entries[j]->request = request;
+            if (s.children[i]->entries[j]->id == binding) {
+                Entry &e = *s.children[i]->entries[j]; e.request = request;
+                request->setAdmission(admitRequest, &e);
+            }
+}
+void *snmpSupervisorAttachLegacy(uint64_t binding, const SnmpLegacyTarget &target)
+{
+    Supervisor &s = owner();
+    for (size_t i = 0; i < s.children.size(); ++i) {
+        Entry *e = entry(*s.children[i], binding);
+        if (e) { e->legacy = target; return e; }
+    }
+    return NULL;
+}
+bool snmpSupervisorLegacy(void *binding, char type, const char *text)
+{
+    if (!binding || (text && strlen(text) > 65535)) return false;
+    Entry &e = *static_cast<Entry *>(binding);
+    try { return e.child->queue.admit(ticket(e, 0, UINT64_MAX, NULL, type, text)); }
+    catch (...) { return false; }
 }
 bool snmpSupervisorStart()
 {
@@ -332,6 +460,7 @@ bool snmpSupervisorStop()
 {
     Supervisor &s = owner();
     s.stopping = true;
+    for (size_t i = 0; i < s.children.size(); ++i) s.children[i]->queue.stop();
     if (s.thread.joinable()) s.thread.join();
     for (size_t i = 0; i < s.children.size(); ++i) {
         Child &c = *s.children[i];
@@ -372,7 +501,9 @@ void snmpSupervisorReport()
     std::lock_guard<std::mutex> guard(s.mutex);
     for (size_t i = 0; i < s.children.size(); ++i) {
         Child &c = *s.children[i];
-        printf("worker pid=%ld epoch=%llu state=%u bindings=%zu progressMSec=%llu\n",
-               (long)c.pid, (unsigned long long)c.epoch, c.state, c.entries.size(), (unsigned long long)c.limitMSec);
+        c.queue.report(c.epoch);
+        printf("worker pid=%ld epoch=%llu state=%u bindings=%zu progressMSec=%llu address=%s\n",
+               (long)c.pid, (unsigned long long)c.epoch, c.state, c.entries.size(),
+               (unsigned long long)c.limitMSec, c.address.c_str());
     }
 }

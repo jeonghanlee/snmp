@@ -38,7 +38,7 @@ devSnmp_request::devSnmp_request(const SnmpBinding &input, const SnmpCompletion 
     : binding(input), completion(target), state(Idle), result(input.capacity),
       payloadValue(input.capacity), stopping(false), callbackPending(false), timeout(false),
       scheduled(false), generation(0), transaction(0),
-      wireId(0), accepted(0), deadline(0)
+      wireId(0), accepted(0), deadline(0), admission(NULL), admissionContext(NULL)
 {
     unsigned used = 0;
     numericOid[0] = '\0';
@@ -201,7 +201,23 @@ bool devSnmp_request::begin(const SnmpValue *value)
     statistics.appliedAt = statistics.completedAt = 0;
     state = Queued;
     event("accepted", true);
+    if (admission) {
+        bool admitted = false;
+        try { admitted = admission(admissionContext, generation, deadline, value ? &payloadValue : NULL); }
+        catch (...) {}
+        if (!admitted) {
+            ++statistics.rejectedCount;
+            event("admission_full", false);
+            ready(false, false);
+        }
+    }
     return true;
+}
+
+void devSnmp_request::setAdmission(Admission function, void *context)
+{
+    admission = function;
+    admissionContext = context;
 }
 
 bool devSnmp_request::pending()
@@ -247,17 +263,21 @@ void devSnmp_request::dispatched(SnmpIdentity identity, long nativeId)
     event("dispatch", true);
 }
 
-bool devSnmp_request::claimWorker(SnmpIdentity identity, SnmpValue &payload, uint64_t &originalDeadline)
+bool devSnmp_request::claimWorker(SnmpIdentity identity, unsigned long long scheduledGeneration)
 {
     epicsGuard<epicsMutex> guard(mutex);
-    if (stopping || state != Queued || expire()) return false;
-    payload = payloadValue;
-    originalDeadline = deadline;
+    if (stopping || state != Queued || generation != scheduledGeneration || expire()) return false;
     transaction = identity;
     statistics.claimedAt = epicsMonotonicGet();
     state = InFlight;
     event("claimed", true);
     return true;
+}
+
+void devSnmp_request::expireWorker(unsigned long long scheduledGeneration)
+{
+    epicsGuard<epicsMutex> guard(mutex);
+    if (!stopping && state == Queued && generation == scheduledGeneration) expire();
 }
 
 void devSnmp_request::finish(SnmpIdentity identity, const SnmpValue &value, bool timedOut)

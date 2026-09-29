@@ -8,7 +8,7 @@ import time
 import unittest
 
 from snmp_peer import Peer
-from ioc import IOC, settings, trace_evidence
+from ioc import IOC, settings, trace_evidence, worker_wire_evidence
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -72,6 +72,7 @@ class RequestTest(unittest.TestCase):
         for row in driver:
             key = (row["record"], row["generation"])
             sequences.setdefault(key, []).append(row)
+        worker_wire = worker_wire_evidence(self, log)
         for key, events in sequences.items():
             expected = ["accepted", "claimed", "dispatch", "result", "applied", "complete"]
             if self._testMethodName == "test_queued_deadline" and key[0].endswith(":B"):
@@ -83,8 +84,16 @@ class RequestTest(unittest.TestCase):
             for row in dispatched:
                 fields = dict(item.split("=", 1) for item in row["extra"].split())
                 self.assertGreater(int(fields["tx"]), 0)
+                native_id = int(fields["wire"])
+                if settings().get("worker_helper"):
+                    self.assertEqual(native_id, 0)
+                    stamp, epoch, native_id = worker_wire[int(fields["tx"])]
+                    self.assertGreater(epoch, 0)
+                    self.assertLessEqual(events[0]["time"], stamp)
+                    terminal = next(event for event in events if event["event"] == "result")
+                    self.assertLessEqual(stamp, terminal["time"])
                 observed = [wire for wire in self.peer.requests
-                            if wire["id"] == int(fields["wire"]) and fields["oid"] in wire["numeric_oids"]]
+                            if wire["id"] == native_id and fields["oid"] in wire["numeric_oids"]]
                 self.assertTrue(observed, f"No wire request matching {key}: {fields}")
                 for terminal in events[events.index(row) + 1:]:
                     identity = dict(item.split("=", 1) for item in terminal["extra"].split())

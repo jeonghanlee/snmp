@@ -293,6 +293,15 @@ class RequestSetTest(ScenarioTest):
                     count += 1
                     s.done("IntegerSet", count, value)
                     wire_count = len(s.peer.requests)
+                    if settings().get("worker_helper") and stage == "open":
+                        # A terminal send failure retires the persistent native
+                        # session; the following request must open a new socket.
+                        fault.arm("send")
+                        s.put("IntegerSet", value + 400)
+                        count += 1
+                        s.done("IntegerSet", count, value + 400, severity=3, status=2, failure="send")
+                        self.assertFalse(fault.control.exists(), "Send fault was not consumed")
+                        self.assertEqual(len(s.peer.requests), wire_count)
                     fault.arm(stage)
                     s.put("IntegerSet", value + 500)
                     count += 1

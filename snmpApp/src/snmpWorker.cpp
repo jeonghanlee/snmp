@@ -8,6 +8,8 @@
 #include <fcntl.h>
 #include <limits.h>
 #include <map>
+#include <algorithm>
+#include <set>
 #include <memory>
 #include <poll.h>
 #include <signal.h>
@@ -26,7 +28,7 @@ struct Binding {
     SnmpWorkerBinding config;
     netsnmp_session settings;
     std::vector<unsigned long> auth, priv, numericOid;
-    std::unique_ptr<SnmpNativeSession> session;
+    std::shared_ptr<SnmpNativeSession> session;
     ~Binding()
     {
         explicit_bzero(settings.securityAuthKey, sizeof(settings.securityAuthKey));
@@ -80,7 +82,14 @@ struct Binding {
 
 class Worker {
 public:
-    Worker() : channel(ipcDescriptor), epoch(0), active(0), activeBinding(0), lastTransaction(0), trace(false) {}
+    Worker() : channel(ipcDescriptor), epoch(0), active(0), lastTransaction(0), trace(false),
+               closePending(false), shuttingDown(false) {}
+    ~Worker()
+    {
+        shuttingDown = true;
+        for (std::map<uint64_t, std::unique_ptr<Binding> >::iterator i = bindings.begin(); i != bindings.end(); ++i)
+            i->second->session->close();
+    }
     int run()
     {
         for (;;) {
@@ -94,9 +103,10 @@ public:
             }
             if (active) {
                 std::vector<SnmpNativeSession *> sessions;
-                sessions.push_back(bindings.at(activeBinding)->session.get());
+                sessions.push_back(activeSession.get());
                 if (SnmpNativeSession::service(sessions, 0.05, ipcDescriptor) < 0) return 2;
             } else {
+                if (closePending) { activeSession->close(); closePending = false; }
                 struct pollfd p = {ipcDescriptor, static_cast<short>(POLLIN | (channel.writing() ? POLLOUT : 0)), 0};
                 if (poll(&p, 1, 50) < 0 && errno != EINTR) return 2;
             }
@@ -104,8 +114,11 @@ public:
     }
 private:
     Channel channel;
-    uint64_t epoch, active, activeBinding, lastTransaction;
-    bool trace;
+    uint64_t epoch, active, lastTransaction;
+    bool trace, closePending, shuttingDown;
+    std::shared_ptr<SnmpNativeSession> activeSession;
+    struct Member { uint64_t binding, deadline; size_t index; bool expired; };
+    std::vector<Member> members;
     std::string address;
     std::map<uint64_t, std::unique_ptr<Binding> > bindings;
     bool reply(Kind kind, uint64_t identity, const Writer &w)
@@ -116,12 +129,33 @@ private:
     static void completed(void *context, SnmpIdentity transaction, const SnmpNativeResult &r)
     {
         Worker *self = static_cast<Worker *>(context);
-        if (transaction != self->active || r.values.size() != 1) _exit(3);
-        Writer w;
-        w.u64(self->activeBinding); w.u32(r.outcome); w.u64(r.errorStatus); w.u64(r.errorIndex);
-        w.u32(r.resends); w.value(r.values[0]);
+        if (self->shuttingDown) return;
+        if (transaction != self->active) _exit(3);
+        Writer w; w.u32(self->members.size());
+        for (size_t i = 0; i < self->members.size(); ++i) {
+            const Member &member = self->members[i];
+            Binding &b = *self->bindings.at(member.binding);
+            SnmpValue value(std::max(1024u, b.config.capacity));
+            const std::vector<SnmpValue> &values = b.config.legacy ? r.legacyValues : r.values;
+            if (!member.expired && member.index < values.size()) {
+                const SnmpValue &source = values[member.index];
+                if (source.length <= value.bytes.size() && strlen(source.text.data()) < value.text.size())
+                    value = source;
+            }
+            w.u64(member.binding); w.u32(member.expired ? SnmpNativeResult::Timeout : r.outcome);
+            /* A legacy error-index applies only to that OID. Other members
+             * retain the traditional missing-value immediate-poll behavior. */
+            long error = r.errorStatus;
+            if (b.config.legacy && r.errorIndex > 0 && static_cast<size_t>(r.errorIndex) != member.index + 1)
+                error = 0;
+            unsigned match = b.config.legacy && !member.expired && member.index < r.legacyMatches.size()
+                           ? r.legacyMatches[member.index] : SnmpLegacyMissing;
+            w.u64(error); w.u64(r.errorIndex); w.u32(r.resends); w.u32(match); w.value(value);
+        }
         if (!self->reply(Result, transaction, w)) _exit(3);
-        self->active = self->activeBinding = 0;
+        self->closePending = r.outcome != SnmpNativeResult::Response;
+        self->active = 0;
+        self->members.clear();
     }
     bool process(const Frame &f)
     {
@@ -154,34 +188,85 @@ private:
                 w.u64(b->config.timeoutUs); w.u32(b->config.retries);
                 w.u64(required); w.u32(b->numericOid.size());
                 for (size_t i = 0; i < b->numericOid.size(); ++i) w.u32(b->numericOid[i]);
-                b->session.reset(new SnmpNativeSession(completed, this));
+                for (std::map<uint64_t, std::unique_ptr<Binding> >::iterator i = bindings.begin(); i != bindings.end(); ++i)
+                    if (b->config.sameSession(i->second->config)) { b->session = i->second->session; break; }
+                if (!b->session) b->session.reset(new SnmpNativeSession(completed, this));
                 bindings[f.transaction] = std::move(b);
             }
             return reply(Bound, f.transaction, w);
         }
         if (f.kind != Transaction || !f.transaction || f.transaction <= lastTransaction) return false;
-        uint64_t id = r.u64(), profile = r.u64(), originalDeadline = r.u64();
-        std::map<uint64_t, std::unique_ptr<Binding> >::iterator found = bindings.find(id);
-        if (found == bindings.end()) return false;
-        Binding &b = *found->second;
-        unsigned op = r.u32(), count = r.u32();
-        if (profile != b.config.profile || !originalDeadline || op != b.config.operation ||
-            count != b.numericOid.size()) return false;
-        for (unsigned i = 0; i < count; ++i) if (r.u32() != b.numericOid[i]) return false;
-        SnmpValue payload(b.config.capacity);
-        if (op == SnmpSet && !r.value(payload, true)) return false;
+        if (closePending) { activeSession->close(); closePending = false; }
+        unsigned total = r.u32();
+        if (!total || total > 256) return false;
+        std::vector<std::vector<unsigned long> > oids;
+        std::set<uint64_t> identities;
+        Binding *first = NULL;
+        SnmpValue payload(65536);
+        std::string legacyText;
+        unsigned operation = SnmpGet, capacity = 1024;
+        char legacyType = 0;
+        members.clear();
+        for (unsigned n = 0; n < total; ++n) {
+            std::vector<unsigned char> encoded = r.blob(maxFrameBytes - headerBytes);
+            Reader command(encoded);
+            uint64_t id = command.u64(), profile = command.u64(), originalDeadline = command.u64();
+            std::map<uint64_t, std::unique_ptr<Binding> >::iterator found = bindings.find(id);
+            if (found == bindings.end() || !identities.insert(id).second) return false;
+            Binding &b = *found->second;
+            unsigned op = command.u32(), count = command.u32();
+            if (profile != b.config.profile || !originalDeadline || op > SnmpSet ||
+                (!b.config.legacy && op != b.config.operation) || count != b.numericOid.size() ||
+                (op == SnmpSet && total != 1)) return false;
+            for (unsigned i = 0; i < count; ++i) if (command.u32() != b.numericOid[i]) return false;
+            if (first && (op != operation || !b.config.sameSession(first->config))) return false;
+            if (!first) { first = &b; operation = op; }
+            if (op == SnmpSet) {
+                if (b.config.legacy) {
+                    unsigned type = command.u32();
+                    if (!type || type > 127) return false;
+                    legacyType = type; legacyText = command.string(65535);
+                } else if (!command.value(payload, true)) return false;
+            }
+            if (!command.done()) return false;
+            bool expired = originalDeadline <= now();
+            size_t index = 0;
+            if (!expired) {
+                for (; index < oids.size(); ++index) if (oids[index] == b.numericOid) break;
+                if (index == oids.size()) oids.push_back(b.numericOid);
+            }
+            members.push_back(Member{id, originalDeadline, index, expired});
+            capacity = std::max(capacity, b.config.capacity);
+        }
         if (!r.done()) return false;
-        active = lastTransaction = f.transaction; activeBinding = id;
-        std::vector<std::vector<unsigned long> > oids(1, b.numericOid);
+        for (size_t i = 0; i < members.size(); ++i)
+            if (oids.size() > bindings.at(members[i].binding)->config.maxOids) return false;
+        /* Validate the maximum encoded result before opening any native
+         * transport. Requests at different capacities share only bounded data. */
+        if (headerBytes + 4 + total * (2 * static_cast<size_t>(capacity) + 640) > maxFrameBytes) return false;
+        active = lastTransaction = f.transaction;
+        activeSession = first->session;
         long wireId = 0;
-        if (originalDeadline <= now() ||
-            (!b.session->isOpen() && !b.session->open(b.settings)) ||
-            !b.session->transact(active, oids, std::max(1024u, b.config.capacity), b.config.wireType,
-                                 op == SnmpSet ? &payload : NULL, &wireId)) {
+        bool opened = !oids.empty() && (activeSession->isOpen() || activeSession->open(first->settings));
+        oids.clear();
+        for (size_t i = 0; i < members.size(); ++i) {
+            Member &member = members[i];
+            member.expired = member.deadline <= now();
+            if (member.expired) continue;
+            const std::vector<unsigned long> &oid = bindings.at(member.binding)->numericOid;
+            size_t index = 0;
+            for (; index < oids.size(); ++index) if (oids[index] == oid) break;
+            if (index == oids.size()) oids.push_back(oid);
+            member.index = index;
+        }
+        if (legacyType)
+            netsnmp_ds_set_boolean(NETSNMP_DS_LIBRARY_ID, NETSNMP_DS_LIB_DONT_CHECK_RANGE, !first->config.checkRanges);
+        if (!opened || oids.empty() || !activeSession->transact(active, oids, capacity, first->config.wireType,
+                                     operation == SnmpSet && !first->config.legacy ? &payload : NULL, &wireId,
+                                     legacyType, legacyType ? legacyText.c_str() : NULL, true)) {
             SnmpNativeResult failed;
             failed.outcome = SnmpNativeResult::SendFailed;
             failed.errorStatus = failed.errorIndex = 0; failed.resends = 0;
-            failed.values.assign(1, SnmpValue(std::max(1024u, b.config.capacity)));
             completed(this, active, failed);
         }
         if (trace) fprintf(stderr, "SNMPWIRE %llu epoch=%llu tx=%llu wire=%ld\n",

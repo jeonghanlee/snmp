@@ -3,7 +3,7 @@
 import json
 import time
 
-from ioc import IOC, ROOT, settings, trace_evidence, write_json
+from ioc import IOC, ROOT, settings, trace_evidence, write_json, worker_wire_evidence
 from request_cases import PREFIX, ScenarioTest
 from snmp_agent import AUTH, USERS, Agent, Proxy
 
@@ -108,6 +108,7 @@ class RequestSetAgentTest(ScenarioTest):
         # The input has no output FLNK audit; keep its six events separate.
         driver, audits = trace_evidence(runtime.work)
         output_events = [r for r in driver if r["record"] != PREFIX + "IntegerRead"]
+        worker_wire = worker_wire_evidence(self, (runtime.work / "ioc.log").read_text())
         self.assertEqual(len(output_events), 6 * len(expected))
         self.assertEqual(len(audits), len(expected))
         for (record, generation), (value, wire) in expected.items():
@@ -123,8 +124,15 @@ class RequestSetAgentTest(ScenarioTest):
             self.assertLessEqual(events[-2]["time"], audit["time"])
             self.assertLessEqual(audit["time"], events[-1]["time"])
             identity = dict(field.split("=", 1) for field in events[2]["extra"].split())
+            native_id = int(identity["wire"])
+            if settings().get("worker_helper"):
+                self.assertEqual(native_id, 0)
+                stamp, epoch, native_id = worker_wire[int(identity["tx"])]
+                self.assertGreater(epoch, 0)
+                self.assertLessEqual(events[0]["time"], stamp)
+                self.assertLessEqual(stamp, events[-3]["time"])
             matched = [r for r in proxy.records if r["event"] == "response" and r.get("pdu") == 0xA2 and
-                       r.get("id") == int(identity["wire"]) and identity["oid"] in r.get("numeric_oids", [])]
+                       r.get("id") == native_id and identity["oid"] in r.get("numeric_oids", [])]
             self.assertEqual(len(matched), 1)
             self.assertEqual(matched[0]["error"], 0)
             self.assertLessEqual(matched[0]["time"], events[-3]["time"])
@@ -161,8 +169,13 @@ class RequestSetAgentTest(ScenarioTest):
             started = time.monotonic()
             s.put("IntegerSet", 75)
             s.wait(lambda: len(s.peer.held) == 1, "SET held beyond retirement")
-            s.wait(lambda: "deleted stale session" in (s.work / "ioc.log").read_text(),
-                   "real sixty-second retirement", timeout=70)
+            worker = bool(settings().get("worker_helper"))
+            if worker:
+                s.wait(lambda: s.get("AuditIntegerSet") == "1", "native seventy-second timeout", timeout=80)
+                self.assertNotIn("deleted stale session", (s.work / "ioc.log").read_text())
+            else:
+                s.wait(lambda: "deleted stale session" in (s.work / "ioc.log").read_text(),
+                       "real sixty-second retirement", timeout=70)
             s.done("IntegerSet", 1, 75, severity=3, status=10)
             elapsed = time.monotonic() - started
             s.peer.release()
@@ -170,5 +183,5 @@ class RequestSetAgentTest(ScenarioTest):
             s.put("IntegerSet", 76)
             s.done("IntegerSet", 2, 76)
             write_json(s.work / "retirement.json", dict(elapsed_seconds=elapsed))
-        self.assertGreaterEqual(elapsed, 60)
-        self.assertLess(elapsed, 70)
+        self.assertGreaterEqual(elapsed, 70 if worker else 60)
+        self.assertLess(elapsed, 80 if worker else 70)

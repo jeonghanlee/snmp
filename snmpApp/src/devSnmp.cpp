@@ -1724,6 +1724,8 @@ devSnmp_oid::devSnmp_oid
   compFailures     = 0;
   pollWeight       = snmpDoNotPollWeight;
   settingToSend    = NULL;
+  workerBinding    = NULL;
+  workerUpdate     = false;
   setDebugging     = false;
   strcpy(lastError,"(none)");
 
@@ -1945,8 +1947,76 @@ void devSnmp_oid::dispatchRequests(devSnmp_session *session, long wireId)
   for (unsigned i = 0; i < requests.size(); ++i) requests[i]->dispatched(session->traceId(), wireId);
 }
 //--------------------------------------------------------------------
+void devSnmp_oid::attachWorker(uint64_t binding)
+{
+  if (workerBinding) return;
+  SnmpLegacyTarget target = {this, workerNotify};
+  workerBinding = snmpSupervisorAttachLegacy(binding, target);
+}
+//--------------------------------------------------------------------
+void devSnmp_oid::workerNotify(void *context, bool write, bool terminal,
+                               const SnmpValue *value, unsigned outcome, long error, SnmpLegacyMatch match)
+{
+  devSnmp_oid &self = *static_cast<devSnmp_oid *>(context);
+  epicsMutexLock(self.valMutex);
+  if (!terminal) {
+    if (write) self.lastSetSent.start(NULL);
+    else { ++self.pollSendCount; self.lastPollSent.start(NULL); }
+  } else if (write) {
+    if (outcome || error) {
+      ++self.errorCount;
+      if (snmpDebugLevel) printf("----- devSnmp SET %s failed : op=%u error=%ld\n", self.oidName(), outcome, error);
+    } else if (snmpDebugLevel >= 2) printf("----- devSnmp SET %s okay\n", self.oidName());
+  } else {
+    self.queued_for_get = false;
+    if (!outcome && !error) {
+      if (match == SnmpLegacyMismatch) {
+        ++self.compFailures;
+        if (static_cast<int>(self.compFailures) > snmpMaxOidCompFailures) self.clearData();
+      } else if (value && value->valid) {
+        copy_string(self.reading.read_string, self.data_len, value->text.data());
+        self.reading.valid = true;
+        self.reading.has_long = value->hasLong;
+        self.reading.has_double = value->hasDouble;
+        self.reading.read_long = value->kind == SnmpValue::Signed ? value->signedValue : value->unsignedValue;
+        self.reading.read_double = value->realValue;
+        self.compFailures = 0;
+        self.workerUpdate = true;
+      } else self.lastPollSent.clear();
+      ++self.pollReplyCount;
+      self.lastPollReply.start(NULL);
+    } else {
+      ++self.errorCount;
+      if (!outcome && error == SNMP_ERR_NOSUCHNAME) self.flagged_read_bad = error;
+    }
+  }
+  epicsMutexUnlock(self.valMutex);
+}
+//--------------------------------------------------------------------
+void devSnmp_oid::workerPoll(epicsTimeStamp *pnow)
+{
+  epicsMutexLock(valMutex);
+  if (workerBinding && legacyPolling && !queued_for_get && flagged_read_bad == SNMP_ERR_NOERROR &&
+      pollMSec - lastPollSent.elapsedMilliseconds(pnow) <= snmpMaxTopPollWeight) {
+    queued_for_get = true;
+    if (!snmpSupervisorLegacy(workerBinding)) {
+      queued_for_get = false;
+      ++errorCount;
+      lastPollSent.start(pnow);
+    }
+  }
+  epicsMutexUnlock(valMutex);
+}
+//--------------------------------------------------------------------
 void devSnmp_oid::periodicProcessing(epicsTimeStamp *pnow)
 {
+  if (workerBinding) {
+    epicsMutexLock(valMutex);
+    bool update = workerUpdate;
+    workerUpdate = false;
+    epicsMutexUnlock(valMutex);
+    if (update) pOurGroup->updatePVs(this);
+  }
   // if we have a reading, make sure it isn't too stale and flag
   // a read error if it is (guards against manager's readTask hanging up)
   if ((hasReading()) && (lastPollReply.elapsedMilliseconds(pnow) > snmpDataStaleTimeoutMSec)) {
@@ -2045,8 +2115,19 @@ void devSnmp_oid::debugSetEnd()
   }
 }
 //--------------------------------------------------------------------
-void devSnmp_oid::set(char set_type, char *str)
+bool devSnmp_oid::set(char set_type, char *str)
 {
+  if (workerBinding) {
+    bool accepted = snmpSupervisorLegacy(workerBinding, set_type, str);
+    epicsMutexLock(valMutex);
+    ++setCount;
+    if (!accepted) {
+      ++errorCount;
+      fprintf(stderr, "devSnmp SET %s rejected: worker admission full\n", oidName());
+    }
+    epicsMutexUnlock(valMutex);
+    return accepted;
+  }
   epicsMutexLock(setMutex);
 
   // create a setting object
@@ -2076,6 +2157,7 @@ void devSnmp_oid::set(char set_type, char *str)
   setCount++;
 
   epicsMutexUnlock(setMutex);
+  return true;
 }
 //--------------------------------------------------------------------
 bool devSnmp_oid::needsSet(void)
@@ -2764,16 +2846,18 @@ void devSnmp_pv::debugSetEnd()
   if (pOurOID) pOurOID->debugSetEnd();
 }
 //--------------------------------------------------------------------
-void devSnmp_pv::set(char *str)
+bool devSnmp_pv::set(char *str)
 {
   if (pOurOID) {
     setCount++;
-    pOurOID->set(oidExtra.set_type,str);
-    lastSetSent.start(&globalLastTick);
+    if (!pOurOID->set(oidExtra.set_type,str)) return false;
+    lastSetSent.start(snmpSupervisorEnabled() ? NULL : &globalLastTick);
     if (snmpDebugLevel >= 2) {
       printf("%s  devSnmp %s setting type:'%c' value:'%s'\n",tnow(),pOurRecord->name, oidExtra.set_type, str);
     }
+    return true;
   }
+  return false;
 }
 //--------------------------------------------------------------------
 bool devSnmp_pv::wasSetRecently(void)
@@ -2782,7 +2866,7 @@ bool devSnmp_pv::wasSetRecently(void)
     sprintf(lastError,"wasSetRecently: oid object is NULL");
     return(false);
   }
-  return( (lastSetSent.elapsedMilliseconds(&globalLastTick) < snmpSetSkipReadbackMSec) ? true : false );
+  return( (lastSetSent.elapsedMilliseconds(snmpSupervisorEnabled() ? NULL : &globalLastTick) < snmpSetSkipReadbackMSec) ? true : false );
 }
 //--------------------------------------------------------------------
 bool devSnmp_pv::doingProcess(void)
@@ -3204,6 +3288,12 @@ void devSnmp_group::processing(epicsTimeStamp *pnow)
     devSnmp_pv *pPV = pvArray[ii];
     if (! pPV) continue;
     if (pPV) pPV->periodicProcessing(pnow);
+  }
+
+  if (snmpSupervisorEnabled()) {
+    for (int ii = 0; ii < oidCount; ++ii)
+      if (oidArray[ii]) oidArray[ii]->workerPoll(pnow);
+    return;
   }
 
   //
@@ -3934,6 +4024,8 @@ void devSnmp_host::processing(epicsTimeStamp *pnow)
     pGroup->processing(pnow);
   }
 
+  if (snmpSupervisorEnabled()) return;
+
   //
   // queue one write transaction per request write admitted since the last
   // tick, in admission order across every group and OID of this host
@@ -4152,7 +4244,15 @@ devSnmp_manager::~devSnmp_manager(void)
 //--------------------------------------------------------------------
 bool devSnmp_manager::stop(void)
 {
-  if (snmpSupervisorEnabled()) return snmpSupervisorStop();
+  if (snmpSupervisorEnabled()) {
+    sendTask_abort = true;
+    bool stopped = snmpSupervisorStop();
+    for (unsigned attempt = 0; attempt < 300; ++attempt) {
+      if (!sendTask_id || sendTask_exited) return stopped;
+      epicsThreadSleep(0.01);
+    }
+    return false;
+  }
   sendTask_abort = true;
   readTask_abort = true;
   for (unsigned attempt = 0; attempt < 300; ++attempt) {
@@ -4165,7 +4265,14 @@ bool devSnmp_manager::stop(void)
 //--------------------------------------------------------------------
 int devSnmp_manager::start(void)
 {
-  if (snmpSupervisorEnabled()) return snmpSupervisorStart() ? epicsOk : epicsError;
+  if (snmpSupervisorEnabled()) {
+    if (started || !snmpSupervisorStart()) return epicsError;
+    sendTask_id = epicsThreadCreate("snmpSendTask", 76, epicsThreadGetStackSize(epicsThreadStackBig),
+                                   (EPICSTHREADFUNC) snmpSendTask, this);
+    if (!sendTask_id) { snmpSupervisorStop(); return epicsError; }
+    started = true;
+    return epicsOk;
+  }
   if (started) {
     printf("devSnmp: error, already started\n");
     return(epicsError);
@@ -4403,10 +4510,6 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bo
   if (! snmpParseInOut(instioStr,&base,&extra)) return(NULL);
   extra.request_mode = requestMode;
   extra.request_kind = requestKind;
-  if (snmpSupervisorEnabled() && !requestMode) {
-    printf("devSnmp ERROR: worker transport requires request records; legacy migration is not enabled\n");
-    return NULL;
-  }
   if (requestMode && (extra.data_len < 2 || extra.data_len > 65536)) return NULL;
   if (requestKind && !snmpValidRequestOutput(extra, requestKind)) {
     printf("devSnmp ERROR: %s: set type '%c' with flags '%s' is not valid for this request output\n",
@@ -4473,7 +4576,10 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bo
     config.timeoutUs = pHost->sessionTimeoutUs();
     config.retries = pHost->sessionRetries();
     config.oidName = base.oidStr;
-    config.capacity = extra.data_len;
+    config.capacity = requestMode ? extra.data_len : 1024;
+    config.maxOids = pHost->getMaxOidsPerReq();
+    config.legacy = !requestMode;
+    config.checkRanges = snmpCheckRanges != 0;
     config.operation = requestKind ? SnmpSet : SnmpGet;
     config.wireType = !requestKind ? SnmpWireNone : extra.set_type == 'i' ? SnmpWireInteger :
                       extra.set_type == 'F' ? SnmpWireFloat : SnmpWireOctets;
@@ -4491,9 +4597,18 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bo
       config.securityEngineID = endpoint->securityEngineID;
       config.contextEngineID = endpoint->contextEngineID;
     } else if (config.version == 3) {
-      printf("devSnmp ERROR: worker SNMPv3 requires a named endpoint during transport migration\n");
-      term_OID_struct(&oid);
-      return NULL;
+      devSnmp_v3params params;
+      pHost->getSnmpV3Params(&params);
+      config.securityName = params.securityName;
+      config.contextName = params.context;
+      config.securityLevel = params.securityLevel;
+      config.authType = params.securityAuthProto == usmHMACMD5AuthProtocol ? "MD5" : "SHA";
+      config.privType = params.securityPrivProto == usmAESPrivProtocol ? "AES" : "DES";
+      config.authPassphrase = params.authPassPhrase;
+      config.privPassphrase = params.privPassPhrase;
+      config.securityEngineID.assign(params.securityEngineID, params.securityEngineID + params.securityEngineIDLen);
+      config.contextEngineID.assign(params.contextEngineID, params.contextEngineID + params.contextEngineIDLen);
+      memset(&params, 0, sizeof(params));
     }
     std::vector<unsigned long> resolved;
     std::string error;
@@ -4509,7 +4624,10 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bo
 
   // add PV to this host
   devSnmp_pv *pPV = pHost->addPV(&base,&extra,&oid,pRec);
-  if (workerBinding && pPV) snmpSupervisorAttach(workerBinding, pPV->request());
+  if (workerBinding && pPV) {
+    if (requestMode) snmpSupervisorAttach(workerBinding, pPV->request());
+    else pPV->OID()->attachWorker(workerBinding);
+  }
   term_OID_struct(&oid);
 
   // point record's dpvt at created PV object
@@ -5058,6 +5176,14 @@ static int configResult(const char *command, bool ok, const std::string &error)
   if (ok) return(epicsOk);
   printf("devSnmp ERROR: %s: %s\n", command, error.c_str());
   return(epicsError);
+}
+//--------------------------------------------------------------------
+int devSnmpSetQueueSize(const char *address, int pending)
+{
+  std::string error;
+  bool ok = snmpSupervisorSetQueueSize(address, pending, error);
+  if (ok) printf("devSnmp worker queue address=%s limit=%d\n", address, pending);
+  return configResult("devSnmpSetQueueSize", ok, error);
 }
 //--------------------------------------------------------------------
 int devSnmpLoadV3Profile(const char *name, const char *fileName)
@@ -5626,7 +5752,7 @@ static long snmpAoWrite(struct aoRecord *pao)
   }
 
   status = epicsOk;
-  pPV->set(tmp);
+  if (!pPV->set(tmp)) { recGblSetSevr(pao, WRITE_ALARM, INVALID_ALARM); return epicsError; }
   pao->udf = false;
   if (snmpDebugLevel)
     printf("----- devSnmp AO setting %s to [%s] ...\n",pao->name,tmp);
@@ -5784,7 +5910,7 @@ static long snmpLoWrite(struct longoutRecord *plo)
   char tmp[40];
   tmp[0] = '\0';
   sprintf(tmp,"%ld", (long) plo->val);
-  pPV->set(tmp);
+  if (!pPV->set(tmp)) { recGblSetSevr(plo, WRITE_ALARM, INVALID_ALARM); return epicsError; }
   plo->udf = false;
 
   return(status);
@@ -5910,7 +6036,7 @@ static long snmpSoWrite(struct stringoutRecord *pso)
 
   // fill in set data
   long status = epicsOk;
-  pPV->set(pso->val);
+  if (!pPV->set(pso->val)) { recGblSetSevr(pso, WRITE_ALARM, INVALID_ALARM); return epicsError; }
   pso->udf = false;
 
   if (snmpDebugLevel)

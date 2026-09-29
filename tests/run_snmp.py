@@ -80,7 +80,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ioc", type=Path, required=True)
     parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion", "robustness", "pressure", "teardown", "accounting", "registration", "v3-baseline", "legacy-set", "native", "config", "request-set", "request-set-extra", "request-set-edges", "request-set-agent", "worker"), required=True)
+    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion", "robustness", "pressure", "teardown", "accounting", "registration", "v3-baseline", "legacy-set", "native", "config", "request-set", "request-set-extra", "request-set-edges", "request-set-agent", "worker", "scheduler"), required=True)
     parser.add_argument("--output", type=Path, help="New evidence directory; never overwritten")
     parser.add_argument("--negative-control", choices=("wrong-value", "miswired", "trace-loss"))
     parser.add_argument("--worker-helper", type=Path, help="Explicit helper setup before IOC module initialization")
@@ -193,6 +193,9 @@ def main():
         elif args.suite == "batch":
             from test_batch import BatchTest, CASES
             case_class, names = BatchTest, CASES
+        elif args.suite == "scheduler":
+            from test_scheduler import SchedulerTest, CASES
+            case_class, names = SchedulerTest, CASES
         elif args.suite == "robustness":
             from test_robustness import RobustnessTest, CASES
             case_class, names = RobustnessTest, CASES

@@ -9,8 +9,21 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: M8 step 6 bounded mixed scheduling, following the
-step 5 local handoff and commit checkpoint.
+Next session entry point: M8 step 6 accepted locally; commit pending.
+The per-address queue limit defaults to 1024 and can change before or after iocInit;
+decreases retain existing tickets. The 1 MiB limit is unchanged.
+Per-address dynamic-capacity, phase-aligned T17 and actual IOC byte-bound
+verification pass, with independent execution and reader reviews complete.
+The current production source passes the full ten-case scheduler on Debian 13
+and Rocky 8. Earlier D23 nine-case results qualify the fixed-1024 source only;
+the 17-suite/186-case results qualify the earlier 256-count source only.
+U029 and U030 are resolved by actual verification, without a policy waiver.
+P806 is accepted locally for its implemented functional scope; local commit remains pending.
+P807 has not started.
+M8 remains In progress. P808 retains final-source full matrix, resource/soak,
+sanitizer and independent APC qualification.
+See Step 6 Dynamic Count Limit and the retained earlier evidence below.
+
 M9 is locally committed as 509757a82e8e698718411fb2a0fd7ad731ace657;
 its qualified 15-suite/157-case matrix passes on Debian 13 and Rocky 8 and
 both final review lanes accepted it. Remote landing remains pending.
@@ -19,9 +32,9 @@ complete 18-case worker suite on Debian 13 and Rocky 8. The staged T5/T18
 subsets and T8 discovery isolation pass through the actual IOC/helper/native
 path; both correction review lanes pass. The evidence below qualifies this
 implementation stage only.
-See Step 5 Worker Boundary Verification for exact scope and identities. The intermediate
-worker path is selected by explicit helper setup and rejects legacy polling;
-step 6 owns migration of legacy GET/SET and bounded mixed scheduling. The
+See Step 5 Worker Boundary Verification for that checkpoint's exact scope and identities.
+That checkpoint rejects legacy polling. The step 6 candidate adds legacy
+GET/SET, bounded FIFO admission, contiguous GET batches and session reuse. The
 unchanged startup path retains the previously qualified transport meanwhile.
 Final mixed-runtime adoption and production qualification remain pending.
 
@@ -480,7 +493,7 @@ the canonical result should name the safe evidence artifact.
 | M6 | Downstream IOC migration and pilot | Milestone | Blocked | No | M5, G2 | Actual IOC DB passes laboratory and device pilot checks; [detail](#m6---downstream-ioc-migration-and-pilot). |
 | G3 | Production deployment window and acceptance limits | External gate | Open | No | M6 | Operator approves exact candidate, window, and rollback; [detail](#g3---production-deployment-window-and-acceptance-limits). |
 | M7 | Controlled deployment and rollback | Milestone | Blocked | No | M6, G3 | Deployed artifact verified and rollback demonstrated; [detail](#m7---controlled-deployment-and-rollback). |
-| M8 | Extensible SNMPv3 architecture | Milestone | In progress | No | D3, D4, D6, D7, D8, D9, D10 | Separated record/request/security responsibilities using native Net-SNMP facilities, explicit engine identity, restart-only credential activation, compatible worker bounds, proven runtime isolation and compatibility evidence; [detail](#m8---extensible-snmpv3-architecture). |
+| M8 | Extensible SNMPv3 architecture | Milestone | In progress | No | D3, D4, D6, D7, D8, D9, D10, D22 | Separated record/request/security responsibilities using native Net-SNMP facilities, explicit engine identity, restart-only credential activation, compatible worker bounds, proven runtime isolation and compatibility evidence; [detail](#m8---extensible-snmpv3-architecture). |
 | M9 | Request-driven writes | Milestone | In progress | No | D3, D4, D11, D13, D14, D15, D16, D17, D18, D19, D20, D21 | Opt-in outputs complete once after the agent answers or a terminal error, report failed writes as alarms, never drop an admitted write silently, and report the value the agent accepted without a timing window; legacy outputs unchanged; [detail](#m9---request-driven-writes). |
 
 Ready describes dependency readiness only; it is not implementation authority.
@@ -513,6 +526,10 @@ does not complete their verification or remove the physical conditions in G2/G3.
 | D19 | Discuss INTEGER representation limits together with float/double in a separate meeting topic, M10 in Backlog. Keep the executed M9 / T5 result for 2^31 and distinguish it from the observed native conversion of 2^32 to zero; no numeric redesign is authorized in M9. | 2026-09-28 |
 | D20 | Preserve Base alarm precedence for NaN: ao with UDFS=INVALID reports UDF/INVALID before the module's equal-severity WRITE alarm. Reject an unencodable OVAL without a SET; document and test both record and FLNK alarm observations. RVAL conversion and IVOA remain governed by Base. | 2026-09-28 |
 | D21 | Correct the missing second borrow in snmpTimeObject::elapsedMilliseconds in this scope and rerun the legacy window, session retirement and related regressions on Debian 13 and Rocky 8. Preserve the existing timing thresholds and prior failures. | 2026-09-28 |
+| D22 | Use one admission-order FIFO per worker/address across legacy polls, request reads and SETs. Later SETs do not overtake earlier GETs. Batch only contiguous compatible GETs, preserve queued legacy SET coalescing at its original position, and never coalesce request writes. This replaces SET priority and aging in the worker scheduler; separate workers remain independent. | 2026-09-29 |
+| D23 | Start with 1024 pending commands per worker/address across GET and SET. Replace the initial 256-count proposal; the 1 MiB encoded-data limit is unchanged. This is an initial policy value, not a measured device capacity. | 2026-09-29 |
+| D24 | Make the count limit configurable per device address through devSnmpSetQueueSize(address, count), including EPICS environment macros in st.cmd, before and after iocInit. Each address defaults to 1024 and accepts positive int values. Changing one address never changes another address's limit. Increasing permits admission immediately; decreasing preserves existing tickets, FIFO order and deadlines and rejects new tickets while count is at or above the new bound. Legacy replacement adds no ticket and remains eligible. Invalid values preserve the previous limit. The 1 MiB bound and credential freeze remain unchanged. | 2026-09-29 |
+| D25 | Resolve T17 intermediate-alarm comparison by adding a baseline/candidate comparison with response and record processing phases aligned. Preserve the prior unmatched-time observations and fixed timing correction; do not waive alarm differences or infer equivalence from final recovery alone. | 2026-09-29 |
 
 ### Milestone Details
 
@@ -734,7 +751,7 @@ the audit. M8/T8 additionally requires a 400 ms acquisition deadline, faulted
 completion below 1 s, and 1000 healthy reads with p99 at most baseline +100 ms,
 maximum below 1 s and no false INVALID samples. M8/T12 requires one hour of
 resource observation with descriptors returned to baseline and no post-warmup
-growing memory trend. M8's 32-worker, 256-transaction/1 MiB queue and 256 KiB
+growing memory trend. M8's 32-worker, 1024-transaction/1 MiB queue and 256 KiB
 frame limits are explicit capacity requirements for that implementation.
 
 RequestTimeoutMSec defaults to 10000 ms (accepted range 1..3600000), independently
@@ -2314,13 +2331,19 @@ and a compatible absolute worker deadline independent of record deadlines.
    startup/framing/crash cases and T8 through the
    real IOC. No adoption from the preliminary native-only latency result.
 6. Separate transaction lifetime from reusable session lifetime. Implement
-   bounded admission, batching, fair dispatch, completion handoff and shutdown;
+   bounded admission, contiguous compatible GET batching, admission-order FIFO
+   dispatch per worker/address under D22, completion handoff and shutdown;
    library timeout/retries remain the sole wire retry mechanism. Move legacy
    GET/SET and text-format compatibility through the same worker path before
    mixed operation. Close T3/T4/T8/T10/T11/T15/T17 and T18's load/shutdown cases,
    including exhausted waiters, pending native retries, no SET replay after
    worker loss and baseline-versus-candidate output behavior. Run T16's engine
    recovery/isolation cases; its configuration-freeze cases remain pending.
+   D22 is accepted and authorized on 2026-09-29. Verify GET/SET/GET wire order
+   behind a held transaction, coalesced legacy SET position, request-generation
+   expiry without replay, 1024-transaction and 1 MiB rejection, and independent
+   progress at another address. Preserve pre-migration observations; record
+   the intentional scheduling difference separately from compatibility results.
 7. Finalize startup-only credential/profile loading and reject changes after
    configuration is frozen. Credential-file edits do not affect a running IOC;
    apply them through a full IOC process stop/start. Close T5/T9/T16 using real
@@ -2342,7 +2365,8 @@ The following table maps the same nine steps to implementation targets and
 observable advancement conditions. It is part of this plan, not a second work
 register. Step 1 fixtures, the step 2 extraction, the step 3 adapter and the
 step 4 configuration are delivered; step 5 now has the scoped implementation
-and verification recorded below. Later components remain planned. Run each step's available checks before migration
+and verification recorded below. Step 6 is implemented and undergoing qualification;
+steps 7-9 remain planned. Run each step's available checks before migration
 depends on that step; record partial coverage explicitly. Step 8 reruns the complete acceptance matrix on the final
 candidate even when an earlier implementation passed its subset.
 
@@ -2395,14 +2419,14 @@ separately and cannot close an IOC test label.
 | T8 | Discovery isolation | Blackhole one v3 endpoint during initial discovery and restart while a healthy endpoint is read at 100 ms intervals. Use a 400 ms acquisition deadline and 4 s transport timeout. | Two real agents, loopback fault proxy, 1000 healthy reads | Faulted requests complete within 1 s locally; healthy p99 no more than baseline plus 100 ms, maximum below 1 s, zero false INVALID samples. Limits are laboratory criteria, not field promises. |
 | T9 | Startup and restart credentials | Edit the credential file while requests are queued, in flight and callback-pending; confirm the running IOC retains its startup snapshot, including after child loss/restart. Reject runtime setters. Stop/start the IOC with coordinated agent credentials; test invalid files, delayed packets, identical usernames with different keys at distinct engines/workers and conflicting same-user profiles in one worker. | Real snmpd, actual startup loader, IOC/child lifecycle and native USM state | Only full IOC restart activates file changes. A child restart uses the existing snapshot. Invalid startup inputs fail without old-secret fallback; conflicting credentials/protocols for one worker/user fail before discovery/application traffic. Distinct workers do not share USM state. No false success, double completion or secret leak. |
 | T10 | Recovery and reuse | Repeat reads on one session, restart agent with same engineID/new boots and then with a changed engineID; drop replies and force tooBig. | Real snmpd plus external proxy | Bounded retry/recovery within the original deadline; no reuse of wrong localized keys; valid-sample age advances only on success; stable warm session avoids repeated discovery. |
-| T11 | Load and shutdown | Flood bounded request admission, test the 256-transaction and 1 MiB worker boundaries and overflow rejection under D18, saturate callback queue, mix legacy reads/SETs, stop during discovery/recovery/response; run 20 EOF and explicit shutdown cycles. | Actual IOC; SETs only against disposable laboratory agent | Bounded queue/session counts, no GET/SET starvation under accepted load, no deadlock/UAF, every normal cycle reports drained shutdown; no synthetic shutdown FLNK. SET semantics are compared separately in T17. |
+| T11 | Load and shutdown | Flood bounded request admission, test the 1024-transaction and 1 MiB worker boundaries and overflow rejection under D18/D23, saturate callback queue, mix legacy reads/SETs, stop during discovery/recovery/response; run 20 EOF and explicit shutdown cycles. | Actual IOC; SETs only against disposable laboratory agent | Bounded queue/session counts, no GET/SET starvation under accepted load, no deadlock/UAF, every normal cycle reports drained shutdown; no synthetic shutdown FLNK. SET semantics are compared separately in T17. |
 | T12 | Platform/resources | Run functional suite and one-hour steady-load test; record ASan/UBSan and separately TSan results where supported, FD/RSS/CPU and queue metrics. | Debian 13 and Rocky 8 under D10; Base/compiler/crypto identities recorded | No sanitizer findings accepted without disposition; descriptors return to baseline, retained state stays within configured bounds, no growing memory trend after warmup. |
 | T13 | APC integration | Build independent module/IOC pairs via the EPICS-env runbook; run original and input-converted APC DB/PVA/CA fixtures using v2c and a real v3 agent exposing the required OIDs. | Selected dependency tree, scratch consumer builds | Preserved DB/DBD/INP/DTYP and input/PVA/CA behavior, no unintended SET, correct library identity, no installed-tree writes; v3 fixture is actual snmpd instrumentation, not a v2c decoder. Actual output semantics require T17. |
 | T14 | Architecture review | Inspect component dependencies, generation/lock/shutdown rules, v3 evidence and compatibility results through independent convergence review. | Final source-identified candidate and evidence | No unresolved functional, preservation or verification defects against the accepted design; owner decisions remain explicit. |
 | T15 | Native API ownership | Exercise actual adapter send success/failure, response copy, close with pending work, retries 0/1/3, intermediate callbacks, mixed-deadline waiters and high FD numbers. Compare callback/packet counts with snmpget using identical retry settings; inspect direct library calls. | Real module/IOC/Net-SNMP and external peers; target package per OS | Correct PDU/callback lifetime, one terminal completion, no duplicate module retransmission, no mixed API families, no custom USM/discovery/crypto cache; large-FD path works. |
 | T16 | Engine identity | Use both real host-setter and file configuration paths. Test omitted IDs, matching explicit securityEngineID, omitted/matching explicit contextEngineID, a distinct context ID against the same snmpget oracle, hex case/prefix variants, valid 5/32-byte boundaries, empty/odd/non-hex/short/long/all-zero/all-FF inputs, wrong security ID, agent reboot and changed engine identity. Repeat cold/warm authenticated exchanges and the T8 fault scenario in automatic and explicit modes. | Real IOC, real snmpd with controlled identities/contexts, loopback fault proxy and native Net-SNMP client | Invalid inputs fail before session opening. Automatic mode discovers the agent; explicit mode passes the configured bytes and never silently rebinds to a different security ID. Context ID stays independent. Authentication/timeliness and recovery still use native handling; errors complete once with no false fresh value. Valid boundary fixtures must complete real exchanges; runtime setting changes are rejected. |
 | T17 | Legacy SET compatibility | Before transport migration and on the final candidate, run identical ao/longout/stringout command sequences against writable laboratory OIDs. Exercise success, agent error, request loss, reply loss after application, timeout/recovery, retries 0/1/3 and omitted timeout/retry defaults. Use the automatic watchdog policy on the candidate. Include repeated writes to one OID while another transaction blocks dispatch, mixed GET load and shared-OID readback around SetSkipReadbackMSec. Observe recovery after retry exhaustion without issuing another command; record packets and terminal timing for the inherited default policy. | Source-identified baseline and candidate IOCs, proposed legacy_set.db/test_legacy_set.py, real writable agent and external packet-loss proxy | Match commanded and observed values, types, queued-write coalescing/order, wire retry counts, output processing/alarm behavior and readback suppression/recovery, including the default native policy. The watchdog does not truncate allowed native retries. No additional module SET replay after exhaustion/reopen; library retransmissions are measured, not called exactly-once device execution. No unintended SET at startup or from input completion. Differences require disposition before acceptance. |
-| T18 | Worker boundary | Build and launch the actual helper from the actual IOC. Test missing/wrong helper, protocol/build mismatch, process/queue/byte/frame bounds, partial IPC and EOF, late/duplicate identities, child loss during discovery/GET/SET, parent death during blocking send, restart backoff and startup-snapshot reuse. Exercise the 150000 ms default and shared-worker maxima with differing endpoint settings. Use real loss and OS suspension to distinguish allowed native work from a child exceeding its absolute deadline, measured from the first IPC write attempt; verify retries/REPORTs/partial frames/read splits/waiter expiration cannot reset it. Use an external IPC fault proxy on the real channel for fragmentation/corruption, and OS signals for process faults; do not replace either endpoint's code. Check same-address/different-profile serialization, different-address progress, inherited descriptors, missing helper rollback, shutdown and process/FD cleanup. | Linux candidate module/helper pair on Debian 13/12 and Rocky 9; real snmpd, actual IPC and disposable SET targets | One terminal record outcome, bounded memory/process counts, no stale-epoch completion, no credential output or automatic SET replay, no orphan worker after parent death, graceful shutdown or explicit bounded failure. Allowed native retries fit D9's derived bound; an over-limit child is retired without extending its deadline. Longer transport bounds do not extend record deadlines or relax T8. The IOC contains no Net-SNMP call path. Unsupported platforms and failed cells remain explicit. |
+| T18 | Worker boundary | Build and launch the actual helper from the actual IOC. Test missing/wrong helper, protocol/build mismatch, process/queue/byte/frame bounds, partial IPC and EOF, late/duplicate identities, child loss during discovery/GET/SET, parent death during blocking send, restart backoff and startup-snapshot reuse. Exercise the 150000 ms default and shared-worker maxima with differing endpoint settings. Use real loss and OS suspension to distinguish allowed native work from a child exceeding its absolute deadline, measured from the first IPC write attempt; verify retries/REPORTs/partial frames/read splits/waiter expiration cannot reset it. Use an external IPC fault proxy on the real channel for fragmentation/corruption, and OS signals for process faults; do not replace either endpoint's code. Check same-address/different-profile serialization, different-address progress, inherited descriptors, missing helper rollback, shutdown and process/FD cleanup. | Linux candidate module/helper pair on Debian 13 and Rocky 8 under D10; real snmpd, actual IPC and disposable SET targets | One terminal record outcome, bounded memory/process counts, no stale-epoch completion, no credential output or automatic SET replay, no orphan worker after parent death, graceful shutdown or explicit bounded failure. Allowed native retries fit D9's derived bound; an over-limit child is retired without extending its deadline. Longer transport bounds do not extend record deadlines or relax T8. The IOC contains no Net-SNMP call path. Unsupported platforms and failed cells remain explicit. |
 
 ##### Verification Results
 
@@ -2641,6 +2665,329 @@ for the session mutex moves from 3800 to 3810. Sequencing 9/9 and failures
 10/10 pass on it in /tmp/snmp-m8-comments-tests-20260924-c, and the Rocky 8
 image compiles the same tree in /tmp/snmp-m8-rocky8-comments-20260924-c.
 Recheck by rebuilding and comparing `objdump -d` output per object.
+
+##### Step 6 FIFO Development Verification
+
+Observed on 2026-09-29 on Debian 13/Base 7.0.10/Net-SNMP 5.9.4.pre2.
+These are development observations, not P806 or final M8 acceptance. The
+independent candidate build is /tmp/snmp-m8-fifo-20260929-c/build; its manifest
+identifies production sources and loaded products. Later fixture-only changes
+are identified by each runner's fixture hashes. The next complete pair of
+source/fixture snapshots is /tmp/snmp-m8-fifo-qualified-20260929, with separate
+debian13 and rocky8 builds and executions.json files. Those runs are pending.
+
+| Actual path | Observed result | Evidence below /tmp/snmp-m8-fifo-20260929-c |
+| --- | --- | --- |
+| FIFO, contiguous GET batching, legacy SET replacement and 256 pending commands | 4/4 cases pass; the overflow request completes once with WRITE/INVALID and sends no packet; admitted SETs retain FIFO order | scheduler-observer |
+| Expired queued generation followed by a new generation | Pass; the expired generation is not sent, the retained native transaction drains and the new generation completes once | regression-scheduler |
+| Mixed legacy/request shutdown | 20 runs pass, ten EOF and ten explicit exit; no queued SET transmission or fabricated FLNK | scheduler-extended/test_mixed_shutdown-* |
+| Compatible authenticated session reuse | 100 reads across two bindings, one actual snmp_sess_open and one discovery | session_reuse |
+| Native session loss/reopen, same engine with new boots, changed automatic engine | Three selected cases pass; real snmpd and noninterposing native-call observer | session_loss_recovery, engine_reboot, engine_change |
+| Explicit security engine pin after agent identity change | Pass; three failures preserve the prior value and authenticated requests keep the configured identity | engine-pinned-endpoint |
+| Same address with two profile revisions | Pass; one worker, two native sessions, held first transaction prevents the second profile from sending | profile_serialization |
+| Legacy SET success/error, readback suppression, coalescing and loss with retries 0/1/3/defaults | 12/12 pass using the documented line-buffered stdout observer and actual writable snmpd | legacy-set-linebuffer-v3 |
+| Request sequencing and failure/shutdown | 9/9 sequencing and 10/10 failure cases pass | regression-sequencing, regression-failures |
+| GET batches at 1/20 limits, 20/21 OIDs, shared OIDs and communities | 10/10 cases pass at the full default cycle counts | regression-batch |
+
+Earlier failures remain in their original directories. Initial trace checks
+counted repeated snmpr history twice; the parser now accepts only identical
+repeated sequence entries and rejects inconsistent ones. A legacy timeout run
+omitted the documented stdout buffering setup; its terminal messages appeared
+only at cleanup. Other failed fixtures used the wrong peer field, alarm value,
+profile or engine-configuration entry point. Each correction was rerun through
+the actual IOC; none of those failed runs counts as a pass. The scheduler-extended
+suite as a whole failed on its original TIMEOUT expectation; only its passing
+mixed_shutdown case is used above, with the corrected expiry case separately
+identified.
+
+The 1 MiB byte bound remains implemented but is not reached by current record
+SET payloads before the 256-command bound. Its component-boundary versus IOC
+acceptance disposition is pending. Two-platform full qualification, remaining
+compatibility/resource checks and independent reviews are also pending. No
+hardware, installed Base modification, deployment or push is part of these
+observations.
+
+##### Step 6 Preservation Correction Verification
+
+Observed on 2026-09-29. The first independent P806 review found that worker
+legacy replies had collapsed wrong-OID and missing-variable responses, bypassing
+MaxOidCompFailures. The correction carries legacy response-count/positional OID
+classification separately from typed unique-OID matching through native results
+and IPC. Existing cache invalidation and valid-sample recovery are preserved.
+
+The same shipped scheduler/legacy_oid_failure case fails the original P806
+candidate and passes the corrected candidate. Author evidence is retained under
+/tmp/snmp-m8-fifo-corrected-20260929/debian13/{legacy-negative,legacy-fix}; the
+independent review repeated both at /tmp/snmp-p806-third-correction-20260929.
+Its completed review on 2026-09-29 02:57:40 -0700 accepts this correction and the
+bounded fixture adjustments, not final P806 qualification.
+
+The corrected source/fixture matrix is
+/tmp/snmp-m8-fifo-correction-matrix-20260929/{debian13,rocky8}. Each candidate has
+build-inputs.json; executions.json and suite results identify completed runs.
+Before the subsequent queued-deadline correction, both platforms pass scheduler
+7/7, legacy 1/1, native 19/19, batch 10/10, request-set 20/20 and worker 24/24.
+These results identify their frozen source and do not qualify later code.
+No unfinished suite is counted as passing.
+
+The supplement subdirectory identifies two fixture adjustments and matching
+production hashes: lifecycle open-failure tests first terminate the reused
+session through a real socket send failure; authenticated SET response checks
+join parent transaction to child SNMPWIRE and then to the actual native reply.
+The worker retirement case observes a 70-second native timeout, while the
+traditional branch retains its 60-second stale-session test. Full-cycle
+lifecycle transport passes on both OSes. Independent selected transport/typed
+mismatch checks pass at cycles=2, and the independent worker timeout observation
+is 70.083 seconds with valid next-command recovery. These selected checks do
+not replace the full-cycle matrix.
+
+The Rocky queued_coalescing failure is traced to the external pass_persist
+fixture treating blank command separators as EOF. Actual snmpd debug output
+shows the separator and the subsequent failed PONG exchange; the second of
+three ordered SETs returns error 17 without reaching the handler. The fixture
+now distinguishes an empty read from a blank line. Independent old/new runs
+reproduce Rocky FAIL/PASS and Debian PASS/PASS, retaining all failed evidence.
+The agent-fixture subdirectory then passes the complete legacy-set 12/12 and
+request-set-agent 5/5 suites on both platforms. Independent evidence resides
+at /tmp/snmp-p806-third-agent-fixture-20260929; that review accepts this external
+fixture correction only.
+
+The actual legacy baseline comparison is retained in legacy-comparison.json
+and independently derived at /tmp/snmp-p806-third-preservation-20260929.
+Against the archived Debian baseline, each candidate matches all twelve native
+policies, 88 ordered SET datagrams, packet counts and final values for 24 loss
+outputs, queued replacement, and the measured recovery/suppression results.
+Eleven of twelve nonwaiting record maps match. Intermediate agent-error alarms
+and waiting maps differ; the baseline waiting label includes later recovery
+because its terminal log observation is buffered. D9 changes default terminal
+handling and D21 repairs the old elapsed-time calculation, but these facts do
+not prove the cause of every historical alarm sample. Complete intermediate
+alarm/timing equivalence is not established and T17 disposition remains open.
+
+A later unchanged robustness test exposed silent removal of expired queue
+tickets without request terminal arbitration. The current pre-correction IOC
+fails queued_expiry_without_service_tick at
+/tmp/snmp-p806-queued-expiry-current-20260929. Supervisor expiry now returns
+removed tickets and resolves matching request generations outside the queue
+lock. Admission counts retained tickets until dispatch or the expiry pass
+removes them. The frozen expiry-correction/candidate builds pass both actual
+queued/late-result thread-suspension cases and scheduler 7/7 on both OSes.
+The final-expiry directories run all seventeen full suites against those exact
+builds, with four independent suite processes per OS and no cycle reductions.
+This is functional regression evidence under concurrent load, not P808's
+dedicated resource/performance qualification. All seventeen suites finished:
+183 of 184 cases pass on each OS. The waveform case fails because the earlier
+baseline used a different request_cases.py hash. Its runtime observations do
+not override the failed identity check. The unchanged archived baseline IOC
+was rerun with the current fixtures before a new conversion comparison;
+both platforms then pass the full conversion suite with the fixture identity
+requirement intact. All 100 waveform cycles across six records match the
+unmodified db9ebf5 baseline.
+
+Independent queued-deadline review passed on 2026-09-29 03:29 -0700 at
+/tmp/snmp-p806-third-expiry-20260929. It reproduced the old failure and new
+pass with the actual suspended completion thread. The first independent
+scheduler run had six passes and one IOC startup failure; the unchanged
+shutdown case then passed all twenty cycles. The initial startup failure
+remains failed and its exact port-allocation cause is not established.
+
+The planned T10 tooBig response and T16 explicit-engine T8 fault scenarios
+are separate cases in the expanded worker suite. In coverage-completion,
+both frozen candidates pass the targeted tooBig case through a real agent,
+outer UDP response rewrite, native library, worker and record completion.
+The full 26-case worker suites pass on both OSes. The independent review
+completed at 2026-09-29 04:02:10 -0700 and accepts the added coverage subset;
+its two real IOC cases and recalculated automatic-mode traces are retained at
+/tmp/snmp-p806-third-coverage-20260929.
+The explicit scenario retains 1000 healthy reads per control/cold/restart
+mode and the automatic scenario's latency, error and FLNK requirements.
+Each author-run mode has zero healthy INVALID completions. Explicit-mode
+maximum completion is 14.227 ms on Debian and 17.292 ms on Rocky; each p99
+remains below its control plus 100 ms. Applied results precede FLNK, which
+precedes the final complete trace marker.
+
+Aggregate audit observed at 2026-09-29 04:09 -0700:
+coverage-audit.json selects fifteen full suites (158 cases) from final-expiry,
+then the full worker (26) and conversion (2) suites from coverage-completion.
+This is 186 passed cases per OS, not a rewritten result for the initial
+184-case run. The latter two suites use a new immutable build with identical
+production source and the two added test cases; their input differences are
+listed in the audit. All suite inventories match their expected cases,
+without cycle overrides or partial selection. Build, binary, DBD, loaded
+module and fixture identities match their recorded inputs. Each OS has 436
+owned IOC run records: 435 exit normally and the intentional parent-loss
+case exits by SIGKILL; none records a cleanup error. The source and test
+copies differ from the current tree only in the milestone and test README.
+
+| Suite | Debian 13 | Rocky 8 |
+| --- | --- | --- |
+| lifecycle | 17/17 | 17/17 |
+| robustness | 16/16 | 16/16 |
+| request-set | 20/20 | 20/20 |
+| worker | 26/26 | 26/26 |
+| legacy-set | 12/12 | 12/12 |
+| batch | 10/10 | 10/10 |
+| sequencing | 9/9 | 9/9 |
+| failures | 10/10 | 10/10 |
+| request-set-agent | 5/5 | 5/5 |
+| request-set-extra | 10/10 | 10/10 |
+| request-set-edges | 11/11 | 11/11 |
+| native | 19/19 | 19/19 |
+| config | 8/8 | 8/8 |
+| conversion | 2/2 | 2/2 |
+| accounting | 3/3 | 3/3 |
+| scheduler | 7/7 | 7/7 |
+| legacy | 1/1 | 1/1 |
+
+The earlier second-person checkpoint passed on its frozen document/source
+version. Final reader review, byte-bound owner decision and T17 comparison disposition remain
+open. P806 is uncommitted; M8 remains In progress.
+
+##### Step 6 Phase-Aligned Legacy Comparison
+
+D25 was executed on 2026-09-29 with identical shipped fixtures on Debian 13
+and Rocky 8, Base 7.0.10. The unmodified archived 750ea262 baseline and current
+worker candidate each pass three added phase cases plus queued_coalescing.
+The added cases exercise real ao/longout/stringout commands, actual FLNK audits,
+native agent errors, request loss, applied-but-lost replies, retries and recovery.
+A 5-second readback window separates the sub-second fault phase from D21;
+this is not a repeat or equality claim for the earlier 1-second-window samples.
+
+All eighteen OS/case/output comparisons match command, stale-cache fault and
+recovered phase states (VAL text, PACT, UDF, STAT, SEVR), SET types/values and
+native retry counts. Full state-change sequences differ in fourteen comparisons:
+the unmodified baseline repeatedly enters READ/INVALID even after valid GETs.
+No such difference is discarded as an unmatched log timestamp.
+
+A separate control build applies only the already accepted D21 nanosecond-borrow
+line to the same archived baseline source. Both OS control builds pass all three
+phase cases; all eighteen full state-change sequences now match the worker
+candidate as well as the phase and wire values. The original baseline remains
+unmodified and authoritative as the historical comparison. The control
+identifies the observed alarm repetition with the corrected common time code;
+it is not relabeled as an unmodified baseline or a production change.
+
+Evidence: phase-corrected/ and phase-time-control/ under each OS in
+/tmp/snmp-m8-fifo-correction-matrix-20260929. Exact executions.json commands,
+loaded binary/library hashes, identical fixture hashes and phase-observations.json
+are retained. The comparison scripts/results are compare_phases.py,
+phase-comparison.json, compare_time_phases.py and phase-time-control-comparison.json.
+Initial wrong-profile startup failures in phase-aligned/ and the command-FLNK
+selection failures in phase-profile/ remain failed evidence, not qualification.
+Independent third-person review fup20260929_094217 and second-person review
+fup20260929_093830 pass target review 1. Nine independent Debian real executions
+(baseline, candidate, control times three cases) reproduce 9/9 phase/wire
+matches, 7/9 unmodified-baseline sequence differences and 9/9 control sequence
+matches. D25 verification is complete within these conditions; the historical
+unmatched-time samples remain historical. P806 acceptance remains open.
+
+##### Step 6 Dynamic Count Limit
+
+D24 makes the parent-side queue count configurable per address through
+`devSnmpSetQueueSize(address, count)`. Startup macro expansion and live setter
+calls use the same path. Unspecified addresses retain the default 1024.
+Each queue serializes its limit change with admission;
+native sessions and helper IPC are unchanged. A decrease never removes tickets
+or changes deadlines. Normal completion, timeout and shutdown policies remain.
+The current setting survives helper recovery within the same IOC; restarting
+the IOC uses the startup script or the default. Environment changes alone do
+not apply a new limit.
+
+The real IOC test holds SETs at two external peers with different startup limits
+of two and three, increases only the first to four, decreases it below occupancy,
+rejects above and at the new
+limit, and admits after occupancy falls below it. It checks exact wire order,
+single completion/FLNK and alarms for all retained and rejected requests.
+The second address must retain its limit and rejection behavior throughout.
+Separate startup validation retains the default after zero/negative settings;
+empty/whitespace addresses and runtime addresses without a worker are rejected.
+The full scheduler suite retains the default 1024 overflow, mixed GET/SET FIFO,
+legacy replacement, expiry, positional OID and twenty shutdown-cycle cases.
+On 2026-09-29, Debian 13 and Rocky 8 current-source builds each pass the full
+nine-case scheduler suite and both selected queued/late-deadline robustness
+cases. Actual A/B occupancy and limit reports verify separate startup limits
+2/3, A-only growth to 4 and shrink to 2, retained FIFO, rejection above/at the
+new limit and admission below it. Each dynamic run records sixteen completions
+and FLNKs, ten successful and six rejected, with no trace overflow.
+
+Independent third-person review fup20260929_092328 and second-person review
+fup20260929_091609 pass target review 1. The independent real address-isolation
+and startup-validation runs pass; a private production mutant that updates
+all live addresses fails the unchanged BUnchanged assertion. These results
+qualify this address amendment only, not full P806 acceptance. Evidence:
+/tmp/snmp-m8-fifo-correction-matrix-20260929/{debian13,rocky8}/addressqueue
+and /tmp/snmp-p806-third-address-20260929. Exact commands and exits are retained
+in executions.json. The fixed-1024 checkpoint below remains historical.
+
+##### Step 6 Actual IOC Byte Boundary
+
+Observed on 2026-09-29 on Debian 13 and Rocky 8, with Base 7.0.10 and the
+current production source. D24 permits a larger count for a disposable IOC,
+so the existing 1 MiB limit is now reachable without a product-policy change.
+The new capacity_bytes case sets 6394 count slots and observes 6393 pending
+164-byte tickets, totaling 1048452 bytes. The next 164-byte request fails with
+WRITE/INVALID even though the configured count would allow it. All 6394 wire
+transactions (one active plus 6393 queued) preserve FIFO; all 6395 records,
+including the rejection, complete once with actual FLNK and expected alarms.
+Both IOCs exit zero without cleanup errors.
+
+Each OS bytequeue-corrected build passes the complete ten-case scheduler suite,
+including the default1024 count case, dynamic address isolation, deadlines and
+twenty mixed shutdown cycles. The byte case uses real records, device support,
+parent scheduler, helper, native library and outer UDP peer. Optional request
+tracing is off because the fixed8192 event buffer cannot hold this many request
+events; full wire, byte/count diagnostics and actual FLNKs provide the evidence.
+The test-specific60s readiness limit permits loading12790 records. Initial
+10s readiness failures under bytequeue/ remain failed precondition evidence.
+
+Exact build/test commands and exits, capacity.json and actual IOC run records
+are under /tmp/snmp-m8-fifo-correction-matrix-20260929/{debian13,rocky8}/bytequeue-corrected.
+Independent execution review fup20260929_094829 and reader review
+fup20260929_094558 pass. The execution reviewer reran both capacity cases on
+Debian and audited both OS runs. Removing the actual production byte guard in
+a private build makes the unchanged fixture fail: 6394 tickets / 1048616 bytes
+are admitted while the active request is held. The failed negative control is
+retained under /tmp/snmp-p806-third-bytes-20260929.
+This fulfills the planned real-IOC method without selecting component-only
+evidence or altering the fixed 1 MiB limit. U029 is resolved by verification;
+P806 aggregate acceptance remains separate.
+
+##### Step 6 Count Limit Amendment
+
+Decision Date: 2026-09-29. D23 selects 1024 pending GET/SET commands per
+worker/address as the initial count bound. Active work is excluded. Earlier
+256-count observations remain historical; they do not verify this new value.
+The declared loopback/native profiles and the public scheduler capacity case
+now use the 1024-count contract. The case must observe 1024 queued commands,
+one rejected overflow request, no queued transmission while a native request
+is held, ordered admitted SETs after release, correct alarms and one FLNK
+per record. The current candidate passes the full seven-case scheduler suite
+and both selected robustness cases (`queued_expiry_without_service_tick` and
+`late_result_without_service_tick`) on Debian 13 and Rocky 8.10 with Base
+7.0.10. Each capacity run observes 1024 pending tickets, one rejection,
+1025 wire transactions (one active plus 1024 drained), and 1026 completions
+(including the rejected record). The scheduler suite includes twenty mixed
+shutdown cycles; trace overflow is absent and every admitted record completes
+without an alarm. Independent third-person review 1 (fup20260929_083350)
+and second-person review 1 (fup20260929_083514) both pass for this amendment.
+The independent new capacity and mixed FIFO runs pass; the unchanged prior
+256-count IOC/helper fails the new capacity fixture at the actual queue-count
+check (count 256, rejected 769). The expected failure is retained under
+/tmp/snmp-p806-third-count1024-20260929. These scoped reviews do not accept
+the whole P806 implementation or resolve its remaining owner decisions.
+
+Evidence root: `/tmp/snmp-m8-fifo-correction-matrix-20260929/`, under each
+OS's `count1024/`: `executions.json` records exact build/test commands and
+zero exits; `scheduler/results.json` records 7/7; each selected robustness
+directory records 1/1. `candidate/` preserves the actual built source and
+fixtures. These nine cases are a focused regression for the count change;
+the earlier complete 186-case matrix remains evidence for its frozen
+256-count source, not a new full-matrix run at 1024.
+
+The 1 MiB encoded-data policy remains unchanged. With this case's 164-byte
+integer SET tickets, 1024 pending commands charge 167936 bytes (164 KiB), so
+this count case still does not reach the byte bound. Byte-bound verification
+method and T17 intermediate-alarm disposition remain separate open questions.
 
 ##### Step 5 Worker Boundary Verification
 
@@ -3394,8 +3741,8 @@ device application, which SNMP cannot guarantee; moving writes into worker
 processes (M8 steps 5 and 6).
 
 The current per-host request queue has no transaction-count or byte limit.
-Capacity rejection and the 256-transaction/1 MiB limits are M8 worker work
-(D18). Numeric representation policy is a separate meeting topic (D19).
+Capacity rejection and the 1024-transaction/1 MiB limits are M8 worker work
+(D18/D23). Numeric representation policy is a separate meeting topic (D19).
 D21 permits the shared elapsed-time correction, including the existing legacy
 readback-window and stale-session callers, without replacing either path.
 

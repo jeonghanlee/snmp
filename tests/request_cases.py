@@ -9,7 +9,7 @@ import tempfile
 import time
 import unittest
 
-from ioc import IOC, ROOT, settings, trace_evidence, write_json
+from ioc import IOC, ROOT, settings, trace_evidence, write_json, worker_wire_evidence
 from snmp_peer import Peer, oid_bytes
 
 
@@ -187,16 +187,11 @@ class Scenario:
         test.assertEqual(set(groups), set(seen), "Missing FLNK observation")
         faults = self.transport_fault.events() if self.transport_fault else []
         used_faults = set()
-        worker_wire = {}
-        if settings().get("worker_helper"):
-            for match in re.finditer(r"SNMPWIRE (\d+) epoch=(\d+) tx=(\d+) wire=(\d+)", log):
-                stamp, epoch, transaction, native_id = map(int, match.groups())
-                test.assertNotIn(transaction, worker_wire, "Worker replayed an application transaction")
-                worker_wire[transaction] = (stamp, epoch, native_id)
+        worker_wire = worker_wire_evidence(test, log)
         for key, events in groups.items():
             expected = self.expected[key]
             names = ["accepted", "claimed", "dispatch", "result", "applied", "complete"]
-            if expected["failure"] == "open":
+            if expected["failure"] == "open" and not settings().get("worker_helper"):
                 names.remove("dispatch")
             elif expected["failure"] == "queued":
                 names.remove("claimed")

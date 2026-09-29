@@ -27,6 +27,7 @@ devSnmp_SRCS += snmpEpics.cpp
 devSnmp_SRCS += snmpNative.cpp
 devSnmp_SRCS += snmpConfig.cpp
 devSnmp_SRCS += snmpIpc.cpp snmpWorkerConfig.cpp snmpSupervisor.cpp
+devSnmp_SRCS += snmpScheduler.cpp
 
 PROD_HOST_Linux += snmpWorker
 snmpWorker_SRCS += snmpWorker.cpp snmpIpc.cpp snmpWorkerConfig.cpp snmpNative.cpp
@@ -34,6 +35,7 @@ snmpWorker_LIBS += Com
 
 WORKER_SOURCES = snmpIpc.cpp snmpIpc.h snmpWorker.cpp snmpWorkerConfig.cpp snmpSupervisor.cpp
 WORKER_SOURCES += snmpSupervisor.h snmpNative.cpp snmpNative.h snmpTypes.h
+WORKER_SOURCES += snmpScheduler.cpp snmpScheduler.h snmpRequest.cpp snmpRequest.h
 WORKER_INPUTS = $(addprefix ../,$(WORKER_SOURCES))
 
 devSnmp_LIBS += $(EPICS_BASE_IOC_LIBS)

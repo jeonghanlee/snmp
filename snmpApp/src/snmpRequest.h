@@ -47,7 +47,10 @@ public:
     SnmpWireType wireType() const { return binding.wireType; }
     const SnmpValue &payload() const { return payloadValue; }
     bool claim(SnmpIdentity transaction, unsigned long long scheduledGeneration = 0);
-    bool claimWorker(SnmpIdentity transaction, SnmpValue &payload, uint64_t &originalDeadline);
+    bool claimWorker(SnmpIdentity transaction, unsigned long long scheduledGeneration);
+    void expireWorker(unsigned long long scheduledGeneration);
+    typedef bool (*Admission)(void *, unsigned long long, uint64_t, const SnmpValue *);
+    void setAdmission(Admission function, void *context);
     void dispatched(SnmpIdentity transaction, long wireId);
     void finish(SnmpIdentity transaction, const SnmpValue &value, bool timedOut);
     unsigned capacity() const { return binding.capacity; }
@@ -84,6 +87,8 @@ private:
     long wireId;
     char numericOid[1537];
     epicsUInt64 accepted, deadline;
+    Admission admission;
+    void *admissionContext;
     struct Statistics {
         unsigned long long acceptedCount, rejectedCount, validCount, failedCount;
         unsigned long long completedCount, callbackRetries, lastValidGeneration;

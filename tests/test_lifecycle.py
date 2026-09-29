@@ -3,6 +3,7 @@
 import time
 
 from diagnostics import verify as verify_diagnostics
+from ioc import settings
 from request_cases import ScenarioTest
 
 
@@ -305,6 +306,13 @@ class LifecycleTest(ScenarioTest):
                     count += 1
                     s.done("A", count, value)
                     wire_count = len(s.peer.requests)
+                    if settings().get("worker_helper") and stage == "open":
+                        fault.arm("send")
+                        s.put("A.PROC")
+                        count += 1
+                        s.done("A", count, value, severity=3, status=1, failure="send")
+                        self.assertFalse(fault.control.exists(), "Send fault was not consumed")
+                        self.assertEqual(len(s.peer.requests), wire_count)
                     fault.arm(stage)
                     s.put("A.PROC")
                     count += 1

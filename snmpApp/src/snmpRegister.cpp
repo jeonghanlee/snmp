@@ -110,6 +110,16 @@ static const iocshArg workerLimitArg = { "maximum workers", iocshArgInt };
 static const iocshArg *const workerArgs[] = { &workerPathArg, &workerLimitArg };
 static const iocshFuncDef workerDef = { "devSnmpConfigureWorkers", 2, workerArgs };
 
+static void iocsh_devSnmpSetQueueSize(const iocshArgBuf *args)
+{
+  iocshSetError(devSnmpSetQueueSize(args[0].sval, args[1].ival));
+  fflush(stdout);
+}
+static const iocshArg queueAddressArg = { "configured address", iocshArgString };
+static const iocshArg queueSizeArg = { "maximum pending commands", iocshArgInt };
+static const iocshArg *const queueArgs[] = { &queueAddressArg, &queueSizeArg };
+static const iocshFuncDef queueDef = { "devSnmpSetQueueSize", 2, queueArgs };
+
 static void iocsh_devSnmpLoadV3Profile(const iocshArgBuf *args)
 {
   iocshSetError(devSnmpLoadV3Profile(args[0].sval,args[1].sval));
@@ -255,6 +265,7 @@ void snmp_Register()
   iocshRegister(&iocsh_devSnmpLoadV3Profile_FuncDef,       iocsh_devSnmpLoadV3Profile);
   iocshRegister(&iocsh_devSnmpDefineEndpoint_FuncDef,      iocsh_devSnmpDefineEndpoint);
   iocshRegister(&workerDef, iocsh_devSnmpConfigureWorkers);
+  iocshRegister(&queueDef, iocsh_devSnmpSetQueueSize);
   iocshRegister(&iocsh_devSnmpSetEndpointParam_FuncDef,    iocsh_devSnmpSetEndpointParam);
   iocshRegister(&iocsh_devSnmpSetParam_FuncDef,            iocsh_devSnmpSetParam);
   iocshRegister(&iocsh_snmpr_FuncDef,                      iocsh_snmpr);

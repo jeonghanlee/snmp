@@ -85,7 +85,7 @@ std::string Reader::string(size_t maximum)
     return s;
 }
 bool Reader::done() const { return valid && position == bytes.size(); }
-bool Reader::value(SnmpValue &v, bool payload)
+bool Reader::value(SnmpValue &v, bool payload, bool legacy)
 {
     unsigned kind = u32(), wire = u32(), success = u32(), asLong = u32(), asDouble = u32();
     uint64_t signedBits = u64();
@@ -109,6 +109,7 @@ bool Reader::value(SnmpValue &v, bool payload)
         case 0x78: case 0x79: expectedKind = SnmpValue::Real; expectedDouble = true; break;
         case 6: expectedKind = SnmpValue::ObjectId; break;
         case 3: case 4: case 0x40: case 0x44: expectedKind = SnmpValue::Octets; break;
+        case 0x80: case 0x81: case 0x82: if (!legacy) valid = false; break;
         default: valid = false;
         }
         if (kind != expectedKind || asLong != expectedLong || asDouble != expectedDouble ||

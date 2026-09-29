@@ -1,0 +1,16 @@
+record(longout, "$(P)$(R)") {
+    field(DESC, "Bounded worker queue request")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.6.0 INTEGER: 128 i")
+    field(FLNK, "$(P)Audit$(R)")
+}
+
+record(sub, "$(P)Audit$(R)") {
+    field(DESC, "Queue request completion observation")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)$(R) NPP")
+    field(INPB, "$(P)$(R).PACT NPP")
+    field(INPC, "$(P)$(R).SEVR NPP")
+    field(INPD, "$(P)$(R).STAT NPP")
+    field(INPE, "$(P)$(R).UDF NPP")
+}

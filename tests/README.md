@@ -7,8 +7,8 @@ CA clients and UDP. It uses an external controllable peer for faults and a
 real Net-SNMP snmpd for native protocol, USM, GET and SET coverage. Test-only
 FLNK audit support belongs to `snmpRequestTest`, not the production IOC.
 
-Hardware, production operation, final mixed legacy/worker operation and
-extended pressure/resource acceptance are outside these suites. Their
+Hardware, production operation and extended pressure/resource acceptance
+are outside these suites. Their
 acceptance requirements and observed results remain in
 [the canonical milestone document](../docs/milestone-db9ebf5.md).
 
@@ -68,20 +68,57 @@ The suite covers native ownership, startup failure, default and explicit
 watchdog budgets, shared-address budgets, fragmented/malformed/old/duplicate
 IPC, partial-progress deadlines, child recovery, frozen credential snapshots,
 parent death during real discovery and a SET applied before worker loss.
+It also checks 100 authenticated warm reads across compatible bindings with
+one native session open/discovery, loss/reopen, engine reboot/change,
+explicit engine pinning and same-address serialization across profiles.
+The reused-session `tooBig` case passes a real agent's v2c reply through an
+external UDP fault proxy. It checks one failed completion with the prior value,
+an empty error response with the matching request ID, and subsequent recovery
+without extra application requests.
 The full default watchdog test waits 150 seconds. Discovery isolation runs
 1000 healthy reads in each of control, cold discovery loss and worker-restart
 discovery loss, requesting 100 ms intervals with a 400 ms record deadline
 and four-second native timeout. It retains actual request intervals and checks
 zero healthy INVALID completions, maximum completion below one second and
-p99 no more than 100 ms above the control.
+p99 no more than 100 ms above the control. The same three isolation scenarios
+run separately with an explicit securityEngineID on both endpoints and check
+that every identified request retains the configured engine ID.
 
 Use `--case <name>` for diagnosis; the runner marks this partial coverage.
 `--worker-helper /absolute/path/to/snmpWorker` selects worker mode for an
-existing request suite. Only suites compatible with this stage may be used:
-legacy polling, mixed traffic, batching and full queue admission belong to
-later qualification. Parent traces identify IPC dispatch; SNMPWIRE identifies
+existing request, batch or legacy suite. Parent traces identify IPC dispatch; SNMPWIRE identifies
 the actual native request, and the shared request checker connects both to
 external UDP and FLNK observations. It does not treat `wire=0` as a packet ID.
+
+The `scheduler` suite requires `--worker-helper` and the loopback profile.
+It verifies actual GET/SET/GET order, contiguous GET batching, legacy SET
+replacement at its original position, 1024 pending commands plus one rejected
+request, expired-generation exclusion and 20 mixed-operation shutdowns.
+The dynamic capacity case starts two address workers with different limits
+from EPICS environment macros, raises only the first address's limit while
+native SETs are held, then lowers it below occupancy. It checks retained FIFO order, rejection above and
+at the reduced limit, admission below it, one completion/FLNK per record and
+independent per-address queue counts and limits. The other address's limit and
+admission behavior must not change. Environment changes alone have no effect.
+Zero and negative settings are rejected at startup and runtime without changing
+the effective limit. Invalid addresses and runtime addresses without a worker
+are rejected. The fixed 1024 saturation case verifies the default.
+The count case checks real record alarms, FLNK, queue counters and SET packets;
+it does not claim to reach the separate 1 MiB byte bound. The separate
+`capacity_bytes` case configures 6394 pending slots only in its disposable IOC.
+The real 164-byte SET tickets fill 1048452 bytes with 6393 pending requests;
+the next ticket exceeds 1 MiB while still fitting the count. It verifies the
+byte rejection alarm, complete wire FIFO and every actual FLNK. Optional
+request tracing is disabled for this case because its event count exceeds
+the fixed trace capacity; the wire, queue report and FLNK observations remain
+complete. This case permits 60 seconds for loading its 12790 records, while
+other IOC startup limits remain unchanged. EOF and explicit exit
+each run ten times without fabricated completion or queued transmission.
+The legacy OID case checks a valid cache, missing-variable replies, repeated
+positional mismatches beyond `MaxOidCompFailures`, INVALID and valid recovery.
+The request SET transport case retires a reused worker session through a real
+socket send failure before testing the next socket open failure; both faults
+must leave the external agent unchanged and complete the record exactly once.
 
 See [worker startup and recovery](../docs/snmp-worker.md) for the consumer
 configuration and supported record boundary. These tests use disposable
@@ -243,12 +280,28 @@ zero-INVALID and latency criteria when qualifying the worker candidate.
 No restart-isolation or one-hour resource qualification is supplied by this
 baseline suite. Run timing comparisons without other laboratory load.
 
-The legacy-set suite has twelve cases. It exercises the shipped ao, longout
+The legacy-set suite has fifteen cases. It exercises the shipped ao, longout
 and stringout support against disposable writable OIDs implemented through
 the real snmpd pass_persist interface. Real native snmpget verifies device
 state independently of the IOC and its UDP observer. The ASCII laboratory
 values, actual applied SET log and raw request/response metadata remain in
 the case directory.
+
+The three `phase_agent_error`, `phase_request_loss` and `phase_reply_loss`
+cases compare actual processing phases through `legacy_set_audit.db`. The
+external UDP proxy holds the first SET until the command-value FLNK is seen.
+Agent rejection or native retries then complete on the real transport. Loss
+also blocks GET traffic so actual cache expiry produces READ/INVALID; numeric
+outputs retain the command while stringout displays `INVALID`. Normal traffic
+must restore the real readback without another SET. Audits retain VAL text,
+PACT, UDF, STAT and SEVR for every observed FLNK. Diagnostics flush terminal
+logs without processing an output record.
+
+These targeted cases use a 5-second readback window, 200 ms native timeout and
+one retry to separate the sub-second failure phase from the known legacy
+elapsed-time borrow correction. They do not assert identical wall-clock timing
+or replace the original 1-second-window cases. Compare both phase states and
+complete state-change sequences; final recovery alone is insufficient.
 
 Run this suite through GNU `stdbuf -oL` as shown above. Its live termination
 observer requires line-buffered IOC stdout because it reads the regular
@@ -354,9 +407,9 @@ python3 tests/run_snmp.py --ioc "$SNMP_TEST_IOC" --profile "$SNMP_PROFILE" --sui
 These suites describe test coverage, not acceptance. Current observations,
 failed assertions and pending contract decisions are recorded in M9 of the
 [canonical milestone document](../docs/milestone-db9ebf5.md). Neither suite
-implements or qualifies a request admission-capacity limit. The current host
-queue has no capacity bound; the 256-transaction/1 MiB worker limits and
-overflow tests belong to M8 / T11.
+implements an admission-capacity limit. The traditional host queue has no
+capacity bound. Worker admission and its 1024-command overflow test belong to
+the scheduler suite and M8 / T11; byte-bound acceptance is recorded separately.
 
 The request-set suite exercises the `SnmpRequest` output device support (ao,
 longout and stringout) against the writable loopback UDP peer of

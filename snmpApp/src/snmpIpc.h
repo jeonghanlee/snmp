@@ -33,7 +33,7 @@ public:
     uint64_t u64();
     std::vector<unsigned char> blob(size_t maximum);
     std::string string(size_t maximum);
-    bool value(SnmpValue &value, bool payload = false);
+    bool value(SnmpValue &value, bool payload = false, bool legacy = false);
     bool done() const;
     bool good() const { return valid; }
 private:

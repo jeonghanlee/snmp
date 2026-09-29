@@ -441,10 +441,14 @@ the record and its FLNK observe UDF/INVALID. With `R`, Base converts VAL to
 RVAL before device support, as described under value encoding. IVOA and a
 configured UDFS continue to follow Base rules.
 
-The current per-host queue has no transaction-count or byte capacity bound.
-Admission-full rejection is a worker contract: its 256-transaction and 1 MiB
-limits and overflow tests belong to the worker implementation. Current slot,
-shutdown and payload rejections do not qualify that future capacity limit.
+The traditional per-host queue has no transaction-count or byte capacity
+bound. The worker FIFO defaults to 1024 pending commands and limits charged
+encoded data to 1 MiB; active native work is separate. `devSnmpSetQueueSize`
+changes one address worker's count bound before or after `iocInit()`. A decrease
+retains queued work and rejects new tickets until count is below the new bound;
+existing legacy SET replacements do not add tickets. Each command reserves its
+payload plus 40 bytes of single-command framing. Slot, shutdown and payload
+rejections do not qualify the queue-capacity boundary.
 
 These are menuAlarmStat choices. TIMEOUT means the outcome is unknown: the
 SET may not have been sent, or the agent may have applied it without a reply
@@ -458,8 +462,11 @@ pass does not block a later write.
 
 ### Delivery, Ordering And Deadline
 
-Request writes use their own queue on each host, separate from the legacy
-per-OID settings. Each admitted write is one SET transaction carrying one OID,
+In the staged traditional transport, request writes use their own queue on
+each host. The worker scheduler uses one admission-order FIFO per configured
+address for legacy polls, request reads and both kinds of writes. Legacy
+per-OID pending settings remain separate from immutable request writes.
+Each admitted request write is one SET transaction carrying one OID,
 never replaced by or merged with another write, and never resent by the
 module after a terminal result. The host sends queued request SETs one
 transaction at a time in admission order, and a queued request SET goes before
@@ -614,8 +621,10 @@ explicitly set. New numeric setters accept complete decimal values: timeoutMSec
 1 through 60000, retries 0 through 5 and maxOidsPerReq 1 through 1024. These are
 proposed admission bounds, not measured device limits; encoded-size limits still
 apply. Legacy setters keep their valid existing inputs through the compatibility
-adapter. Configuration freeze and restart requirements apply to every entry
-point, including legacy setters. There is no delete/redefine/reload operation.
+adapter. Endpoint security and native transport configuration freeze and restart
+requirements apply to every corresponding entry point, including legacy setters.
+The parent-side devSnmpSetQueueSize admission setting is independently adjustable
+at runtime. There is no endpoint delete/redefine/reload operation.
 
 ### Engine Identity Settings
 
@@ -819,6 +828,13 @@ length; a separate bounded native-formatted text field supports legacy masks.
 The decoder rejects an unknown type or an unrepresentable value rather than
 coercing it. BOOTSTRAP/READY also exchange the protocol and build identities.
 
+TRANSACTION starts with a uint32 member count followed by length-prefixed
+encoded commands. A GET batch contains contiguous compatible members; a SET
+contains exactly one. RESULT carries a count followed by binding-identified
+outcomes and values. The parent validates the entire result before delivering
+any member. Legacy values additionally permit native exception text; request
+records retain strict typed-result validation.
+
 IOC IPC is nonblocking and serviced by the supervisor, independently of the
 record completion/deadline worker. Handle partial frames and writes explicitly;
 reject bad magic/version/kind, oversized lengths and unknown identities before
@@ -831,7 +847,7 @@ the record deadline alone expires.
 | Resource | Proposed initial bound | Exhaustion behavior |
 | --- | --- | --- |
 | Worker processes | 32 per IOC, configurable before initialization | Fail excess bindings; never put unrelated addresses into a shared fallback worker. |
-| Pending transactions | 256 and 1 MiB of encoded queued data per worker | Reject admission with a terminal local error; record slot ownership remains bounded separately. |
+| Pending transactions | 1024 by default, configurable per address at startup and runtime through devSnmpSetQueueSize; fixed 1 MiB of encoded queued data per worker | Reject new tickets at or above the count bound or over the byte bound; decreasing the count bound retains existing tickets and deadlines. Record slot ownership remains bounded separately. |
 | IPC frame including header | 256 KiB, checked in both directions | Reject oversized bootstrap, request or result explicitly; never truncate a value. |
 | Local bootstrap/binding wait | 5 s | Fail initialization of that binding and retire an unresponsive worker. |
 | Worker transport progress limit | 150000 ms with inherited timeout/retries; otherwise calculate as below, with an optional explicit startup override | Retire a stalled child; reject an explicitly undersized override before application traffic. Never shorten native timeout/retries to fit. |
@@ -1019,8 +1035,19 @@ OID count and encoded message size; auth/privacy overhead affects the latter.
 A tooBig read response may split a batch within the original deadline and
 retry budget. Do not apply this policy to SETs.
 
-Use bounded fair scheduling between endpoints and between legacy polls,
-explicit reads and writes. Net-SNMP alone owns wire retransmission; module
+Use one bounded admission-order FIFO per worker/address across legacy polls,
+explicit reads and writes. A later SET cannot overtake an earlier GET.
+Different addresses retain independent worker progress. Batch only contiguous
+compatible GETs at the queue head; never skip a SET or an incompatible GET to
+fill a batch. Legacy queued SET coalescing retains its original queue position
+and replaces only the unsent value; request SETs never coalesce. Once handed
+off, batch membership and SET payloads are immutable. Expired requests leave
+the queue without transmission; a live native transaction still owns the
+worker until completion or retirement. This policy supersedes traffic-class
+priority and read-starvation aging in the worker path; see
+[FIFO decision](decisions/ADR-20260929-worker-fifo.md).
+
+Net-SNMP alone owns wire retransmission; module
 reopen/backoff must not multiply its retry budget or replay a SET. Batching is
 an optimization, never a condition that an underfilled request must wait
 indefinitely to satisfy. Retain one deadline

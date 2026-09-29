@@ -9,7 +9,7 @@ import subprocess
 import time
 
 from ioc import IOC, ROOT, settings, trace_evidence, write_json
-from test_config import ConfigTest, VALUE
+from test_config import AGENT_ENGINE, ConfigTest, VALUE, WRONG_ENGINE
 from snmp_agent import USERS
 from snmp_peer import Peer, oid_bytes
 
@@ -17,7 +17,9 @@ from snmp_peer import Peer, oid_bytes
 CASES = ("default_budget", "watchdog_examples", "missing_helper", "process_limit", "child_restart",
          "parent_loss", "isolation", "native_ownership", "ipc_startup", "ipc_results", "absolute_deadline",
          "snapshot_restart", "sentinel_budget", "discovery_isolation", "shared_budget", "set_child_loss",
-         "default_retirement", "budget_boundaries")
+         "default_retirement", "budget_boundaries", "session_reuse", "session_loss_recovery",
+         "engine_reboot", "engine_change", "engine_pinned_change", "profile_serialization",
+         "session_too_big", "explicit_engine_isolation")
 ISOLATION_READS = 1000
 ISOLATION_INTERVAL = 0.1
 FAULT_INTERVAL = 100
@@ -171,6 +173,136 @@ class WorkerTest(ConfigTest):
         self.assertTrue({"init_snmp", "read_objid", "generate_Ku", "snmp_sess_open", "snmp_sess_async_send"} <= names)
         write_json(runtime.work / "native-owner.json", {"parent": runtime.process.pid, "child": child, "calls": calls})
 
+    def observed_runtime(self, lines):
+        audit = self.work / "session-audit.so"
+        subprocess.run(["cc", "-shared", "-fPIC", "-O2", "-o", str(audit),
+                        str(ROOT / "tests/worker_audit.c")], check=True)
+        return self.runtime(lines, process_env={"LD_AUDIT": str(audit)})
+
+    def session_opens(self, runtime):
+        calls = re.findall(r"SNMPNATIVE (\d+) \d+ return snmp_sess_open (\d+)", self.log(runtime))
+        self.assertTrue(all(int(pid) != runtime.process.pid and int(result) for pid, result in calls))
+        return len(calls)
+
+    def test_session_reuse(self):
+        agent, proxy = self.agent()
+        runtime = self.observed_runtime(self.setup_lines(proxy, timeout=200, retries=1) +
+                                       [self.endpoint_records("e", "B:")])
+        for generation in range(1, 101):
+            self.assertEqual(self.read(runtime, "A:" if generation % 2 else "B:"), (VALUE, "0"))
+        self.assertEqual(self.session_opens(runtime), 1, "Compatible bindings did not retain one native session")
+        discoveries = [r for r in proxy.records if r["event"] == "request" and not r["engine_id"]]
+        self.assertEqual(len(discoveries), 1, "Warm reads repeated discovery")
+        runtime.close()
+        driver, audits = trace_evidence(runtime.work)
+        self.assertEqual(sum(r["event"] == "complete" for r in driver), 100)
+        self.assertEqual(len(audits), 100)
+        self.assertTrue(all(r["pact"] == 1 and r["severity"] == 0 for r in audits))
+        write_json(runtime.work / "reuse.json", {"reads": 100, "native_opens": 1, "discoveries": 1})
+
+    def test_session_loss_recovery(self):
+        agent, proxy = self.agent()
+        runtime = self.observed_runtime(self.setup_lines(proxy, timeout=100, retries=0))
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        proxy.fault("drop-replies")
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "3"))
+        proxy.fault("normal")
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        self.assertEqual(self.session_opens(runtime), 2)
+
+    def test_session_too_big(self):
+        agent, proxy = self.agent()
+        host = self.proxied(proxy)
+        runtime = self.observed_runtime([
+            f'devSnmpSetSnmpVersion("{host}", "SNMP_VERSION_2c")',
+            'devSnmpSetParam("SessionTimeout", 100000)',
+            'devSnmpSetParam("SessionRetries", 0)',
+            f'dbLoadRecords("{ROOT}/tests/worker.db", "P=SNMPTEST:,R=A:,HOST={host},COMM=public")'])
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        self.assertEqual(self.session_opens(runtime), 1)
+        proxy.fault("too-big", 0xA0)
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "3"))
+        proxy.fault("normal")
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        runtime.close()
+        requests = [row for row in proxy.records if row["event"] == "request"]
+        responses = [row for row in proxy.records if row["event"] == "response"]
+        self.assertEqual(len(requests), 3, "Unexpected retransmission or extra application request")
+        self.assertEqual([row["error"] for row in responses], [0, 1, 0])
+        self.assertEqual(responses[1]["original_error"], 0)
+        self.assertEqual(responses[1]["varbinds"], [])
+        self.assertEqual([row["id"] for row in responses], [row["id"] for row in requests])
+        driver, audits = trace_evidence(runtime.work)
+        self.assertEqual([row["generation"] for row in driver if row["event"] == "complete"], [1, 2, 3])
+        self.assertEqual([row["severity"] for row in audits], [0, 3, 0])
+        self.assertTrue(all(row["pact"] == 1 for row in audits))
+        self.assertEqual(proxy.errors, [])
+        write_json(runtime.work / "too-big.json", {"requests": len(requests),
+                   "native_opens": self.session_opens(runtime), "response_errors": [0, 1, 0]})
+
+    def engine_recovery(self, changed, pinned):
+        agent, proxy = self.agent()
+        lines = self.setup_lines(proxy, timeout=200, retries=1)
+        if pinned:
+            engine = "80001f8804" + b"fixture-agent".hex()
+            lines.insert(-1, f'devSnmpSetEndpointParam("e", "securityEngineID", "{engine}")')
+        lines += ['devSnmpSetParam("RequestTimeoutMSec", 2000)']
+        runtime = self.observed_runtime(lines)
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        original, = {r["engine_id"] for r in proxy.records if r["event"] == "response" and r.get("engine_id")}
+        first = len(proxy.records)
+        agent.restart(WRONG_ENGINE if changed else original, 6)
+        outcomes = [self.read(runtime, "A:") for _ in range(3 if changed else 1)]
+        after = proxy.records[first:]
+        if pinned:
+            self.assertEqual(outcomes, [(VALUE, "3")] * 3)
+            authenticated = [r for r in after if r["event"] == "request" and r.get("engine_id")]
+            self.assertTrue(authenticated)
+            self.assertTrue(all(r["engine_id"] == original for r in authenticated),
+                            "Explicit engine identity silently rebound")
+        else:
+            self.assertEqual(outcomes[-1], (VALUE, "0"))
+            if changed:
+                self.assertTrue(any(r["event"] == "request" and r.get("engine_id") == WRONG_ENGINE for r in after))
+            else:
+                self.assertEqual(self.session_opens(runtime), 1)
+                self.assertTrue(any(r["event"] == "response" and r.get("boots", 0) >= 6 for r in after))
+        write_json(runtime.work / "engine-recovery.json", {"changed": changed, "pinned": pinned,
+                   "outcomes": outcomes, "native_opens": self.session_opens(runtime)})
+
+    def test_engine_reboot(self):
+        self.engine_recovery(False, False)
+
+    def test_engine_change(self):
+        self.engine_recovery(True, False)
+
+    def test_engine_pinned_change(self):
+        self.engine_recovery(True, True)
+
+    def test_profile_serialization(self):
+        agent, proxy = self.agent()
+        runtime = self.observed_runtime(self.setup_lines(proxy, timeout=2000, retries=0) +
+                                       self.setup_lines(proxy, "f", "B:", timeout=2000, retries=0) +
+                                       ['devSnmpSetParam("RequestTimeoutMSec", 4000)'])
+        for prefix in ("A:", "B:"):
+            self.assertEqual(self.read(runtime, prefix), (VALUE, "0"))
+        self.assertEqual(self.session_opens(runtime), 2)
+        self.assertEqual(len(self.children(runtime)), 1)
+        proxy.fault("hold-requests")
+        first = len(proxy.records)
+        runtime.put("A:Name.PROC")
+        runtime.wait_for(lambda: bool(proxy.held), "first profile's native request held")
+        runtime.put("B:Name.PROC")
+        time.sleep(0.1)
+        self.assertEqual(sum(r["event"] == "request" for r in proxy.records[first:]), 1)
+        proxy.fault("normal")
+        proxy.release()
+        runtime.wait_for(lambda: runtime.get("A:AuditName") == "2" and runtime.get("B:AuditName") == "2",
+                         "serialized profile completions")
+        self.assertEqual(runtime.get("A:Name.SEVR"), "0")
+        self.assertEqual(runtime.get("B:Name.SEVR"), "0")
+        self.assertEqual(self.session_opens(runtime), 2)
+
     def fault_runtime(self, proxy, mode, timeout=100):
         environment = {"SNMP_WORKER_TARGET": str(Path(settings()["ioc"]).resolve().with_name("snmpWorker")),
                        "SNMP_WORKER_FAULT": mode, "SNMP_WORKER_PROXY_LOG": str(self.work / (mode + "-ipc"))}
@@ -289,14 +421,25 @@ class WorkerTest(ConfigTest):
         write_json(runtime.work / "parent-loss.json", {"child": child, "terminated": gone()})
 
     def test_discovery_isolation(self):
+        self.discovery_isolation(False)
+
+    def test_explicit_engine_isolation(self):
+        self.discovery_isolation(True)
+
+    def discovery_isolation(self, explicit):
         summaries = {}
         for mode in ("control", "cold", "restart"):
             agent, proxy = self.agent()
             other, second = self.agent()
             if mode == "cold":
                 proxy.fault("drop-requests")
-            runtime = self.runtime(self.setup_lines(proxy, timeout=4000, retries=0) +
-                                   self.setup_lines(second, "f", "B:", timeout=4000, retries=0))
+            lines = []
+            for endpoint, prefix, observer in (("e", "A:", proxy), ("f", "B:", second)):
+                binding = self.setup_lines(observer, endpoint, prefix, timeout=4000, retries=0)
+                if explicit:
+                    binding.insert(-1, f'devSnmpSetEndpointParam("{endpoint}", "securityEngineID", "{AGENT_ENGINE}")')
+                lines += binding
+            runtime = self.runtime(lines)
             prior_faults = 0
             if mode == "restart":
                 self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
@@ -354,6 +497,7 @@ class WorkerTest(ConfigTest):
             latency.sort()
             accepted = [row["time"] for row in driver if row["record"] == "SNMPTEST:B:Name" and row["event"] == "accepted"]
             summaries[mode] = {"count": len(latency), "invalid": 0, "maximum_seconds": max(latency),
+                               "explicit_engine_id": AGENT_ENGINE if explicit else None,
                                "p99_seconds": latency[(len(latency) * 99 + 99) // 100 - 1],
                                "record_deadline_ms": 400, "native_timeout_ms": 4000,
                                "requested_interval_seconds": ISOLATION_INTERVAL,
@@ -362,8 +506,16 @@ class WorkerTest(ConfigTest):
             write_json(self.work / "isolation-summary.json", summaries)
             if mode != "control":
                 self.assertLessEqual(summaries[mode]["p99_seconds"], summaries["control"]["p99_seconds"] + 0.1)
-                self.assertTrue(any(row["event"] == "request" and not row["engine_id"] and row["action"] == "drop"
-                                    for row in proxy.records))
+                dropped = [row for row in proxy.records if row["event"] == "request" and row["action"] == "drop"]
+                self.assertTrue(dropped)
+                if not explicit:
+                    self.assertTrue(any(not row["engine_id"] for row in dropped))
+            if explicit:
+                for observer in (proxy, second):
+                    identified = [row["engine_id"] for row in observer.records
+                                  if row["event"] == "request" and row.get("engine_id")]
+                    self.assertTrue(identified)
+                    self.assertEqual(set(identified), {AGENT_ENGINE})
             self.assertEqual(proxy.errors + second.errors, [])
 
     def test_isolation(self):

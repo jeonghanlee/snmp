@@ -9,7 +9,7 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: M8 step 6 accepted locally; commit pending.
+Next session entry point: M8 step 7 local commit boundary; scoped implementation and reviews accepted.
 The per-address queue limit defaults to 1024 and can change before or after iocInit;
 decreases retain existing tickets. The 1 MiB limit is unchanged.
 Per-address dynamic-capacity, phase-aligned T17 and actual IOC byte-bound
@@ -18,8 +18,12 @@ The current production source passes the full ten-case scheduler on Debian 13
 and Rocky 8. Earlier D23 nine-case results qualify the fixed-1024 source only;
 the 17-suite/186-case results qualify the earlier 256-count source only.
 U029 and U030 are resolved by actual verification, without a policy waiver.
-P806 is accepted locally for its implemented functional scope; local commit remains pending.
-P807 has not started.
+P806 is committed as f9b7908a0efddb6e741eac2f91dffb3f604a0784.
+P807 has an accepted detailed plan and explicit implementation authorization.
+Its setting guards, shell errors and real recovery fixtures are implemented;
+full scoped Debian 13/Rocky 8 regressions pass at 81/81 cases per OS;
+independent final execution and reader reviews pass; P807 is locally accepted.
+The P807 changes remain uncommitted. M8 completion is not claimed.
 M8 remains In progress. P808 retains final-source full matrix, resource/soak,
 sanitizer and independent APC qualification.
 See Step 6 Dynamic Count Limit and the retained earlier evidence below.
@@ -2365,8 +2369,9 @@ The following table maps the same nine steps to implementation targets and
 observable advancement conditions. It is part of this plan, not a second work
 register. Step 1 fixtures, the step 2 extraction, the step 3 adapter and the
 step 4 configuration are delivered; step 5 now has the scoped implementation
-and verification recorded below. Step 6 is implemented and undergoing qualification;
-steps 7-9 remain planned. Run each step's available checks before migration
+and verification recorded below. Step 6 is qualified for its scoped functional boundary;
+Step 7 is locally accepted for its scoped implementation and verification. Steps 8-9 remain planned.
+Run each step's available checks before migration
 depends on that step; record partial coverage explicitly. Step 8 reruns the complete acceptance matrix on the final
 candidate even when an earlier implementation passed its subset.
 
@@ -2988,6 +2993,95 @@ The 1 MiB encoded-data policy remains unchanged. With this case's 164-byte
 integer SET tickets, 1024 pending commands charge 167936 bytes (164 KiB), so
 this count case still does not reach the byte bound. Byte-bound verification
 method and T17 intermediate-alarm disposition remain separate open questions.
+
+##### Step 7 Startup Freeze And Recovery
+
+Detailed Plan Status: accepted
+Detailed Plan Acceptance: 2026-09-29; plan20260929_111922 after independent execution and reader plan reviews
+Detailed Implementation Authorization: 2026-09-29; auth20260929_113701 covers P807.1-P807.5; auth20260929_115818 includes CheckRanges; auth20260929_122522 includes worker-aware baseline verification
+
+The startup inventory and operator boundaries are in
+[SNMP Worker Runtime](snmp-worker.md). Native SessionTimeout, SessionRetries
+and CheckRanges freeze after any binding or the final security freeze.
+Named endpoint and legacy host settings freeze at the affected binding.
+RequestTimeoutMSec and RequestTrace retain their separate request-start
+boundary at initHookAtEnd. Command registration installs the initialization
+hook even when no SNMP record or ordinary setter is used before iocInit.
+Existing live polling/diagnostic controls and D24 queue resizing remain live.
+Rejected bound changes preserve valid state and return IOC shell error status.
+
+Recovery fixtures use actual IOC/helper/Net-SNMP and disposable snmpd peers.
+They cover named and legacy startup files, queued distinct FIFO members and
+original deadlines, in-flight GET/SET loss without SET replay, an actual
+ready result awaiting Base callback processing, full process activation of
+new credentials and invalid-input rejection. Delayed-response fixtures retain
+unchanged authenticated native packets and observe receipt and actual native
+parse return in the current helper before checking record state. Context
+identity uses an actual same-parameter snmpget oracle. Conflicting profiles
+are rejected before discovery/application traffic; distinct addresses retain
+independent keys and progress after one helper recovers.
+
+The preserved defective IOC accepts nine late startup changes in the shipped
+late_module_initialization regression after an IOC with no prior SNMP use
+finishes iocInit. The corrected hook registration rejects the same nine calls
+and keeps DebugLevel live. Actual before/after receipts are
+/tmp/snmp-p807-late-before and /tmp/snmp-p807-late-after.
+
+Corrected candidates are /tmp/snmp-p807-corrected-debian and
+/tmp/snmp-p807-rocky/corrected-candidate, Base 7.0.10 on both platforms.
+Suite commands, results and cleanup are retained in
+/tmp/snmp-p807-corrected-matrix-debian and
+/tmp/snmp-p807-rocky/corrected-matrix. Production/fixture identities are in
+each candidate's build-inputs.json. The worker suite selects its own real
+helper/proxy per case; other suites select the identified helper explicitly.
+
+| Scoped corrected coverage | Debian 13 | Rocky 8 | Acceptance boundary |
+| --- | --- | --- | --- |
+| config | 13/13 PASS, exit 0 | 13/13 PASS, exit 0 | T5 runtime rejection and empty-SNMP startup, T9 conflicts, T16 context oracle |
+| scheduler | 10/10 PASS, exit 0 | 10/10 PASS, exit 0 | Existing FIFO, count/byte bounds and D24 live resizing regression |
+| worker | 36/36 PASS, exit 0 | 36/36 PASS, exit 0 | Complete suite, including recovery states and actual IPC faults |
+| lifecycle | 17/17 PASS, exit 0 | 17/17 PASS, exit 0 | Complete suite with original configured cycle counts |
+| v3-baseline | 5/5 PASS, exit 0 | 5/5 PASS, exit 0 | Complete worker-aware suite; 100 cold starts and 1000-read cases |
+
+Observed on 2026-09-29, complete at 19:53:49 UTC. Each OS passes 81/81
+cases in the five complete suites, with no abort or partial suite. Each
+has 338 IOC termination receipts: 337 exit 0 and one intentional parent-loss
+kill (-9). All cleanup_error fields are null. Each has 77 native agent
+termination receipts, all exit 0 without forced kill, and 104 baseline
+helper termination receipts with no remaining process. The Debian IOC and
+CA repeater PIDs are absent; the Rocky disposable container is absent after
+its matrix runner exits 0.
+
+The corrected build-inputs.json SHA-256 values are
+28823c516876774350302aec196e5b6bcae861d69bafa8d968b163d8359fcaa1
+(Debian) and
+80c0170722d0906904470d49cf4418c7d0978e51b60e7601e7feeefd078777eb
+(Rocky). Both builds exit 0. The 15 frozen production, fixture and operator
+document hashes match both candidates and the current worktree. This
+canonical document is an administrative result update after the build.
+
+Worker baseline verification preserves the parent native open/close criterion.
+Worker mode verifies actual owned helper PID/executable/descriptor observations,
+native call entry/return and child-only ownership, successful opens and process
+disappearance after bounded shutdown. Direct process exit is not represented
+as a native close call. The helper's existing nondumpable protection remains
+enabled; the outer observer records its own process boundaries.
+
+Prior failed evidence remains separate: /tmp/snmp-p807-matrix-debian and
+/tmp/snmp-p807-rocky/matrix contain the original baseline open/close failures
+and worker failures caused by duplicate helper selection in the orchestration
+argv. The first worker-baseline observer attempt is retained in
+/tmp/snmp-p807-baseline-worker-debian and /tmp/snmp-p807-rocky/baseline-worker;
+external access to the protected helper's proc entries failed. These receipts
+are not relabeled as passing coverage. Independent checkpoint reports identify
+the missed-hook implementation defect and split-cutoff documentation defect;
+their bounded corrections and final evidence have PASS reports in both lanes.
+
+P807 local functional acceptance follows both independent final PASS reports.
+The execution handoff is hand20260929_125457; its pending-review state records
+its publication checkpoint. Commit and remote landing remain pending.
+This scoped verification does not complete
+M8 or replace P808 final-source qualification, soak, sanitizers or APC checks.
 
 ##### Step 5 Worker Boundary Verification
 

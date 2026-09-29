@@ -496,6 +496,20 @@ containers, for example with `--ulimit nofile=4096:4096`.
 These are adapter results. They do not qualify discovery isolation of the
 record path, worker processes or profile handling.
 
+### Worker Baseline Observation
+
+`v3-baseline` retains its parent-transport native open/close balance check when
+no helper is selected. With `--worker-helper`, it verifies the actual owned
+helper executable, PID and descriptor inventory at startup, balanced native
+call entry/return, successful native opens and child-only Single Session API
+ownership. After bounded IOC shutdown, every observed owned helper must be
+absent from `/proc`. `worker-resources.json` and `worker-exit.json` retain
+these observations for every IOC instance, including the cold-start series.
+The worker Stop path exits the process directly; process termination reclaims
+its descriptors and is not represented as a native `snmp_sess_close` call.
+The baseline still requires real authenticated values, ordered record/FLNK
+events, actual cold discovery and the complete configured cycle counts.
+
 ## Named Profiles, Endpoints And Engine Identity
 
 The config suite starts the actual test IOC with named SNMPv3 profiles and
@@ -510,7 +524,7 @@ SNMP_CONFIG_ARGS=(--ioc "$SNMP_TEST_IOC" --profile tests/profiles/snmpv3.json)
 python3 tests/run_snmp.py "${SNMP_CONFIG_ARGS[@]}" --suite config
 ```
 
-The eight cases cover reads through a named endpoint beside an unchanged
+The config cases cover reads through a named endpoint beside an unchanged
 legacy host link; noAuthNoPriv, authNoPriv and authPriv profiles for one
 address, each observed on the wire at its own level; authPriv with SHA-224,
 SHA-256, SHA-384 and SHA-512 against agents configured for each; startup
@@ -530,6 +544,37 @@ restart; automatic, explicit, host-setter (with the def prefix) and file engine 
 with a wrong explicit ID that is sent as configured and fails; and 5-byte and 32-byte
 engine IDs completing real exchanges with agents restarted under those IDs,
 where every request carries the configured ID and no discovery is sent.
+Additional cases reject native global settings and legacy aliases after
+startup, and execute rejected named/legacy changes after real record binding
+but before the final freeze. They inspect actual bound-state validity and
+require healthy reads after rejection. `CheckRanges` shares the native global
+freeze boundary. The distinct-context case compares the real IOC's encoded
+security/context engine IDs and terminal outcome with an actual `snmpget`
+using the same parameters, including a known-valid context control. The
+conflict-before-discovery case isolates rejected same-address/user credentials
+and algorithms from healthy traffic and requires no discovery or application
+packet from the rejected configuration.
+
+Worker recovery cases change, delete, make unreadable or corrupt named and
+legacy startup files. Transparent outer-boundary file-open observation is
+calibrated against actual parent startup opens; recovered children must not
+reopen those files and must complete authenticated reads. Request-state cases
+cover distinct queued FIFO members, their original deadline, in-flight GET
+and potentially applied SET loss without replay, and a real ready result
+held before Base callback processing. Full process restart activates valid
+new credentials and rejects invalid ones without old-credential fallback.
+Separate addresses use the same security name with different keys and remain
+healthy after one helper recovers.
+
+Delayed-response cases retain complete actual authenticated SNMP datagrams
+and route them unchanged to the current native receive socket after helper
+replacement or complete IOC restart. Actual receive bytes and the return from
+`snmp_sess_read2` provide the observation barrier. Value, timestamp, alarm,
+PACT and FLNK count remain unchanged until the held valid new response is
+delivered. `recovery_observer.c` observes file/UDP boundaries and
+`worker_audit.c` observes actual library calls; neither replaces processing,
+configuration, transport or record completion.
+
 Every case searches the IOC log and startup file, or the shell output, for
 the disposable secrets.
 The case of a credential file owned by another user needs a second account

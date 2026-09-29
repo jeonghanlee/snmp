@@ -471,14 +471,13 @@ bool snmpConfigSetEndpointParam(const char *name, const char *parameter, const c
     }
     SnmpEndpointConfig &endpoint = *found->second;
     std::string prefix = "endpoint " + endpoint.name + ": ";
-    bool invalid = endpoint.invalid;
-    // Any rejected setting leaves the endpoint's startup configuration
-    // incomplete, so records bound to it fail instead of running with defaults.
-    endpoint.invalid = true;
     if (endpoint.bound) {
         error = prefix + "endpoint is bound by a record";
         return false;
     }
+    bool invalid = endpoint.invalid;
+    // Unbound invalid startup settings prevent records from using defaults.
+    endpoint.invalid = true;
     std::string field = parameter ? parameter : "";
     long number = 0;
     if (field == "timeoutMSec") {

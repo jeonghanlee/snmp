@@ -84,6 +84,7 @@ class Proxy:
         self.records, self.errors, self.clients = [], [], {}
         self.mode, self.pdu = "normal", None
         self.held, self.released = [], []
+        self.held_responses = []
         self.lock = threading.Lock()
         self.closed = False
         self.log = (work / "wire.jsonl").open("w")
@@ -116,7 +117,9 @@ class Proxy:
                     with self.lock:
                         mode = self.mode if self.pdu is None or self.pdu == request_pdu else "normal"
                     drop = mode == ("drop-requests" if request else "drop-replies")
-                    hold = request and mode == "hold-requests"
+                    hold = mode == ("hold-requests" if request else "hold-replies")
+                    if not request and mode == "hold-auth-replies":
+                        hold = metadata.get("flags", 0) & 3 == 3
                     metadata["action"] = "drop" if drop else "hold" if hold else "forward"
                     if not request and mode == "too-big" and destination:
                         original_error = metadata.get("error")
@@ -139,7 +142,10 @@ class Proxy:
                             self.back.send(packet)
                     elif destination:
                         del self.clients[key]
-                        if not drop:
+                        if hold:
+                            with self.lock:
+                                self.held_responses.append((packet, destination[0], request_pdu))
+                        elif not drop:
                             self.front.sendto(packet, destination[0])
         except BaseException as error:
             self.errors.append(repr(error))
@@ -150,7 +156,7 @@ class Proxy:
         self.log.flush()
 
     def fault(self, mode, pdu=None):
-        if mode not in ("normal", "drop-requests", "drop-replies", "hold-requests", "report-foreign-id", "too-big"):
+        if mode not in ("normal", "drop-requests", "drop-replies", "hold-requests", "hold-replies", "hold-auth-replies", "report-foreign-id", "too-big"):
             raise ValueError("Unknown UDP fault mode")
         with self.lock:
             self.mode, self.pdu = mode, pdu
@@ -159,6 +165,20 @@ class Proxy:
         with self.lock:
             self.released.extend(item + (discard,) for item in self.held)
             self.held.clear()
+
+    def deliver_response(self, packet, destination):
+        """Deliver the unchanged native datagram at the outer UDP boundary."""
+        self.front.sendto(packet, destination)
+        metadata = packet_metadata(packet)
+        metadata.update(event="response-release", time=time.monotonic_ns(),
+                        destination=list(destination))
+        self.record(metadata)
+
+    def release_responses(self):
+        with self.lock:
+            responses, self.held_responses = self.held_responses, []
+        for packet, address, _ in responses:
+            self.deliver_response(packet, address)
 
     def close(self):
         if self.closed:
@@ -176,7 +196,8 @@ class Proxy:
 
 
 class Agent:
-    def __init__(self, work, profile, writable=False, opaque_float=False):
+    def __init__(self, work, profile, writable=False, opaque_float=False, port=None,
+                 auth_pass=AUTH, priv_pass=PRIV, sys_name="fixture-agent"):
         self.work = work / "agent"
         self.work.mkdir(mode=0o700)
         (self.work / "state").mkdir(mode=0o700)
@@ -184,8 +205,9 @@ class Agent:
         if not self.executable or not shutil.which("snmpget"):
             raise RuntimeError("Protocol suite requires real snmpd and snmpget in PATH")
         with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as reserve:
-            reserve.bind(("127.0.0.1", 0))
+            reserve.bind(("127.0.0.1", port or 0))
             self.port = reserve.getsockname()[1]
+        self.auth_pass, self.priv_pass = auth_pass, priv_pass
         self.auth_type = profile["auth_type"]
         self.priv_type = profile["priv_type"]
         self.values_path = self.work / "values.json"
@@ -205,8 +227,8 @@ class Agent:
             extension += f"dlmod fixtureFloat {module}\n"
         config = self.work / "snmpd.conf"
         config.write_text(f"agentaddress udp:127.0.0.1:{self.port}\nengineID fixture-agent\n"
-                          "rwcommunity public 127.0.0.1\nsysName fixture-agent\n" +
-                          "".join(f"createUser {user} {self.auth_type} {AUTH} {self.priv_type} {PRIV}\n"
+                          f"rwcommunity public 127.0.0.1\nsysName {sys_name}\n" +
+                          "".join(f"createUser {user} {self.auth_type} {self.auth_pass} {self.priv_type} {self.priv_pass}\n"
                                   f"rwuser {user} {level}\n"
                                   for user, level in zip(USERS.values(), ("noauth", "auth", "priv"))) + extension)
         config.chmod(0o600)
@@ -222,7 +244,7 @@ class Agent:
             deadline = time.monotonic() + profile["action_timeout"]
             while time.monotonic() < deadline and self.process.poll() is None:
                 result = self.client("2c", None, NAME)
-                if result.returncode == 0 and "fixture-agent" in result.stdout:
+                if result.returncode == 0 and sys_name in result.stdout:
                     write_json(self.work / "identity.json", {
                         "executable": self.executable, "sha256": digest(self.executable),
                         "version": subprocess.check_output([self.executable, "-v"], text=True, stderr=subprocess.STDOUT),
@@ -239,9 +261,9 @@ class Agent:
     def client(self, version, level, oid):
         security = ["-c", "public"] if version != "3" else ["-l", level, "-u", USERS[level]]
         if level in ("authNoPriv", "authPriv"):
-            security += ["-a", self.auth_type, "-A", AUTH]
+            security += ["-a", self.auth_type, "-A", self.auth_pass]
         if level == "authPriv":
-            security += ["-x", self.priv_type, "-X", PRIV]
+            security += ["-x", self.priv_type, "-X", self.priv_pass]
         return subprocess.run(["snmpget", "-v", version, *security, "-t", "0.2", "-r", "0", "-On",
                                f"127.0.0.1:{self.port}", oid], env=self.env, text=True,
                               capture_output=True, timeout=3)

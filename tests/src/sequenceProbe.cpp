@@ -12,6 +12,9 @@
 #include <iocsh.h>
 #include <epicsExport.h>
 #include "snmpRequest.h"
+#include "snmpConfig.h"
+#include <initHooks.h>
+#include <string>
 
 /* Inputs are real NPP database links read by sub record support. */
 static long requestAudit(subRecord *record)
@@ -146,8 +149,43 @@ static void recordState(const iocshArgBuf *args)
     dbScanUnlock(record);
 }
 
+/* Execute public shell commands after actual record initialization and before
+ * the module's final iocInit freeze; observe the existing bound endpoint. */
+static std::string startupScript, startupEndpoint;
+static void startupHook(initHookState state)
+{
+    if (state != initHookAfterInitDatabase || startupScript.empty()) return;
+    std::string error;
+    const SnmpEndpointConfig *endpoint = snmpConfigBindEndpoint(startupEndpoint.c_str(), error);
+    if (!endpoint) {
+        printf("SNMPSTARTUP observation unavailable\n");
+        return;
+    }
+    bool before = endpoint->invalid;
+    iocshLoad(startupScript.c_str(), NULL);
+    printf("SNMPSTARTUP endpoint=%s invalid_before=%d invalid_after=%d frozen=%d\n",
+           startupEndpoint.c_str(), before, endpoint->invalid, snmpConfigFrozen());
+    fflush(stdout);
+    startupScript.clear();
+}
+static const iocshArg startupPathArg = {"script", iocshArgString};
+static const iocshArg startupEndpointArg = {"endpoint", iocshArgString};
+static const iocshArg *startupArgs[] = {&startupPathArg, &startupEndpointArg};
+static const iocshFuncDef startupDef = {"requestStartupScript", 2, startupArgs};
+static void configureStartupScript(const iocshArgBuf *args)
+{
+    if (!args[0].sval || !args[1].sval) {
+        iocshSetError(1);
+        return;
+    }
+    startupScript = args[0].sval;
+    startupEndpoint = args[1].sval;
+}
+
 static void registerProbe()
 {
+    initHookRegister(startupHook);
+    iocshRegister(&startupDef, configureStartupScript);
     iocshRegister(&blockDef, blockCallbacks);
     iocshRegister(&sustainDef, sustainCallbacks);
     iocshRegister(&releaseDef, releaseCallbacks);

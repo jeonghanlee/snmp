@@ -639,6 +639,8 @@ class devSnmp_host
 // invalid refuses record binding. Security settings freeze once a record
 // binds the host and for every host after iocInit.
 {
+  friend class devSnmp_manager;
+
   public:
     devSnmp_host(devSnmp_manager *pMgr, char *host, bool *okay);
     devSnmp_host(devSnmp_manager *pMgr, char *key, const SnmpEndpointConfig *endpoint, bool *okay);
@@ -651,6 +653,7 @@ class devSnmp_host
     void processing(epicsTimeStamp *pnow);
     void zeroCounters(void);
     void report(int level, char *match);
+    void reportConfiguration(void);
     bool reportMatchAny(char *match);
     void queueGetTransaction(devSnmp_getTransaction *pTrans);
     void queueSetTransaction(devSnmp_setTransaction *pTrans);
@@ -668,7 +671,8 @@ class devSnmp_host
     void invalidate(void) { configInvalid = true; }
 
     int getMaxOidsPerReq(void);
-    void setMaxOidsPerReq(int maxoids);
+    bool setMaxOidsPerReq(int maxoids);
+    bool bound(void) const { return hasBinding; }
 
     void sessionRetriesChange(void);
     void sessionTimeoutChange(void);
@@ -709,6 +713,7 @@ class devSnmp_manager
     void getHostSnmpV3Params(char *host, devSnmp_v3params *v3params);
     int getHostMaxOidsPerReq(char *host);
     bool setMaxOidsPerReq(char *host, int maxoids);
+    bool configurationOpen(void);
     devSnmp_pv *addPV(struct dbCommon *pRec, struct link *pLink, bool requestMode = false,
                       char requestKind = 0);
     void processing(epicsTimeStamp *pnow);
@@ -779,6 +784,7 @@ class snmpPollAggregate
 
 extern "C" {
   // externally callable routines
+  void devSnmpRegisterInitHook(void);
   int epicsSnmpInit(int param);
   int devSnmpSetSnmpVersion(char *hostName, char *versionStr);
   int devSnmpSetSnmpV3Param(char *hostName, char *paramName, char *value);

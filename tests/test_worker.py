@@ -10,7 +10,7 @@ import time
 
 from ioc import IOC, ROOT, settings, trace_evidence, write_json
 from test_config import AGENT_ENGINE, ConfigTest, VALUE, WRONG_ENGINE
-from snmp_agent import USERS
+from snmp_agent import Agent, Proxy, USERS
 from snmp_peer import Peer, oid_bytes
 
 
@@ -19,7 +19,8 @@ CASES = ("default_budget", "watchdog_examples", "missing_helper", "process_limit
          "snapshot_restart", "sentinel_budget", "discovery_isolation", "shared_budget", "set_child_loss",
          "default_retirement", "budget_boundaries", "session_reuse", "session_loss_recovery",
          "engine_reboot", "engine_change", "engine_pinned_change", "profile_serialization",
-         "session_too_big", "explicit_engine_isolation")
+         "session_too_big", "explicit_engine_isolation", "snapshot_files", "snapshot_inflight",
+         "snapshot_callback", "snapshot_queued", "snapshot_queued_deadline", "delayed_snapshot_response", "snapshot_full_restart", "snapshot_set_loss", "snapshot_legacy_files", "snapshot_address_isolation")
 ISOLATION_READS = 1000
 ISOLATION_INTERVAL = 0.1
 FAULT_INTERVAL = 100
@@ -37,9 +38,10 @@ class WorkerTest(ConfigTest):
         self.addCleanup(runtime.close)
         return runtime
 
-    def endpoint_records(self, endpoint, prefix, community=None):
+    def endpoint_records(self, endpoint, prefix, community=None, oid=None, mask="STRING:"):
+        fields = f",OID={oid},MASK={mask}" if oid else ""
         return (f'dbLoadRecords("{ROOT}/tests/worker.db", '
-                f'"P=SNMPTEST:,R={prefix},HOST=endpoint:{endpoint},COMM={community or "-"}")')
+                f'"P=SNMPTEST:,R={prefix},HOST=endpoint:{endpoint},COMM={community or "-"}{fields}")')
 
     def setup_lines(self, proxy, endpoint="e", prefix="A:", timeout=None, retries=None):
         profile = self.profile_file(endpoint, "authPriv", USERS["authPriv"])
@@ -156,6 +158,350 @@ class WorkerTest(ConfigTest):
         os.kill(child, signal.SIGKILL)
         runtime.wait_for(lambda: self.children(runtime) and child not in self.children(runtime), "snapshot replacement")
         self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+
+    def recovery_runtime(self, proxy, extra=(), credentials=None, deadline=10000, legacy_file=None):
+        observer = self.work / "recovery-observer.so"
+        command = ["cc", "-shared", "-fPIC", "-O2", "-Wall", "-Wextra", "-o", str(observer),
+                   str(ROOT / "tests/recovery_observer.c"), "-ldl"]
+        build = subprocess.run(command, capture_output=True, text=True)
+        write_json(self.work / "observer-build.json", {"argv": command, "exit": build.returncode,
+                                                      "stdout": build.stdout, "stderr": build.stderr})
+        self.assertEqual(build.returncode, 0, build.stderr)
+        audit = self.work / "recovery-audit.so"
+        subprocess.run(["cc", "-shared", "-fPIC", "-O2", "-o", str(audit),
+                        str(ROOT / "tests/worker_audit.c")], check=True)
+        lines = self.setup_lines(proxy, timeout=2000, retries=0)
+        if credentials:
+            (self.files / "e.keys").write_text(
+                f"authPassPhrase {credentials[0]}\nprivPassPhrase {credentials[1]}\n")
+        lines.insert(-1, f'devSnmpSetEndpointParam("e", "securityEngineID", "{AGENT_ENGINE}")')
+        lines.insert(-1, 'devSnmpSetEndpointParam("e", "maxOidsPerReq", "1")')
+        if legacy_file:
+            host = self.proxied(proxy)
+            lines = [f'devSnmpSetSnmpVersion("{host}", "SNMP_VERSION_3")',
+                     f'devSnmpSetSnmpV3ConfigFile("{host}", "{legacy_file}")',
+                     f'dbLoadRecords("{ROOT}/tests/worker.db", "P=SNMPTEST:,R=A:,HOST={host},COMM=public")']
+        return self.runtime([f'devSnmpSetParam("RequestTimeoutMSec", {deadline})'] + lines + list(extra),
+                            process_env={"LD_PRELOAD": str(observer), "LD_AUDIT": str(audit)})
+
+    def replace_child(self, runtime):
+        old, = self.children(runtime)
+        os.kill(old, signal.SIGKILL)
+        runtime.wait_for(lambda: len(self.children(runtime)) == 1 and old not in self.children(runtime),
+                         "snapshot helper replacement")
+        child, = self.children(runtime)
+        return old, child
+
+    def mutate_files(self, mode="changed"):
+        keys, profile = self.files / "e.keys", self.files / "e.conf"
+        if mode == "deleted":
+            keys.unlink()
+            profile.unlink()
+        elif mode == "unreadable":
+            keys.chmod(0)
+            profile.chmod(0)
+        elif mode == "malformed":
+            keys.write_text("not a valid credential file\n")
+            profile.write_text("not a valid profile file\n")
+        else:
+            keys.write_text("authPassPhrase changed-secret-test\nprivPassPhrase changed-secret-test\n")
+            profile.write_text("securityName wrong-user\nsecurityLevel noAuthNoPriv\n")
+
+    def assert_snapshot_opens(self, runtime, child, paths=None):
+        text = self.log(runtime)
+        for path in paths or (self.files / "e.keys", self.files / "e.conf"):
+            self.assertIn(f"SNMPFILE pid={runtime.process.pid} path={path}", text,
+                          "The observer must see the actual parent startup file opens")
+            self.assertNotIn(f"SNMPFILE pid={child} path={path}", text,
+                             "Recovery reopened a startup file")
+        self.assertIn(f"SNMPRECEIVE pid={child} ", text, "Observer must run in the recovered helper")
+
+    def test_snapshot_legacy_files(self):
+        for mode in ("changed", "deleted", "unreadable", "malformed"):
+            agent, proxy = self.agent()
+            path = agent.ioc_config("authPriv")
+            runtime = self.recovery_runtime(proxy, legacy_file=path)
+            self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+            if mode == "deleted":
+                path.unlink()
+            elif mode == "unreadable":
+                path.chmod(0)
+            elif mode == "malformed":
+                path.write_text("invalid legacy configuration\n")
+            else:
+                path.write_text("securityName wrong-user\nsecurityLevel noAuthNoPriv\n")
+            old, child = self.replace_child(runtime)
+            self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+            self.assert_snapshot_opens(runtime, child, (path,))
+            runtime.close()
+            self.assert_no_secret(runtime)
+            agent.close()
+
+    def test_snapshot_address_isolation(self):
+        agent, proxy = self.agent()
+        other = Agent(self.fresh("different-key-agent"), settings()["profile"],
+                      auth_pass="other-auth-test-only", priv_pass="other-priv-test-only")
+        self.addCleanup(other.close)
+        second = Proxy(self.fresh("different-key-proxy"), other.port)
+        self.addCleanup(second.close)
+        lines = self.setup_lines(proxy, "e", "A:") + self.setup_lines(second, "f", "B:")
+        (self.files / "f.keys").write_text(
+            "authPassPhrase other-auth-test-only\nprivPassPhrase other-priv-test-only\n")
+        runtime = self.runtime(lines)
+        self.assertEqual(len(self.children(runtime)), 2)
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        self.assertEqual(self.read(runtime, "B:"), (VALUE, "0"))
+        before = self.log(runtime)
+        child = int(re.findall(r"bound id=1 pid=(\d+)", before)[-1])
+        os.kill(child, signal.SIGKILL)
+        runtime.wait_for(lambda: child not in self.children(runtime) and len(self.children(runtime)) == 2,
+                         "one isolated helper recovered")
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        self.assertEqual(self.read(runtime, "B:"), (VALUE, "0"))
+        for secret in ("other-auth-test-only", "other-priv-test-only"):
+            self.assertNotIn(secret, self.log(runtime))
+        self.assert_no_secret(runtime)
+
+    def test_snapshot_files(self):
+        for mode in ("changed", "deleted", "unreadable", "malformed"):
+            agent, proxy = self.agent()
+            runtime = self.recovery_runtime(proxy)
+            self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+            self.mutate_files(mode)
+            old, child = self.replace_child(runtime)
+            self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+            self.assert_snapshot_opens(runtime, child)
+            runtime.close()
+            self.assert_no_secret(runtime)
+            for path in (self.files / "e.keys", self.files / "e.conf"):
+                if path.exists():
+                    path.chmod(0o600)
+            agent.close()
+
+    def test_snapshot_inflight(self):
+        agent, proxy = self.agent()
+        runtime = self.recovery_runtime(proxy)
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        proxy.fault("hold-auth-replies")
+        runtime.put("A:Name.PROC")
+        runtime.wait_for(lambda: len(proxy.held_responses) == 1, "real authenticated GET response held")
+        self.assertEqual(runtime.get("A:Name.PACT"), "1")
+        self.mutate_files()
+        old, child = self.replace_child(runtime)
+        runtime.wait_for(lambda: runtime.get("A:AuditName") == "2" and runtime.get("A:Name.PACT") == "0",
+                         "one failed GET completion")
+        self.assertEqual(runtime.get("A:Name.SEVR"), "3")
+        proxy.fault("normal")
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        self.assertEqual(runtime.get("A:AuditName"), "3")
+        self.assert_snapshot_opens(runtime, child)
+
+    def test_snapshot_callback(self):
+        agent, proxy = self.agent()
+        runtime = self.recovery_runtime(proxy)
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        self.command(runtime, "requestSustainCallbacks()", "SNMPSUSTAIN ready")
+        try:
+            runtime.put("A:Name.PROC")
+            self.command(runtime, 'requestDiagnostics("SNMPTEST:A:Name")', "SNMPDIAG")
+            def result_ready():
+                self.command(runtime, 'requestDiagnostics("SNMPTEST:A:Name")', "SNMPDIAG")
+                return bool(re.search(r"SNMPDIAG .*A:Name generation=2 state=(ready|scheduled).* valid=1 .*terminal_ns=[1-9][0-9]* applied_ns=0 ",
+                                      self.log(runtime)))
+            runtime.wait_for(result_ready, "real result immutable before callback")
+            self.assertEqual(runtime.get("A:Name.PACT"), "1")
+            self.assertEqual(runtime.get("A:AuditName"), "1")
+            self.mutate_files()
+            old, child = self.replace_child(runtime)
+        finally:
+            runtime.process.stdin.write("requestReleaseCallbacks()\n")
+            runtime.process.stdin.flush()
+        runtime.wait_for(lambda: runtime.get("A:AuditName") == "2" and runtime.get("A:Name.PACT") == "0",
+                         "original callback applied once after helper loss")
+        self.assertEqual(runtime.get("A:Name"), VALUE)
+        self.assertEqual(runtime.get("A:Name.SEVR"), "0")
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        self.assertEqual(runtime.get("A:AuditName"), "3")
+        self.assert_snapshot_opens(runtime, child)
+
+    def test_snapshot_queued(self):
+        agent, proxy = self.agent(writable=True)
+        runtime = self.recovery_runtime(proxy, extra=(
+            self.endpoint_records("e", "B:", oid=".1.3.6.1.4.1.55555.7.0"),
+            self.endpoint_records("e", "C:", oid=".1.3.6.1.4.1.55555.6.0", mask="INTEGER:")))
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        proxy.fault("hold-auth-replies")
+        runtime.put("A:Name.PROC")
+        runtime.wait_for(lambda: len(proxy.held_responses) == 1, "active native response held")
+        runtime.put("B:Name.PROC")
+        runtime.put("C:Name.PROC")
+        self.command(runtime, "snmpr(0)", "SNMPQUEUE")
+        self.assertRegex(self.log(runtime), r"SNMPQUEUE epoch=\d+ count=2 ")
+        self.mutate_files()
+        proxy.fault("normal")
+        old, child = self.replace_child(runtime)
+        runtime.wait_for(lambda: runtime.get("A:AuditName") == "2" and runtime.get("B:AuditName") == "1" and
+                         runtime.get("B:Name.PACT") == "0" and runtime.get("C:AuditName") == "1",
+                         "queued snapshot requests complete")
+        self.assertEqual(runtime.get("A:Name.SEVR"), "3")
+        self.assertEqual((runtime.get("B:Name"), runtime.get("B:Name.SEVR")), (r'\"initial\"', "0"))
+        self.assertEqual((runtime.get("C:Name"), runtime.get("C:Name.SEVR")), ("600", "0"))
+        terminals = []
+        for prefix in ("B:", "C:"):
+            self.command(runtime, f'requestDiagnostics("SNMPTEST:{prefix}Name")', "SNMPDIAG_END")
+            row = re.findall(rf"SNMPDIAG .*{prefix}Name .*terminal_ns=(\d+)", self.log(runtime))[-1]
+            terminals.append(int(row))
+        self.assertLess(terminals[0], terminals[1], "Recovered FIFO changed request order")
+        self.assert_snapshot_opens(runtime, child)
+
+    def test_snapshot_queued_deadline(self):
+        agent, proxy = self.agent()
+        deadline = 1000
+        runtime = self.recovery_runtime(proxy, extra=(self.endpoint_records("e", "B:"),), deadline=deadline)
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        proxy.fault("hold-auth-replies")
+        runtime.put("A:Name.PROC")
+        runtime.wait_for(lambda: len(proxy.held_responses) == 1, "active exchange before deadline test")
+        runtime.put("B:Name.PROC")
+        self.command(runtime, 'requestDiagnostics("SNMPTEST:B:Name")', "SNMPDIAG_END")
+        accepted = int(re.findall(r"SNMPDIAG .*B:Name .*accepted_ns=(\d+)", self.log(runtime))[-1])
+        self.mutate_files()
+        runtime.wait_for(lambda: time.monotonic_ns() >= accepted + deadline * 700000,
+                         "queued request reaches seventy percent of its original deadline")
+        old, child = self.replace_child(runtime)
+        runtime.wait_for(lambda: runtime.get("B:AuditName") == "1" and runtime.get("B:Name.PACT") == "0",
+                         "original queued deadline terminates once")
+        self.command(runtime, 'requestDiagnostics("SNMPTEST:B:Name")', "SNMPDIAG_END")
+        terminal = int(re.findall(r"SNMPDIAG .*B:Name .*terminal_ns=(\d+)", self.log(runtime))[-1])
+        self.assertEqual(runtime.get("B:Name.SEVR"), "3")
+        self.assertLessEqual(terminal - accepted, deadline * 1100000,
+                             "Helper recovery extended the accepted request deadline")
+        proxy.fault("normal")
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        self.assert_snapshot_opens(runtime, child)
+
+    def test_delayed_snapshot_response(self):
+        agent, proxy = self.agent()
+        runtime = self.recovery_runtime(proxy)
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        proxy.fault("hold-auth-replies")
+        runtime.put("A:Name.PROC")
+        runtime.wait_for(lambda: len(proxy.held_responses) == 1, "old authenticated response held")
+        old_packet, old_address, _ = proxy.held_responses.pop()
+        self.mutate_files()
+        old, child = self.replace_child(runtime)
+        runtime.wait_for(lambda: runtime.get("A:AuditName") == "2" and runtime.get("A:Name.PACT") == "0",
+                         "old generation failed once")
+        agent.config.write_text(agent.config.read_text().replace("sysName fixture-agent", "sysName new-generation"))
+        agent.restart(AGENT_ENGINE, 3)
+        runtime.put("A:Name.PROC")
+        runtime.wait_for(lambda: len(proxy.held_responses) == 1, "new valid response held")
+        packet, address, _ = proxy.held_responses.pop()
+        self.assertNotEqual(packet, old_packet)
+        self.assertEqual(runtime.get("A:AuditName"), "2")
+        fields = ["A:Name", "A:Name.STAT", "A:Name.SEVR", "A:AuditName"]
+        before_state = runtime.get_many(fields)
+        before_stamp = runtime.client(["caget", "-w", "0.4", "-a", "-n", "SNMPTEST:A:Name"])
+        before = len(self.log(runtime))
+        proxy.deliver_response(old_packet, address)
+        runtime.wait_for(lambda: f"SNMPRECEIVE pid={child} " in self.log(runtime)[before:] and
+                         f"hex={old_packet.hex()}" in self.log(runtime)[before:],
+                         "unchanged old packet reached the current native receive path")
+        runtime.wait_for(lambda: re.search(rf"hex={old_packet.hex()}\n.*SNMPNATIVE {child} \d+ return snmp_sess_read2 ",
+                                          self.log(runtime)[before:], re.S), "native parse of the old packet returned")
+        self.assertEqual(runtime.get_many(fields), before_state)
+        self.assertEqual(runtime.client(["caget", "-w", "0.4", "-a", "-n", "SNMPTEST:A:Name"]), before_stamp)
+        self.assertEqual(runtime.get("A:Name.PACT"), "1")
+        self.assertEqual(runtime.get("A:AuditName"), "2")
+        self.assertEqual(runtime.get("A:Name"), VALUE)
+        proxy.deliver_response(packet, address)
+        runtime.wait_for(lambda: runtime.get("A:AuditName") == "3" and runtime.get("A:Name.PACT") == "0",
+                         "only new valid response completes")
+        self.assertEqual(runtime.get("A:Name"), r'\"new-generation\"')
+        self.assertEqual(runtime.get("A:Name.SEVR"), "0")
+        write_json(self.work / "delayed-snapshot.json", {"old_child": old, "new_child": child,
+                   "old_address": list(old_address), "current_address": list(address),
+                   "old_packet": old_packet.hex(), "new_packet": packet.hex()})
+
+    def test_snapshot_full_restart(self):
+        agent, proxy = self.agent()
+        runtime = self.recovery_runtime(proxy)
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        proxy.fault("hold-auth-replies")
+        runtime.put("A:Name.PROC")
+        runtime.wait_for(lambda: len(proxy.held_responses) == 1, "old IOC authenticated response held")
+        old_packet, old_address, _ = proxy.held_responses.pop()
+        old_parent, old_child = runtime.process.pid, self.children(runtime)[0]
+        runtime.close()
+        agent.close()
+        credentials = ("fixture-next-auth-test-only", "fixture-next-priv-test-only")
+        next_agent = Agent(self.fresh("replacement-agent"), self.profile, port=agent.port,
+                           auth_pass=credentials[0], priv_pass=credentials[1], sys_name="new-generation")
+        self.addCleanup(next_agent.close)
+        fresh = self.recovery_runtime(proxy, credentials=credentials)
+        self.assertNotEqual(fresh.process.pid, old_parent)
+        child, = self.children(fresh)
+        self.assertNotEqual(child, old_child)
+        fresh.put("A:Name.PROC")
+        fresh.wait_for(lambda: len(proxy.held_responses) == 1, "new IOC valid B response held")
+        packet, address, _ = proxy.held_responses.pop()
+        fields = ["A:Name", "A:Name.STAT", "A:Name.SEVR", "A:AuditName"]
+        before_state = fresh.get_many(fields)
+        before_stamp = fresh.client(["caget", "-w", "0.4", "-a", "-n", "SNMPTEST:A:Name"])
+        offset = len(self.log(fresh))
+        proxy.deliver_response(old_packet, address)
+        fresh.wait_for(lambda: f"SNMPRECEIVE pid={child} " in self.log(fresh)[offset:] and
+                       f"hex={old_packet.hex()}" in self.log(fresh)[offset:],
+                       "old A packet actually received by new B IOC helper")
+        fresh.wait_for(lambda: re.search(rf"hex={old_packet.hex()}\n.*SNMPNATIVE {child} \d+ return snmp_sess_read2 ",
+                                        self.log(fresh)[offset:], re.S), "new helper rejected old A packet through native parsing")
+        self.assertEqual(fresh.get_many(fields), before_state)
+        self.assertEqual(fresh.client(["caget", "-w", "0.4", "-a", "-n", "SNMPTEST:A:Name"]), before_stamp)
+        self.assertEqual(fresh.get("A:Name.PACT"), "1")
+        proxy.deliver_response(packet, address)
+        fresh.wait_for(lambda: fresh.get("A:AuditName") == "1" and fresh.get("A:Name.PACT") == "0",
+                       "only valid B response completes the new IOC")
+        self.assertEqual(fresh.get("A:Name"), r'\"new-generation\"')
+        self.assertEqual(fresh.get("A:Name.SEVR"), "0")
+        self.assert_snapshot_opens(fresh, child)
+        fresh.close()
+        proxy.fault("normal")
+        invalid = self.recovery_runtime(proxy, credentials=("short", "short"))
+        self.assertEqual(self.read(invalid, "A:")[1], "3")
+        self.assertNotEqual(invalid.get("A:Name"), VALUE, "Invalid B cannot reuse A or B's prior value")
+        self.assert_logged(invalid, ["credential authPassPhrase must be 8 through 1024 bytes"])
+        write_json(self.work / "full-restart.json", {"old_parent": old_parent, "old_child": old_child,
+                   "new_parent": fresh.process.pid, "new_child": child,
+                   "old_address": list(old_address), "current_address": list(address),
+                   "old_packet": old_packet.hex(), "new_packet": packet.hex(), "before": before_state})
+
+    def test_snapshot_set_loss(self):
+        agent, proxy = self.agent(writable=True)
+        runtime = self.recovery_runtime(proxy, extra=(
+            f'dbLoadRecords("{ROOT}/tests/request_set_agent.db", "P=SNMPTEST:,HOST=endpoint:e,COMM=-")',))
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        proxy.fault("hold-auth-replies")
+        runtime.put("IntegerSet", 777)
+        runtime.wait_for(lambda: len(proxy.held_responses) == 1 and
+                         json.loads(agent.values_path.read_text())["values"]["6"] == 777,
+                         "actual authenticated SET applied with response held")
+        self.assertEqual(runtime.get("IntegerSet.PACT"), "1")
+        self.mutate_files()
+        old, child = self.replace_child(runtime)
+        runtime.wait_for(lambda: runtime.get("AuditIntegerSet") == "1" and
+                         runtime.get("IntegerSet.PACT") == "0", "outcome-unknown SET failed once")
+        self.assertEqual(runtime.get("IntegerSet.SEVR"), "3")
+        proxy.fault("normal")
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        writes = [json.loads(line) for line in (agent.work / "writes.jsonl").read_text().splitlines()]
+        self.assertEqual(len([row for row in writes if row["value"] == 777]), 1,
+                         "Authenticated SET must not replay during helper recovery")
+        runtime.put("IntegerSet", 778)
+        runtime.wait_for(lambda: runtime.get("AuditIntegerSet") == "2" and
+                         runtime.get("IntegerSet.PACT") == "0", "new explicit SET succeeds with retained A")
+        self.assertEqual(runtime.get("IntegerSet.SEVR"), "0")
+        self.assertEqual(json.loads(agent.values_path.read_text())["values"]["6"], 778)
+        self.assert_snapshot_opens(runtime, child)
 
     def test_native_ownership(self):
         audit = self.work / "worker-audit.so"

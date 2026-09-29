@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import tempfile
@@ -13,7 +14,7 @@ from snmp_agent import AUTH, NAME, PRIV, USERS, Agent, Proxy
 
 
 CASES = ("named_endpoint_reads", "security_levels", "sha2_algorithms", "invalid_configuration",
-         "iocsh_error_propagation", "security_failures", "engine_identity", "engine_boundaries")
+         "iocsh_error_propagation", "security_failures", "engine_identity", "engine_boundaries", "frozen_parameters", "distinct_context", "bound_parameters", "conflict_before_discovery", "late_module_initialization")
 SENTINEL = "sentinel-secret-7d41c9"
 AGENT_ENGINE = "80001f8804" + b"fixture-agent".hex()
 WRONG_ENGINE = "80001f8804" + b"another-agent".hex()
@@ -32,9 +33,9 @@ class ConfigTest(unittest.TestCase):
         self.files.mkdir(mode=0o700)
         self.runtimes = 0
 
-    def agent(self, auth_type=None):
+    def agent(self, auth_type=None, writable=False):
         base = self.fresh("agent")
-        agent = Agent(base, dict(self.profile, auth_type=auth_type or self.profile["auth_type"]))
+        agent = Agent(base, dict(self.profile, auth_type=auth_type or self.profile["auth_type"]), writable=writable)
         self.addCleanup(agent.close)
         proxy = Proxy(base, agent.port)
         self.addCleanup(proxy.close)
@@ -322,6 +323,77 @@ class ConfigTest(unittest.TestCase):
             for secret in (AUTH, PRIV, SENTINEL):
                 self.assertNotIn(secret, outcome["out"])
 
+    def test_late_module_initialization(self):
+        runtime = IOC(self.fresh("late-initialization"), [], terminal=True)
+        self.addCleanup(runtime.close)
+        profile = self.profile_file("late", "noAuthNoPriv", USERS["noAuthNoPriv"])
+        commands = [
+            'devSnmpSetParam("WorkerProgressLimitMSec", 150000)',
+            'devSnmpSetParam("SessionTimeout", 100000)',
+            'devSnmpSetParam("SessionRetries", 1)',
+            'devSnmpSetParam("CheckRanges", 0)',
+            'devSnmpSetParam("RequestTimeoutMSec", 1234)',
+            'devSnmpSetParam("RequestTrace", 1)',
+            'devSnmpSetSnmpVersion("127.0.0.1:161", "SNMP_VERSION_2c")',
+            'devSnmpSetMaxOidsPerReq("127.0.0.1:161", 1)',
+            f'devSnmpLoadV3Profile("late", "{profile}")']
+        outcomes = []
+        for index, command in enumerate(commands):
+            marker = f"UNEXPECTED_LATE_ACCEPT_{index}"
+            done = f"LATE_CHECK_DONE_{index}"
+            script = self.write(f"late-{index}.cmd", "\n".join([
+                "on error break", command, f"echo {marker}"]) + "\n", 0o644)
+            before = len(self.log(runtime))
+            self.command(runtime, f'iocshLoad("{script}")\necho {done}', done)
+            output = self.log(runtime)[before:]
+            outcomes.append({"command": command, "rejected": marker not in output, "output": output})
+        write_json(runtime.work / "late-outcomes.json", outcomes)
+        self.assertTrue(all(row["rejected"] for row in outcomes), outcomes)
+        self.command(runtime, 'devSnmpSetParam("DebugLevel", 0)', "debug level is now OFF")
+        self.assert_no_secret(runtime)
+
+    def test_frozen_parameters(self):
+        agent, proxy = self.agent()
+        profile = self.profile_file("freeze", "authPriv", USERS["authPriv"])
+        runtime = self.runtime([
+            f'devSnmpLoadV3Profile("p", "{profile}")',
+            f'devSnmpDefineEndpoint("e", "udp:{self.proxied(proxy)}", "p")',
+            self.endpoint_records("e", "A:")])
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        commands = [
+            'devSnmpSetParam("SessionTimeout", 100000)',
+            'devSnmpSetParam("SessionRetries", 1)',
+            'devSnmpSetParam("CheckRanges", 0)',
+            f'devSnmpSetMaxOidsPerReq("{self.proxied(proxy)}", 1)',
+            f'epicsSnmpSetMaxOidsPerReq("{self.proxied(proxy)}", 1)',
+            f'epicsSnmpSetSnmpVersion("{self.proxied(proxy)}", "SNMP_VERSION_2c")',
+            'devSnmpSetParam("RequestTimeoutMSec", 200)',
+            'devSnmpSetParam("RequestTrace", 0)',
+            'devSnmpSetParam("WorkerProgressLimitMSec", 150000)',
+            'devSnmpSetParam("UnknownParameter", 1)',
+            'devSnmpSetEndpointParam("e", "retries", "1")',
+            f'devSnmpDefineEndpoint("late", "udp:{self.proxied(proxy)}", "p")',
+            f'devSnmpLoadV3Profile("late", "{profile}")',
+            f'devSnmpSetSnmpVersion("{self.proxied(proxy)}", "SNMP_VERSION_3")',
+            f'devSnmpSetSnmpV3Param("{self.proxied(proxy)}", "securityName", "u")',
+            f'devSnmpSetSnmpV3ConfigFile("{self.proxied(proxy)}", "{profile}")']
+        outcomes = []
+        for index, command in enumerate(commands):
+            rejected = f"UNEXPECTED_ACCEPT_{index}"
+            done = f"FREEZE_CHECK_DONE_{index}"
+            script = self.write(f"freeze-{index}.cmd", "\n".join([
+                "on error break", command, f"echo {rejected}"]) + "\n", 0o644)
+            before = len(self.log(runtime))
+            self.command(runtime, f'iocshLoad("{script}")\necho {done}', done)
+            output = self.log(runtime)[before:]
+            outcomes.append({"command": command, "output": output, "rejected": rejected not in output})
+        write_json(self.work / "freeze-outcomes.json", outcomes)
+        self.assertTrue(all(row["rejected"] for row in outcomes), outcomes)
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"), "Rejected changes preserve existing bindings")
+        self.command(runtime, 'devSnmpSetParam("DebugLevel", 0)', "devSnmp set DebugLevel")
+        self.command(runtime, f'devSnmpSetQueueSize("udp:{self.proxied(proxy)}", 1024)', "limit=1024")
+        self.assert_no_secret(runtime)
+
     def test_security_failures(self):
         agent, proxy = self.agent()
         target = f"udp:{self.proxied(proxy)}"
@@ -398,6 +470,110 @@ class ConfigTest(unittest.TestCase):
                       "The configured wrong engine ID was sent as configured")
         self.assertNotIn("devSnmp ERROR", self.log(runtime))
         self.assert_no_secret(runtime)
+
+    def test_bound_parameters(self):
+        agent, proxy = self.agent()
+        profile = self.profile_file("bound", "authPriv", USERS["authPriv"])
+        host = self.proxied(proxy)
+        legacy = agent.ioc_config("authPriv")
+        scripts = []
+        for index, command in enumerate((
+                'devSnmpSetEndpointParam("e", "retries", "1")',
+                'devSnmpSetParam("SessionTimeout", 100000)',
+                'devSnmpSetParam("SessionRetries", 1)',
+                'devSnmpSetParam("CheckRanges", 0)',
+                f'devSnmpSetSnmpVersion("{host}", "SNMP_VERSION_9")',
+                f'devSnmpSetSnmpV3Param("{host}", "securityName")',
+                f'devSnmpSetSnmpV3ConfigFile("{host}")')):
+            path = self.write(f"bound-{index}.cmd", "\n".join([
+                "on error break", command, f"echo UNEXPECTED_BOUND_ACCEPT_{index}"]) + "\n", 0o644)
+            scripts.append(f'iocshLoad("{path}")')
+        hook = self.write("bound-all.cmd", "\n".join(scripts + ["snmpr(0)"]) + "\n", 0o644)
+        runtime = self.runtime([
+            f'devSnmpLoadV3Profile("p", "{profile}")',
+            f'devSnmpDefineEndpoint("e", "udp:{self.proxied(proxy)}", "p")',
+            f'requestStartupScript("{hook}", "e")',
+            self.endpoint_records("e", "A:"),
+            f'devSnmpSetSnmpVersion("{host}", "SNMP_VERSION_3")',
+            f'devSnmpSetSnmpV3ConfigFile("{host}", "{legacy}")',
+            f'dbLoadRecords("{ROOT}/tests/worker.db", "P=SNMPTEST:,R=Legacy:,HOST={host},COMM=public")'])
+        self.assert_logged(runtime, ["SNMPSTARTUP endpoint=e", "endpoint is bound by a record"])
+        self.assertIn("invalid_before=0 invalid_after=0 frozen=0", self.log(runtime),
+                      "Rejected bound updates preserve startup validity before the final freeze")
+        self.assertIn(f"SNMPCONFIG host={host} bound=1 invalid=0", self.log(runtime),
+                      "Rejected invalid legacy calls must not poison bound startup state")
+        for index in range(7):
+            self.assertNotIn(f"UNEXPECTED_BOUND_ACCEPT_{index}", self.log(runtime))
+        self.assertEqual(self.read(runtime, "A:"), (VALUE, "0"))
+        self.assert_no_secret(runtime)
+
+    def test_conflict_before_discovery(self):
+        agent, proxy = self.agent()
+        good = self.profile_file("good", "authPriv", USERS["authPriv"])
+        healthy = self.runtime([
+            f'devSnmpLoadV3Profile("good", "{good}")',
+            f'devSnmpDefineEndpoint("good", "udp:{self.proxied(proxy)}", "good")',
+            f'dbLoadRecords("{ROOT}/tests/worker.db", "P=SNMPTEST:,R=Good:,HOST=endpoint:good,COMM=-")'])
+        self.assertEqual(self.read(healthy, "Good:"), (VALUE, "0"))
+        for label, parameters in (("key", {"auth_pass": SENTINEL}), ("algorithm", {"auth": "SHA-256"})):
+            bad = self.profile_file(label, "authPriv", USERS["authPriv"], **parameters)
+            first = len(proxy.records)
+            rejected = self.runtime([
+                f'devSnmpLoadV3Profile("good", "{good}")',
+                f'devSnmpLoadV3Profile("bad", "{bad}")',
+                f'devSnmpDefineEndpoint("good", "udp:{self.proxied(proxy)}", "good")',
+                f'devSnmpDefineEndpoint("bad", "udp:{self.proxied(proxy)}", "bad")',
+                f'dbLoadRecords("{ROOT}/tests/worker.db", "P=SNMPTEST:,R=Bad:,HOST=endpoint:bad,COMM=-")'])
+            self.assert_logged(rejected, ["endpoint profile conflicts", "unknown named endpoint"])
+            self.assertEqual(self.read(rejected, "Bad:")[1], "3")
+            rejected.close()
+            self.assertEqual(proxy.records[first:], [], "Rejected definition must send neither discovery nor application")
+            self.assertEqual(self.read(healthy, "Good:"), (VALUE, "0"))
+            self.assert_no_secret(rejected)
+        self.assert_no_secret(healthy)
+
+    def test_distinct_context(self):
+        agent, proxy = self.agent()
+        profile = self.profile_file("context", "authNoPriv", USERS["authNoPriv"])
+        outcomes = []
+        for label, context in (("valid", AGENT_ENGINE), ("distinct", WRONG_ENGINE)):
+            first = len(proxy.records)
+            command = ["snmpget", "-v", "3", "-l", "authNoPriv", "-u", USERS["authNoPriv"],
+                       "-a", self.profile["auth_type"], "-A", AUTH, "-e", AGENT_ENGINE,
+                       "-E", context, "-t", "0.2", "-r", "0", "-On", self.proxied(proxy), NAME]
+            oracle = subprocess.run(command, env=agent.env, text=True, capture_output=True, timeout=3)
+            oracle_wire = proxy.records[first:]
+            runtime = self.runtime([
+                f'devSnmpLoadV3Profile("p", "{profile}")',
+                f'devSnmpDefineEndpoint("e", "udp:{self.proxied(proxy)}", "p")',
+                'devSnmpSetEndpointParam("e", "timeoutMSec", "200")',
+                'devSnmpSetEndpointParam("e", "retries", "0")',
+                f'devSnmpSetEndpointParam("e", "securityEngineID", "{AGENT_ENGINE}")',
+                f'devSnmpSetEndpointParam("e", "contextEngineID", "{context}")',
+                self.endpoint_records("e", "A:")])
+            start = len(proxy.records)
+            result = self.read(runtime, "A:")
+            wire = proxy.records[start:]
+            for rows in (oracle_wire, wire):
+                requests = [row for row in rows if row["event"] == "request" and row.get("pdu") == 0xA0]
+                self.assertTrue(requests)
+                self.assertTrue(all(row["engine_id"] == AGENT_ENGINE and
+                                    row["context_engine_id"] == context for row in requests))
+            if label == "valid":
+                self.assertEqual(oracle.returncode, 0, oracle.stderr)
+                self.assertEqual(result, (VALUE, "0"))
+            elif oracle.returncode == 0:
+                self.assertEqual(result, (VALUE, "0"), "A supported real context matches the oracle")
+            else:
+                self.assertEqual(result[1], "3", "Unsupported context cannot publish a fresh successful value")
+                self.assertNotEqual(result[0], VALUE)
+            self.assertEqual(runtime.get("A:AuditName"), "1")
+            outcomes.append({"context": context, "oracle_exit": oracle.returncode,
+                             "oracle_stdout": oracle.stdout, "oracle_stderr": oracle.stderr,
+                             "ioc": result, "oracle_wire": oracle_wire, "ioc_wire": wire})
+            runtime.close()
+            self.assert_no_secret(runtime)
+        write_json(self.work / "context-oracle.json", outcomes)
 
     def test_engine_boundaries(self):
         results = {}

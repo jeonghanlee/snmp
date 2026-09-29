@@ -200,7 +200,8 @@ static void iocsh_devSnmpSetParam(const iocshArgBuf *args)
   char *param = args[0].sval;
   int value   = args[1].ival;
 
-  devSnmpSetParam(param,value);
+  iocshSetError(devSnmpSetParam(param,value));
+  fflush(stdout);
 }
 
 static const iocshArg iocsh_devSnmpSetParam_Arg0 = { "param", iocshArgString };
@@ -258,6 +259,7 @@ void snmp_Register()
   if (! firstTime) return;
 
   firstTime = false;
+  devSnmpRegisterInitHook();
   iocshRegister(&iocsh_devSnmpSetMaxOidsPerReq_FuncDef,    iocsh_devSnmpSetMaxOidsPerReq);
   iocshRegister(&iocsh_devSnmpSetSnmpVersion_FuncDef,      iocsh_devSnmpSetSnmpVersion);
   iocshRegister(&iocsh_devSnmpSetSnmpV3Param_FuncDef,      iocsh_devSnmpSetSnmpV3Param);

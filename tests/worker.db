@@ -1,7 +1,7 @@
 record(stringin, "$(P)$(R)Name") {
     field(DESC, "Worker request input")
     field(DTYP, "SnmpRequest")
-    field(INP, "@$(HOST) $(COMM=public) .1.3.6.1.2.1.1.5.0 STRING: 128")
+    field(INP, "@$(HOST) $(COMM=public) $(OID=.1.3.6.1.2.1.1.5.0) $(MASK=STRING:) 128")
     field(FLNK, "$(P)$(R)AuditName")
 }
 record(sub, "$(P)$(R)AuditName") {

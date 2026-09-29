@@ -48,6 +48,49 @@ A missing helper, build mismatch, invalid OID or invalid native security
 configuration fails the affected binding. Check startup errors and actual
 record alarms; IOC process exit zero is not binding acceptance.
 
+## Configuration Boundaries
+
+Configure startup settings before loading their records. Binding occurs during
+record initialization inside `iocInit`; the security/native configuration
+freeze occurs at `initHookAfterIocBuilt`, the end of `iocBuild`. Request
+parameters have a separate lock at `initHookAtEnd`, when `iocRun` completes.
+Normal `iocInit` performs both phases. The earlier binding boundary still
+applies inside the initialization interval.
+
+| Setting or command | Last allowed change |
+| --- | --- |
+| `devSnmpConfigureWorkers`: executable and process count | Before any module initialization command |
+| `devSnmpSetParam`: `WorkerProgressLimitMSec` | Before profile or record initialization locks worker startup |
+| `devSnmpLoadV3Profile`: profile and credential files | Before final freeze; a profile name cannot be redefined |
+| `devSnmpDefineEndpoint`: address and profile | Before final freeze; an endpoint name cannot be redefined |
+| `devSnmpSetEndpointParam`: timeout, retries, batch, context and engine IDs | Before the affected endpoint binds, and before final freeze |
+| Legacy version, v3 parameter/file and batch setters | Before the affected host binds, and before final freeze |
+| `devSnmpSetParam`: `SessionTimeout`, `SessionRetries`, `CheckRanges` | Before any host binds, and before final freeze |
+| `devSnmpSetParam`: `RequestTimeoutMSec`, `RequestTrace` | Before request startup at `initHookAtEnd`; still accepted between `iocBuild` and `iocRun` |
+| `devSnmpSetQueueSize`: per-address pending count | Before or after `iocInit`, until shutdown |
+| Polling controls, `DebugLevel`, debug command and reports | Remain live |
+
+Legacy aliases `epicsSnmpSetSnmpVersion` and `epicsSnmpSetMaxOidsPerReq`
+have the same boundary as their `devSnmp` commands. Live polling controls are
+`DataStaleTimeoutMSec`, `MaxOidCompFailures`, `MaxTopPollWeight`,
+`DoNotPollWeight`, `PassivePollMSec`, `SetSkipReadbackMSec`,
+`ReadStarvationMSec` and `ThreadSleepMSec`. They do not replace the native
+security or transport snapshot. Changing an environment variable alone does
+not call a setter.
+
+A rejected change to an already bound configuration preserves that
+configuration. Unknown generic parameters return an error. Setter errors
+reach IOC shell `on error break`; a printed error must not be interpreted as
+successful configuration. Invalid unbound startup settings continue to fail
+binding explicitly.
+
+The parent retains validated security and transport values. Helper recovery
+uses that snapshot without reopening named profile, credential or legacy v3
+files. Editing, deleting, restricting permissions or corrupting those files
+does not activate new credentials in the running IOC. A complete IOC process
+stop and restart validates and activates the new files; invalid new files
+fail without falling back to the previous process's credentials.
+
 ## Admission And Sessions
 
 Each address has one FIFO for request GET/SET and legacy polling/SET. Admission

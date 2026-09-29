@@ -367,7 +367,7 @@ static void snmpInitHook(initHookState state)
 
     case initHookAtEnd:
       devSnmp_request::start();
-      if (pManager->start() != epicsOk) {
+      if (pManager && pManager->start() != epicsOk) {
         printf("devSnmp ERROR: could not start manager object\n");
       }
       break;
@@ -379,6 +379,11 @@ static void snmpInitHook(initHookState state)
     default:
       break;
   }
+}
+//----------------------------------------------------------------------
+void devSnmpRegisterInitHook(void)
+{
+  initHookRegister(snmpInitHook);
 }
 //----------------------------------------------------------------------
 static void debugLevelChange(void)
@@ -431,9 +436,6 @@ static bool checkInit(void)
       printf("devSnmp ERROR: epicsAtExit returned %d\n",stat);
       return(false);
     }
-    // also register init hook
-    initHookRegister(snmpInitHook);
-
     didEpicsInit = true;
   }
 
@@ -3994,8 +3996,9 @@ void devSnmp_host::getSnmpV3Params(devSnmp_v3params *params)
   memcpy(params,&v3params,sizeof(devSnmp_v3params));
 }
 //--------------------------------------------------------------------
-void devSnmp_host::setMaxOidsPerReq(int maxoids)
+bool devSnmp_host::setMaxOidsPerReq(int maxoids)
 {
+  if (!configurable("batch limit")) return(false);
   // set our local variable
   maxOidsPerReq = (maxoids > 0) ? maxoids : 1;
 
@@ -4006,6 +4009,7 @@ void devSnmp_host::setMaxOidsPerReq(int maxoids)
     if (! pGroup) continue;
     pGroup->setMaxOidsPerReq(maxOidsPerReq);
   }
+  return(true);
 }
 //--------------------------------------------------------------------
 int devSnmp_host::getMaxOidsPerReq(void)
@@ -4179,6 +4183,11 @@ bool devSnmp_host::reportMatchAny(char *match)
     if (pGroup->reportMatchAny(match)) return(true);
   }
   return(false);
+}
+//--------------------------------------------------------------------
+void devSnmp_host::reportConfiguration(void)
+{
+  printf("SNMPCONFIG host=%s bound=%d invalid=%d\n", hostName(), hasBinding, configInvalid);
 }
 //--------------------------------------------------------------------
 void devSnmp_host::report(int level, char *match)
@@ -4389,7 +4398,7 @@ int devSnmp_manager::getHostSnmpVersion(char *host)
 bool devSnmp_manager::setHostSnmpVersion(char *host, char *versionStr)
 {
   devSnmp_host *pHost = legacyHost(host);
-  if (! pHost) return(false);
+  if (!pHost || !pHost->configurable("SNMP version")) return(false);
 
   // parse version; an unknown name invalidates the host instead of
   // silently selecting v2c
@@ -4413,7 +4422,7 @@ bool devSnmp_manager::setHostSnmpVersion(char *host, char *versionStr)
 bool devSnmp_manager::setHostSnmpV3Param(char *host, char *param, char *value)
 {
   devSnmp_host *pHost = legacyHost(host);
-  if (! pHost) return(false);
+  if (!pHost || !pHost->configurable("SNMPv3 parameter")) return(false);
   if (! param || ! value) {
     // a missing argument is invalid startup configuration, not a no-op
     printf("devSnmp ERROR: host '%s' SNMPv3 parameter call is missing its %s\n",host,param ? "value" : "parameter");
@@ -4426,7 +4435,7 @@ bool devSnmp_manager::setHostSnmpV3Param(char *host, char *param, char *value)
 bool devSnmp_manager::setHostSnmpV3ConfigFile(char *host, char *fileName)
 {
   devSnmp_host *pHost = legacyHost(host);
-  if (! pHost) return(false);
+  if (!pHost || !pHost->configurable("SNMPv3 config file")) return(false);
   if (! fileName) {
     printf("devSnmp ERROR: host '%s' SNMPv3 config file call is missing its file name\n",host);
     pHost->invalidate();
@@ -4466,7 +4475,16 @@ bool devSnmp_manager::setMaxOidsPerReq(char *host, int maxoids)
   // a named endpoint sets its batch limit only through devSnmpSetEndpointParam
   devSnmp_host *pHost = legacyHost(host);
   if (! pHost) return(false);
-  pHost->setMaxOidsPerReq(maxoids);
+  return(pHost->setMaxOidsPerReq(maxoids));
+}
+//--------------------------------------------------------------------
+bool devSnmp_manager::configurationOpen(void)
+{
+  if (snmpConfigFrozen()) return(false);
+  for (int ii = 0; ii < snmpHostList->count(); ++ii) {
+    devSnmp_host *host = (devSnmp_host *)snmpHostList->itemAt(ii);
+    if (host && host->bound()) return(false);
+  }
   return(true);
 }
 //--------------------------------------------------------------------
@@ -4737,6 +4755,10 @@ bool devSnmp_manager::reportMatchAny(char *match)
 //--------------------------------------------------------------------
 void devSnmp_manager::report(int level, char *match)
 {
+  for (int ii = 0; ii < snmpHostList->count(); ++ii) {
+    devSnmp_host *host = (devSnmp_host *)snmpHostList->itemAt(ii);
+    if (host && host->reportMatchAny(match)) host->reportConfiguration();
+  }
   devSnmp_request::report();
   devSnmp_request::dumpTrace();
   if (snmpSupervisorEnabled()) {
@@ -5150,8 +5172,8 @@ int devSnmpSetSnmpVersion(char *hostName, char *versionStr)
 int devSnmpConfigureWorkers(const char *executable, int maximum)
 {
   std::string error;
-  if (pManager || !snmpSupervisorConfigure(executable, maximum, error)) {
-    printf("devSnmp ERROR: worker setup must precede module initialization; %s\n", error.c_str());
+  if (pManager || snmpConfigFrozen() || !snmpSupervisorConfigure(executable, maximum, error)) {
+    printf("devSnmp ERROR: worker setup must precede module initialization and iocInit; %s\n", error.c_str());
     return epicsError;
   }
   return epicsOk;
@@ -5221,6 +5243,9 @@ int devSnmpSetParam(const char *param, int value)
 {
   if (param && !strcmp(param, "WorkerProgressLimitMSec")) {
     std::string error;
+    if (snmpConfigFrozen()) {
+      return configResult("WorkerProgressLimitMSec", false, "configuration is frozen after iocInit");
+    }
     return configResult("WorkerProgressLimitMSec", snmpSupervisorOverride(value, error), error);
   }
   if (! checkInit()) return(epicsError);
@@ -5231,6 +5256,12 @@ int devSnmpSetParam(const char *param, int value)
       fprintf(stderr, "devSnmp: invalid or post-init request parameter: %s\n", param);
       return epicsError;
     }
+  }
+  if (param && (!strcmp(param, "SessionTimeout") || !strcmp(param, "SessionRetries") ||
+                !strcmp(param, "CheckRanges")) &&
+      !pManager->configurationOpen()) {
+    fprintf(stderr, "devSnmp: native startup settings are frozen after binding or iocInit: %s\n", param);
+    return epicsError;
   }
   if ((param == NULL) || (param[0] == 0)) {
     // no argument, show current values
@@ -5262,7 +5293,10 @@ int devSnmpSetParam(const char *param, int value)
         break;
       }
     }
-    if (! found) printf("devSnmp error: no such settable parameter '%s'\n",param);
+    if (! found) {
+      printf("devSnmp error: no such settable parameter '%s'\n",param);
+      return(epicsError);
+    }
   }
   return(epicsOk);
 }

@@ -39,8 +39,9 @@ struct SnmpProfileConfig {
 
 /* Named endpoint. A negative timeoutMSec, retries or maxOidsPerReq inherits
  * the transport default. Empty engine IDs select automatic discovery and the
- * default context engine. invalid records that a setting call for this
- * endpoint was rejected; such an endpoint refuses record binding. */
+ * default context engine. invalid records an unbound startup setting failure;
+ * such an endpoint refuses record binding. Bound setting rejection preserves
+ * the validated configuration. */
 struct SnmpEndpointConfig {
     std::string name;
     std::string address;

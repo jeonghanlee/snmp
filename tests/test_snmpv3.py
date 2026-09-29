@@ -1,6 +1,7 @@
 """Measure actual IOC cold/warm USM traffic, record completion and native calls."""
 
 from collections import Counter
+import json
 from pathlib import Path
 import re
 import shutil
@@ -38,6 +39,16 @@ class SnmpV3Test(unittest.TestCase):
         self.proxy = Proxy(self.work, self.agent.port)
         self.addCleanup(self.proxy.close)
         self.audit = None
+        self.process_observer = None
+        if self.config.get("worker_helper"):
+            self.process_observer = self.work / "worker-process-observer.so"
+            command = ["cc", "-std=c11", "-shared", "-fPIC", "-O2", "-Wall", "-Wextra", "-Werror",
+                       "-o", str(self.process_observer), str(ROOT / "tests/worker_process_observer.c")]
+            build = subprocess.run(command, capture_output=True, text=True)
+            write_json(self.work / "process-observer-build.json", {
+                "argv": command, "exit": build.returncode, "stdout": build.stdout, "stderr": build.stderr,
+                "source_sha256": digest(ROOT / "tests/worker_process_observer.c")})
+            self.assertEqual(build.returncode, 0, build.stderr)
         if self._testMethodName in ("test_cold_starts", "test_warm_reads"):
             compiler = shutil.which("cc")
             self.assertTrue(compiler, "Native observation requires a real C compiler")
@@ -65,7 +76,40 @@ class SnmpV3Test(unittest.TestCase):
                  f'devSnmpSetSnmpVersion("{host}", "SNMP_VERSION_3")',
                  f'devSnmpSetSnmpV3ConfigFile("{host}", "{self.agent.ioc_config(LEVEL)}")',
                  f'dbLoadRecords("{ROOT}/tests/snmpv3.db", "P=SNMPTEST:,HOST={host}")']
-        return IOC(work, lines, process_env={"LD_AUDIT": str(self.audit)} if self.audit else None)
+        runtime = IOC(work, lines, process_env=self.observer_environment())
+        self.observe_workers(runtime)
+        return runtime
+
+    def observer_environment(self):
+        environment = {}
+        if self.audit:
+            environment["LD_AUDIT"] = str(self.audit)
+        if self.process_observer:
+            environment["LD_PRELOAD"] = str(self.process_observer)
+        return environment
+
+    def observe_workers(self, runtime):
+        if not self.config.get("worker_helper"):
+            return
+        tasks = Path(f"/proc/{runtime.process.pid}/task")
+        children = sorted({int(pid) for path in tasks.glob("*/children") for pid in path.read_text().split()})
+        self.assertTrue(children, "Worker mode did not launch an owned helper")
+        rows = []
+        log = (runtime.work / "ioc.log").read_text()
+        for pid in children:
+            executable, = re.findall(rf"SNMPPROCESS pid={pid} exe=(.+)$", log, re.M)
+            self.assertEqual(Path(executable), Path(self.config["worker_helper"]).resolve())
+            descriptors = dict(re.findall(rf"SNMPPROCESS pid={pid} fd=(\d+) target=(.+)$", log, re.M))
+            self.assertTrue(descriptors, "Helper self-observation did not capture real descriptors")
+            rows.append({"pid": pid, "executable": executable, "descriptors": descriptors})
+        write_json(runtime.work / "worker-resources.json", {"parent": runtime.process.pid, "children": rows})
+        self.addCleanup(self.check_worker_exit, runtime, children)
+
+    def check_worker_exit(self, runtime, children):
+        runtime.close()
+        remaining = [pid for pid in children if Path(f"/proc/{pid}").exists()]
+        write_json(runtime.work / "worker-exit.json", {"children": children, "remaining": remaining})
+        self.assertEqual(remaining, [], "An owned worker survived bounded IOC shutdown")
 
     def read(self, runtime, generation):
         started = time.monotonic_ns()
@@ -113,7 +157,17 @@ class SnmpV3Test(unittest.TestCase):
             closes = [row for row in native if row["event"] == "return" and row["symbol"].endswith("close")]
             self.assertTrue(opens)
             self.assertTrue(all(row["result"] for row in opens))
-            self.assertEqual(len(opens), len(closes))
+            if self.config.get("worker_helper"):
+                resources = json.loads((work / "worker-resources.json").read_text())
+                children = {row["pid"] for row in resources["children"]}
+                self.assertEqual({row["pid"] for row in native}, children,
+                                 "Native calls must belong only to the actual owned helpers")
+                self.assertTrue(all(row["symbol"].startswith("snmp_sess_") for row in native))
+                self.assertLessEqual(len(closes), len(opens))
+                self.assertTrue(all(not Path(f"/proc/{pid}").exists() for pid in children),
+                                "Worker exit must reclaim the owning process and its descriptors")
+            else:
+                self.assertEqual(len(opens), len(closes))
         write_json(work / "native-calls.json", native)
         write_json(work / "latencies.json", latencies)
         return {"completed": count, "native_calls": dict(Counter(row["symbol"] for row in native
@@ -191,7 +245,8 @@ class SnmpV3Test(unittest.TestCase):
                       f'dbLoadRecords("{ROOT}/tests/snmpv3.db", "P=SNMPTEST:,R={prefix},HOST={host}")']
         work = self.work / "ioc"
         work.mkdir()
-        runtime = IOC(work, lines)
+        runtime = IOC(work, lines, process_env=self.observer_environment())
+        self.observe_workers(runtime)
         samples, usage, other_commands = [], [], []
         try:
             usage.append(resources(runtime))

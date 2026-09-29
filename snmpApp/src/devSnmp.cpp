@@ -45,6 +45,8 @@
 
 #include "devSnmp.h"
 #include "snmpRequest.h"
+#include <algorithm>
+#include <vector>
 #include "snmpNative.h"
 #include "snmpEpics.h"
 #include <memory>
@@ -157,7 +159,7 @@ static int snmpThreadSleepMSec = 20;
 // retries and timeout for SNMP base session
 // (timeout is in microseconds)
 static int snmpSessionRetries = 5;
-static int snmpSessionTimeout = 10000000;  // = 1 second
+static int snmpSessionTimeout = 10000000;  // = 10 seconds
 
 // MIB range checking
 // is on by default in net-snmp, we reflect that here
@@ -337,6 +339,7 @@ static void snmpAtExit(void *arg)
   epicsThreadSleep(0.2);
 
   if (pManager) {
+    devSnmpEpicsStop();
     bool callbacksStopped = devSnmp_request::shutdown();
     bool networkStopped = pManager->stop();
     if (networkStopped) printf("devSnmp: network workers stopped\n");
@@ -843,6 +846,7 @@ long snmpTimeObject::elapsedMilliseconds(epicsTimeStamp *pnow)
   // calculate seconds diff
   // prevent msec diff from overflowing a 'long'
   long secPart = pnow->secPastEpoch - lastStarted.secPastEpoch;
+  if (pnow->nsec < lastStarted.nsec) --secPart;
   if (secPart >  2147480) return(2147480000);
   if (secPart < -2147480) return(-2147480000);
 
@@ -1093,6 +1097,8 @@ devSnmp_session::devSnmp_session(devSnmp_manager *pMgr, devSnmp_group *pGroup, b
   sent        = false;
   tried_send  = false;
   oidList     = new snmpPointerList();
+  writeRequest = NULL;
+  writeOid     = NULL;
   timeStarted.start(&globalLastTick);
   timeSent.clear();
   memset(&ourMagic,0,sizeof(devSnmp_magic));
@@ -1105,6 +1111,9 @@ devSnmp_session::~devSnmp_session(void)
     for (int i = 0; i < oidList->count(); ++i)
       ((devSnmp_oid *)oidList->itemAt(i))->finishRequests(this, NULL, false);
   }
+  // A SET that left the wire and never answered ends as TIMEOUT when the host
+  // retires the session; one that never left ends as a send failure.
+  if (writeRequest && !completed) finishWrite(NULL, sent);
   close();
   if (oidList) {
     // don't delete OID objects in list
@@ -1136,6 +1145,36 @@ int devSnmp_session::replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_P
 
   int oidCount = oidList->count();
   devSnmp_oid **oidArray = (devSnmp_oid **) oidList->rawArray();
+
+  // A request write succeeds only when the response repeats its one varbind
+  // with the OID and the SNMP type that were sent and reports no error.
+  if (writeRequest) {
+    netsnmp_variable_list *matched = NULL;
+    unsigned matches = 0, total = 0;
+    if (op == NETSNMP_CALLBACK_OP_RECEIVED_MESSAGE && pdu && !pdu->errstat && writeOid) {
+      OID *expected = writeOid->getOid();
+      for (netsnmp_variable_list *v = pdu->variables; v; v = v->next_variable) {
+        ++total;
+        if (!snmp_oid_compare(expected->Oid, expected->OidLen, v->name, v->name_length) &&
+            v->type == snmpNativeWireAsnType(writeRequest->wireType())) {
+          matched = v;
+          ++matches;
+        }
+      }
+    }
+    if (op == NETSNMP_CALLBACK_OP_RECEIVED_MESSAGE && pOurGroup && pdu && pdu->errstat)
+      pOurGroup->sessionGotError(this);
+    if (snmpDebugLevel >= 2 && (matches != 1 || total != 1)) {
+      printf("%s  devSnmp request SET %s failed: op=%d errstat=%ld varbinds=%u matching=%u expected type=%u",
+             tnow(), writeOid ? writeOid->oidName() : "?", op, pdu ? pdu->errstat : -1L, total, matches,
+             (unsigned)snmpNativeWireAsnType(writeRequest->wireType()));
+      if (pdu) for (netsnmp_variable_list *v = pdu->variables; v; v = v->next_variable) printf(" got=%u", (unsigned)v->type);
+      printf("\n");
+      fflush(stdout);
+    }
+    finishWrite(matches == 1 && total == 1 ? matched : NULL, op == NETSNMP_CALLBACK_OP_TIMED_OUT);
+    return(1);
+  }
 
   // Each request consumes only its dispatch's uniquely matching varbind.
   if (!is_setting) {
@@ -1320,6 +1359,39 @@ void devSnmp_session::addSetting(devSnmp_oid *pOID, devSnmp_setting *pSet)
   }
 }
 //--------------------------------------------------------------------
+bool devSnmp_session::addWrite(devSnmp_oid *pOID, devSnmp_request *request)
+{
+  if (!is_setting || writeRequest) return false;
+  writeRequest = request;
+  writeOid = pOID;
+  // The response is decoded as a typed value; the text view is only trace
+  // data here, so give it room regardless of the record's buffer length.
+  writeResult.reset(new SnmpValue(request->capacity() < 1024 ? 1024 : request->capacity()));
+  // Without a PDU the session never opened; the write ends as a send failure.
+  if (!pdu || !snmpNativeAddSetVariable(pdu, pOID->getOid()->Oid, pOID->getOid()->OidLen,
+                                request->wireType(), request->payload())) {
+    finishWrite(NULL, false);
+    return false;
+  }
+  oidList->append(pOID);
+  return true;
+}
+//--------------------------------------------------------------------
+/* Copies the response varbind, or nothing, into the owned result and hands
+ * it to the slot. Callers run on the read thread under the session mutex or
+ * in the host's destructor path; the slot serializes the copy itself. */
+void devSnmp_session::finishWrite(netsnmp_variable_list *value, bool timedOut)
+{
+  if (!writeRequest || !writeResult) return;
+  snmpNativeCopyValue(*writeResult, value);
+  if (snmpDebugLevel >= 2)
+    printf("%s  devSnmp request SET %s result: varbind=%d type=%u copied=%d kind=%d text='%s'\n", tnow(),
+           writeOid ? writeOid->oidName() : "?", value != NULL, value ? (unsigned)value->type : 0u,
+           writeResult->valid, (int)writeResult->kind, &writeResult->text[0]);
+  writeRequest->finish(transactionId, *writeResult, timedOut);
+  completed = true;
+}
+//--------------------------------------------------------------------
 bool devSnmp_session::send(void)
 {
   tried_send = true;
@@ -1328,6 +1400,7 @@ bool devSnmp_session::send(void)
     for (int i = 0; i < oidList->count(); ++i)
       ((devSnmp_oid *)oidList->itemAt(i))->dispatchRequests(this, pdu->reqid);
   }
+  if (writeRequest && pdu) writeRequest->dispatched(transactionId, pdu->reqid);
 
   bool state;
   if (snmp_send(session,pdu)) {
@@ -1570,6 +1643,44 @@ devSnmp_session *devSnmp_setTransaction::createSession(void)
   return(pSession);
 }
 //--------------------------------------------------------------------
+devSnmp_writeTransaction::devSnmp_writeTransaction(devSnmp_oid *pOID, devSnmp_request *request,
+                                                   unsigned long long generation)
+   : devSnmp_transaction(true)
+{
+  ourOID = pOID;
+  ourRequest = request;
+  ourGeneration = generation;
+}
+//--------------------------------------------------------------------
+devSnmp_writeTransaction::~devSnmp_writeTransaction(void)
+{
+}
+//--------------------------------------------------------------------
+devSnmp_session *devSnmp_writeTransaction::createSession(void)
+{
+  if (!ourOID || !ourRequest) return(NULL);
+  devSnmp_group *pGroup = ourOID->getGroup();
+  devSnmp_session *pSession = new devSnmp_session(ourOID->getManager(), pGroup, true);
+  // An expired or retired slot, or one re-admitted since this transaction
+  // was queued, refuses the claim; nothing is sent and the newer admission
+  // keeps its own queue position.
+  if (!ourRequest->claim(pSession->traceId(), ourGeneration)) {
+    delete pSession;
+    return(NULL);
+  }
+  if (!pSession->open(pGroup->getBaseSession())) {
+    snmp_perror("devSnmp_writeTransaction::createSession : SET session open failed");
+    pSession->addWrite(ourOID, ourRequest);  /* no PDU: finishes the write as failed */
+    delete pSession;
+    return(NULL);
+  }
+  if (!pSession->addWrite(ourOID, ourRequest)) {
+    delete pSession;
+    return(NULL);
+  }
+  return(pSession);
+}
+//--------------------------------------------------------------------
 bool devSnmp_setTransaction::sameOid(devSnmp_setTransaction *pTrans)
 {
   return( (pTrans->ourOID == ourOID) ? true : false );
@@ -1775,6 +1886,20 @@ void devSnmp_oid::addRequest(devSnmp_request *request)
   if (!requestValue || requestValue->text.size() < request->capacity())
     requestValue.reset(new SnmpValue(request->capacity()));
   requests.push_back(request);
+}
+void devSnmp_oid::addWrite(devSnmp_request *request)
+{
+  writes.push_back(request);
+}
+void devSnmp_oid::collectPendingWrites(std::vector<devSnmp_request *> &pending,
+                                       std::vector<unsigned long long> &generations)
+{
+  unsigned long long generation = 0;
+  for (unsigned i = 0; i < writes.size(); ++i) {
+    if (!writes[i]->markScheduled(generation)) continue;
+    pending.push_back(writes[i]);
+    generations.push_back(generation);
+  }
 }
 bool devSnmp_oid::hasPendingRequest(void)
 {
@@ -2329,10 +2454,28 @@ devSnmp_pv::devSnmp_pv
   pRequest = NULL;
   pEpics = NULL;
   if (oidExtra.request_mode) {
+    SnmpWireType wireType = SnmpWireNone;
+    if (oidExtra.request_kind) {
+      switch (oidExtra.set_type) {
+      case 'i': wireType = SnmpWireInteger; break;
+      case 's': wireType = SnmpWireOctets; break;
+      case 'F': wireType = SnmpWireFloat; break;
+      }
+      if (!snmpNativeWireAsnType(wireType)) {
+        printf("devSnmp ERROR: %s: set type '%c' is not available in this Net-SNMP build\n",
+               pRecord->name, oidExtra.set_type);
+        fflush(stdout);
+        return;
+      }
+    }
     pEpics = new devSnmp_epics(pRecord, oidExtra.data_len,
-                              pOID->getOid()->Oid, pOID->getOid()->OidLen, pGroup->profileIdentity());
+                              pOID->getOid()->Oid, pOID->getOid()->OidLen, pGroup->profileIdentity(),
+                              oidExtra.request_kind ? SnmpSet : SnmpGet, wireType);
     pRequest = pEpics->request();
-    pOID->addRequest(pRequest);
+    if (oidExtra.request_kind)
+      pOID->addWrite(pRequest);
+    else
+      pOID->addRequest(pRequest);
   } else {
     pOID->enableLegacyPolling();
   }
@@ -3010,6 +3153,18 @@ int devSnmp_group::getMaxOidsPerReq(void)
   return(maxOidsPerReq);
 }
 //--------------------------------------------------------------------
+void devSnmp_group::takePendingWrites(std::vector<devSnmp_request *> &pending,
+                                      std::vector<devSnmp_oid *> &owners,
+                                      std::vector<unsigned long long> &generations)
+{
+  pending.insert(pending.end(), pendingWrites.begin(), pendingWrites.end());
+  owners.insert(owners.end(), pendingOwners.begin(), pendingOwners.end());
+  generations.insert(generations.end(), pendingGenerations.begin(), pendingGenerations.end());
+  pendingWrites.clear();
+  pendingOwners.clear();
+  pendingGenerations.clear();
+}
+//--------------------------------------------------------------------
 void devSnmp_group::processing(epicsTimeStamp *pnow)
 {
   if ((! pvList) || (pvList->count() == 0)) return;    // if no PVs, we're done
@@ -3049,6 +3204,18 @@ void devSnmp_group::processing(epicsTimeStamp *pnow)
       devSnmp_setTransaction *pSetTrans = new devSnmp_setTransaction(pOID);
       pOurHost->queueSetTransaction(pSetTrans);
     }
+  }
+
+  //
+  // admitted request writes are queued by the host after every group has
+  // collected its own, so admission order holds across groups
+  //
+  for (int ii = 0; ii < oidCount; ii++) {
+    devSnmp_oid *pOID = oidArray[ii];
+    if (! pOID) continue;
+    size_t before = pendingWrites.size();
+    pOID->collectPendingWrites(pendingWrites, pendingGenerations);
+    pendingOwners.insert(pendingOwners.end(), pendingWrites.size() - before, pOID);
   }
 
   //
@@ -3313,6 +3480,7 @@ void devSnmp_host::initialize(devSnmp_manager *pMgr, char *host)
   groupList         = new snmpPointerList();
   getQueue          = new snmpPointerList();
   setQueue          = new snmpPointerList();
+  writeQueue        = new snmpPointerList();
   activeSessionList = new snmpPointerList();
   memset(&v3params,0,sizeof(devSnmp_v3params));
   snmpVersion   = SNMP_VERSION_2c;
@@ -3361,6 +3529,16 @@ devSnmp_host::~devSnmp_host(void)
     }
     delete activeSessionList;
     activeSessionList = NULL;
+  }
+
+  // delete write queue
+  if (writeQueue) {
+    for (int ii = writeQueue->count()-1; ii >= 0; ii--) {
+      devSnmp_writeTransaction *pTmp = (devSnmp_writeTransaction *) writeQueue->removeItemAt(ii);
+      if (pTmp) delete pTmp;
+    }
+    delete writeQueue;
+    writeQueue = NULL;
   }
 
   // delete set queue
@@ -3471,6 +3649,11 @@ devSnmp_pv *devSnmp_host::addPV
 void devSnmp_host::queueGetTransaction(devSnmp_getTransaction *pTrans)
 {
   if (getQueue) getQueue->append(pTrans);
+}
+//--------------------------------------------------------------------
+void devSnmp_host::queueWriteTransaction(devSnmp_writeTransaction *pTrans)
+{
+  if (writeQueue) writeQueue->append(pTrans);
 }
 //--------------------------------------------------------------------
 void devSnmp_host::queueSetTransaction(devSnmp_setTransaction *pTrans)
@@ -3738,6 +3921,27 @@ void devSnmp_host::processing(epicsTimeStamp *pnow)
   }
 
   //
+  // queue one write transaction per request write admitted since the last
+  // tick, in admission order across every group and OID of this host
+  //
+  {
+    std::vector<devSnmp_request *> pending;
+    std::vector<devSnmp_oid *> owners;
+    std::vector<unsigned long long> generations;
+    for (int group_idx = 0; group_idx < groupCount; group_idx++) {
+      devSnmp_group *pGroup = groupArray[group_idx];
+      if (pGroup) pGroup->takePendingWrites(pending, owners, generations);
+    }
+    std::vector<size_t> order(pending.size());
+    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+      return pending[a]->acceptedAt() < pending[b]->acceptedAt();
+    });
+    for (size_t i = 0; i < order.size(); ++i)
+      queueWriteTransaction(new devSnmp_writeTransaction(owners[order[i]], pending[order[i]], generations[order[i]]));
+  }
+
+  //
   // dispose of any completed GET/SET sessions
   //
   // we also dispose of sessions that are older than 60 seconds,
@@ -3772,7 +3976,18 @@ void devSnmp_host::processing(epicsTimeStamp *pnow)
   // not busy if we got this far, pull a transaction out of our queues to send
   //
   devSnmp_transaction *pTrans = NULL;
-  if (setQueue->count() > 0) {
+  if (writeQueue->count() > 0) {
+    // request writes go in admission order and ahead of polls queued after
+    // them; only an older 'get' that has waited past the starvation limit
+    // goes first
+    devSnmp_transaction *pTopWrite = (devSnmp_transaction *) writeQueue->itemAt(0);
+    devSnmp_transaction *pTopGet = (getQueue->count() > 0) ? (devSnmp_transaction *) getQueue->itemAt(0) : NULL;
+    if (pTopGet && pTopGet->millisecondsSinceCreated(pnow) >= snmpReadStarvationMSec &&
+        pTopGet->millisecondsSinceCreated(pnow) > pTopWrite->millisecondsSinceCreated(pnow))
+      pTrans = (devSnmp_transaction *) getQueue->removeItemAt(0);
+    else
+      pTrans = (devSnmp_transaction *) writeQueue->removeItemAt(0);
+  } else if (setQueue->count() > 0) {
     // there are set transactions waiting to go out
     if (getQueue->count() <= 0) {
       // no 'get' transactions waiting, set transaction can go out
@@ -3870,6 +4085,7 @@ void devSnmp_host::report(int level, char *match)
   printf("  Max OIDS/req    : %d\n",getMaxOidsPerReq());
   printf("  Get Queue items : %d\n",getQueue->count());
   printf("  Set Queue items : %d\n",setQueue->count());
+  printf("  Write Queue items : %d\n",writeQueue->count());
   printf("  Active sessions : %d\n",activeSessionList->count());
   printf("\n");
 
@@ -4138,7 +4354,22 @@ int devSnmp_manager::getHostMaxOidsPerReq(char *host)
   return( pHost ? pHost->getMaxOidsPerReq() : DEFAULT_MAX_OIDS_PER_REQ );
 }
 //--------------------------------------------------------------------
-devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bool requestMode)
+/* A request output accepts one set type per record kind and the R flag
+ * only on ao with set type i; everything else fails the binding here. */
+static bool snmpValidRequestOutput(const configDataPV &extra, char kind)
+{
+  bool raw = (extra.special_flags & SPECIAL_FLAG_RVAL) != 0;
+  if (extra.special_flags & ~SPECIAL_FLAG_RVAL) return false;
+  switch (kind) {
+  case 'a': return (extra.set_type == 'i') || (extra.set_type == 'F' && !raw);
+  case 'l': return extra.set_type == 'i' && !raw;
+  case 's': return extra.set_type == 's' && !raw;
+  }
+  return false;
+}
+//--------------------------------------------------------------------
+devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bool requestMode,
+                                   char requestKind)
 {
   // parse INP/OUT line
   char *instioStr = pLink->value.instio.string;
@@ -4155,7 +4386,14 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bo
   if (!instioStr) return NULL;
   if (! snmpParseInOut(instioStr,&base,&extra)) return(NULL);
   extra.request_mode = requestMode;
+  extra.request_kind = requestKind;
   if (requestMode && (extra.data_len < 2 || extra.data_len > 65536)) return NULL;
+  if (requestKind && !snmpValidRequestOutput(extra, requestKind)) {
+    printf("devSnmp ERROR: %s: set type '%c' with flags '%s' is not valid for this request output\n",
+           pRec->name, extra.set_type, extra.specialStr);
+    fflush(stdout);
+    return NULL;
+  }
 
   // validate OID text, fill in OID structure
   OID oid;
@@ -4496,6 +4734,11 @@ void snmpPollAggregate::report(void)
 bool devSnmpAttachRequest(dbCommon *record, struct link *input)
 {
   return checkInit() && pManager->addPV(record, input, true);
+}
+
+bool devSnmpAttachRequestWrite(dbCommon *record, struct link *output, char kind)
+{
+  return checkInit() && pManager->addPV(record, output, true, kind);
 }
 
 bool devSnmpExiting()

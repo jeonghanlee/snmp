@@ -10,9 +10,27 @@ Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
 Next session entry point: M9, request-driven writes: baseline (step 1) and
-contract review with owner acceptance (steps 2 and 3) are done; next is step
-4, implementation under docs/snmp-architecture.md "Request-Driven Writes",
-once the owner authorizes it; M8 step 5 follows M9's accepted design. M8 step 4
+contract review with owner acceptance (steps 2 and 3) are done, step 4 is
+implemented and its original step 5 runs and reviews passed on both platforms.
+Additional verification found and corrected a completion
+without a request that incorrectly reported NO_ALARM; the module now checks
+the request consumption state on active entry. The ten additional cases,
+twenty request-output cases and twelve legacy-output cases pass on Debian 13
+and Rocky 8. Independent third-person and second-person reviews of this delta
+passed. The remaining-coverage development runs now exercise CP/CPP, callback
+VAL writes, scan boundaries, response limits, IVOV, binding pairs, poll
+ordering and native float/security paths. The accepted NaN alarm contract
+and shared elapsed-time correction are implemented; edge tests pass 11/11
+and native output tests pass 5/5 on both platforms. M9 local implementation
+and verification are accepted by both final review lanes; the local milestone
+commit and remote landing remain pending. Both platforms
+pass the qualified 15-suite, 157-case matrix; the initial buffered legacy
+observer failures remain preserved separately.
+Admission-capacity tests belong
+to M8; the current M9 host queue has no capacity bound. The remaining-verification correction review passes; native writes
+now cover all five output bindings on both platforms. See Remaining Coverage
+Verification below for the dated dispositions and retained failures;
+M8 step 5 follows M9's accepted design. M8 step 4
 is committed as 8962312 and 6b507ab. Step 3 is committed as
 d34a6b3; it passes its native suite 19/19 and the regression suites on
 Debian 13 and Rocky 8, and its third bounded recheck (fup20260924_212921)
@@ -473,7 +491,7 @@ the canonical result should name the safe evidence artifact.
 | G3 | Production deployment window and acceptance limits | External gate | Open | No | M6 | Operator approves exact candidate, window, and rollback; [detail](#g3---production-deployment-window-and-acceptance-limits). |
 | M7 | Controlled deployment and rollback | Milestone | Blocked | No | M6, G3 | Deployed artifact verified and rollback demonstrated; [detail](#m7---controlled-deployment-and-rollback). |
 | M8 | Extensible SNMPv3 architecture | Milestone | In progress | No | D3, D4, D6, D7, D8, D9, D10 | Separated record/request/security responsibilities using native Net-SNMP facilities, explicit engine identity, restart-only credential activation, compatible worker bounds, proven runtime isolation and compatibility evidence; [detail](#m8---extensible-snmpv3-architecture). |
-| M9 | Request-driven writes | Milestone | In progress | No | D3, D4, D11, D13, D14, D15, D16, D17 | Opt-in outputs complete once after the agent answers or a terminal error, report failed writes as alarms, never drop an admitted write silently, and report the value the agent accepted without a timing window; legacy outputs unchanged; [detail](#m9---request-driven-writes). |
+| M9 | Request-driven writes | Milestone | In progress | No | D3, D4, D11, D13, D14, D15, D16, D17, D18, D19, D20, D21 | Opt-in outputs complete once after the agent answers or a terminal error, report failed writes as alarms, never drop an admitted write silently, and report the value the agent accepted without a timing window; legacy outputs unchanged; [detail](#m9---request-driven-writes). |
 
 Ready describes dependency readiness only; it is not implementation authority.
 Decision Date: 2026-09-24. All current implementation plans are accepted and
@@ -501,6 +519,10 @@ does not complete their verification or remove the physical conditions in G2/G3.
 | D15 | Request SETs are encoded from the record's typed value by the native adapter with snmp_pdu_add_variable, never through text and snmp_add_var; each set type has a check in front of that one conversion point (INTEGER32 range and integrality, finite single-precision float range, buffer length), and a value that fails is not sent and completes WRITE/INVALID. Record limits such as DRVH/DRVL remain the user's tool; the module check is the guarantee against an undefined conversion. A negative zero is encoded as 0.0, as the legacy path does. | 2026-09-26 |
 | D16 | A SET response matches only when its single varbind carries the OID and the SNMP type that were sent; a response with the same OID and another type fails as WRITE. | 2026-09-26 |
 | D17 | The `R` flag on a request output is accepted only on ao with set type `i`, where RVAL exists; on ao `F`, longout or stringout it fails the binding, as any unsupported flag or record and set type pair does. | 2026-09-26 |
+| D18 | Admission-capacity and overflow tests belong to M8 / T11. The current M9 per-host queue has no capacity bound; the 256-transaction and 1 MiB limits are worker requirements, not M9 guarantees. | 2026-09-28 |
+| D19 | Discuss INTEGER representation limits together with float/double in a separate meeting topic, M10 in Backlog. Keep the executed M9 / T5 result for 2^31 and distinguish it from the observed native conversion of 2^32 to zero; no numeric redesign is authorized in M9. | 2026-09-28 |
+| D20 | Preserve Base alarm precedence for NaN: ao with UDFS=INVALID reports UDF/INVALID before the module's equal-severity WRITE alarm. Reject an unencodable OVAL without a SET; document and test both record and FLNK alarm observations. RVAL conversion and IVOA remain governed by Base. | 2026-09-28 |
+| D21 | Correct the missing second borrow in snmpTimeObject::elapsedMilliseconds in this scope and rerun the legacy window, session retirement and related regressions on Debian 13 and Rocky 8. Preserve the existing timing thresholds and prior failures. | 2026-09-28 |
 
 ### Milestone Details
 
@@ -2382,7 +2404,7 @@ separately and cannot close an IOC test label.
 | T8 | Discovery isolation | Blackhole one v3 endpoint during initial discovery and restart while a healthy endpoint is read at 100 ms intervals. Use a 400 ms acquisition deadline and 4 s transport timeout. | Two real agents, loopback fault proxy, 1000 healthy reads | Faulted requests complete within 1 s locally; healthy p99 no more than baseline plus 100 ms, maximum below 1 s, zero false INVALID samples. Limits are laboratory criteria, not field promises. |
 | T9 | Startup and restart credentials | Edit the credential file while requests are queued, in flight and callback-pending; confirm the running IOC retains its startup snapshot, including after child loss/restart. Reject runtime setters. Stop/start the IOC with coordinated agent credentials; test invalid files, delayed packets, identical usernames with different keys at distinct engines/workers and conflicting same-user profiles in one worker. | Real snmpd, actual startup loader, IOC/child lifecycle and native USM state | Only full IOC restart activates file changes. A child restart uses the existing snapshot. Invalid startup inputs fail without old-secret fallback; conflicting credentials/protocols for one worker/user fail before discovery/application traffic. Distinct workers do not share USM state. No false success, double completion or secret leak. |
 | T10 | Recovery and reuse | Repeat reads on one session, restart agent with same engineID/new boots and then with a changed engineID; drop replies and force tooBig. | Real snmpd plus external proxy | Bounded retry/recovery within the original deadline; no reuse of wrong localized keys; valid-sample age advances only on success; stable warm session avoids repeated discovery. |
-| T11 | Load and shutdown | Flood bounded request admission, saturate callback queue, mix legacy reads/SETs, stop during discovery/recovery/response; run 20 EOF and explicit shutdown cycles. | Actual IOC; SETs only against disposable laboratory agent | Bounded queue/session counts, no GET/SET starvation under accepted load, no deadlock/UAF, every normal cycle reports drained shutdown; no synthetic shutdown FLNK. SET semantics are compared separately in T17. |
+| T11 | Load and shutdown | Flood bounded request admission, test the 256-transaction and 1 MiB worker boundaries and overflow rejection under D18, saturate callback queue, mix legacy reads/SETs, stop during discovery/recovery/response; run 20 EOF and explicit shutdown cycles. | Actual IOC; SETs only against disposable laboratory agent | Bounded queue/session counts, no GET/SET starvation under accepted load, no deadlock/UAF, every normal cycle reports drained shutdown; no synthetic shutdown FLNK. SET semantics are compared separately in T17. |
 | T12 | Platform/resources | Run functional suite and one-hour steady-load test; record ASan/UBSan and separately TSan results where supported, FD/RSS/CPU and queue metrics. | Debian 13 and Rocky 8 under D10; Base/compiler/crypto identities recorded | No sanitizer findings accepted without disposition; descriptors return to baseline, retained state stays within configured bounds, no growing memory trend after warmup. |
 | T13 | APC integration | Build independent module/IOC pairs via the EPICS-env runbook; run original and input-converted APC DB/PVA/CA fixtures using v2c and a real v3 agent exposing the required OIDs. | Selected dependency tree, scratch consumer builds | Preserved DB/DBD/INP/DTYP and input/PVA/CA behavior, no unintended SET, correct library identity, no installed-tree writes; v3 fixture is actual snmpd instrumentation, not a v2c decoder. Actual output semantics require T17. |
 | T14 | Architecture review | Inspect component dependencies, generation/lock/shutdown rules, v3 evidence and compatibility results through independent convergence review. | Final source-identified candidate and evidence | No unresolved functional, preservation or verification defects against the accepted design; owner decisions remain explicit. |
@@ -3280,6 +3302,12 @@ and waveform outputs; module-level retries beyond the library's; exactly-once
 device application, which SNMP cannot guarantee; moving writes into worker
 processes (M8 steps 5 and 6).
 
+The current per-host request queue has no transaction-count or byte limit.
+Capacity rejection and the 256-transaction/1 MiB limits are M8 worker work
+(D18). Numeric representation policy is a separate meeting topic (D19).
+D21 permits the shared elapsed-time correction, including the existing legacy
+readback-window and stale-session callers, without replacing either path.
+
 ##### Completion Criteria
 
 - Each admitted write sends at most one SET transaction, none if it expires
@@ -3313,8 +3341,11 @@ processes (M8 steps 5 and 6).
 
 Plan Status: accepted
 Plan Acceptance: 2026-09-27, owner acceptance of docs/snmp-architecture.md "Request-Driven Writes" and this detail after the C17 review series
-Implementation Authorization: none
+Implementation Authorization: 2026-09-27, owner direction to start step 4 on the accepted plan
 Superseded Plan Artifacts: none
+Follow-up Plan Acceptance and Implementation Authorization: 2026-09-28,
+explicit decisions D18-D21 authorize the documentation, NaN test expectation
+and shared-time correction with related regression tests below.
 
 1. Baseline: rerun the step 1 legacy-set suite on Debian 13 and Rocky 8 and
    reproduce L1 to L6 with real-agent evidence, including the readback case
@@ -3322,8 +3353,8 @@ Superseded Plan Artifacts: none
 2. Contract: add a request-driven write section to docs/snmp-architecture.md
    that states binding, record processing, writes during an active write,
    result confirmation, failure alarms, delivery, ordering, deadline and
-   scope. Done: "Request-Driven Writes" states the contract under Base rules
-   and is marked as a proposal awaiting step 3.
+   scope. Done: "Request-Driven Writes" states the contract under Base rules;
+   accepted with the plan on 2026-09-27.
 3. Review: independent third-person and second-person review of the
    contract, convergence, and owner acceptance of the plan. Review done: the
    C17 series (rev20260926_134614, rev20260926_135358 and their follow-ups
@@ -3331,9 +3362,98 @@ Superseded Plan Artifacts: none
    passing on the current text after the owner's rulings D13 to D17; the
    owner accepted the contract and the plan on 2026-09-27.
 4. Implement the device support, DBD entries, typed SET request and
-   completion on the current transport.
+   completion on the current transport. Done in the working tree, see Step 4
+   Implementation below; verification runs are step 5.
 5. Verify with a new real-agent suite, the legacy-set baseline and the
-   regression suites on both platforms; review, record and commit.
+   regression suites on both platforms; review, record and commit. Runs
+   done, see Step 5 Verification; the original implementation reviews passed.
+   Additional verification and its SDLY correction are recorded below;
+   remaining coverage, review and acceptance precede the commit.
+6. Apply D18-D21: document current queue limits and Base NaN alarm priority
+   in the architecture, operator manual and tests; retain T5 and record the
+   separate numeric meeting topic in Backlog.
+7. Correct the nanosecond borrow in devSnmp.cpp without changing timeout
+   values. Update test_request_set_edges.py to expect UDF/INVALID for NaN
+   and WRITE/INVALID for other rejected values, including FLNK observations.
+8. Build independent candidates with tests/build_fixture.py; run request-set,
+   request-set-extra, request-set-edges, request-set-agent, legacy-set and
+   the existing input/native regression suites through tests/run_snmp.py on
+   Debian 13 and Rocky 8. Preserve prior failed runs, review the exact changed
+   files and evidence, and complete acceptance before any milestone commit.
+
+##### Step 4 Implementation
+
+The write path follows docs/snmp-architecture.md "Request-Driven Writes" on
+the current transport:
+
+- snmpTypes.h: SnmpBinding carries the operation and a SnmpWireType
+  (INTEGER, Opaque float, OCTET STRING) so the adapter stays free of Net-SNMP
+  constants; snmpRequest.h/.cpp: one slot serves a read or a write, begin()
+  copies the checked payload, markScheduled() lets the scheduler own a queued
+  write once, acceptedAt() orders writes by admission.
+- snmpNative.h/.cpp: snmpNativeAddSetVariable encodes the typed payload with
+  snmp_pdu_add_variable (INTEGER32 range, finite single-precision float with
+  negative zero sent as 0.0, octets within the buffer); snmpNativeWireAsnType
+  maps the wire type and reports an Opaque float build that lacks it.
+- devSnmp.h/.cpp: devSnmp_writeTransaction and a per-host write queue served
+  one transaction at a time in admission order, ahead of polls queued after
+  it; devSnmp_session::addWrite and finishWrite bind one write to a SET
+  session, match the response by OID and type with exactly one varbind, and
+  end an unanswered sent session as TIMEOUT and an unsent one as a send
+  failure; devSnmp_oid keeps request writes apart from legacy settings and
+  request reads; addPV validates set type and flags per record kind.
+- snmpEpics.h/.cpp: devSnmpRequestAo, devSnmpRequestLo and devSnmpRequestSo
+  with first-pass checks under the record lock (OOPT, encoding, admission)
+  that raise WRITE/INVALID and return a negative status without PACT; the
+  completion callback restores OOPT, raises TIMEOUT or WRITE before record
+  processing and reports the agent's answer; ao init returns 2 and stores the
+  returned INTEGER in RBV; the OOPT monitor subscribes through dbChannel and
+  dbEvent on the snmpOopt thread and publishes its alarm as dbProcess
+  publishes the SCAN alarm; devSnmp.dbd registers the three DTYP entries.
+- Found while running the first write case and corrected in
+  snmpNativeCopyValue: the library's snprint_value needs a buffer of a few
+  hundred bytes for an Opaque float or double regardless of the printed
+  length, so the copy for a record with buffer length below that failed and
+  the result was invalid. The copy now formats into a scratch buffer and
+  keeps the text when it fits the record's buffer. This also affected
+  request inputs reading a float OID with a small buffer length.
+- Found by the step 5 implementation review (C18, rev20260927_231733 and
+  rev20260927_232452) and corrected: the write result was still accepted
+  through the legacy text view bounded by the record's buffer length, so a
+  matching reply to a record with a short buffer was reported as WRITE; the
+  result now keeps the typed value whenever the reply matches and the text
+  only when it fits. devSnmpEpicsStop closed the OOPT event context before
+  the subscriptions were cancelled, so the adapter destructors touched freed
+  dbEvent state at exit (an assertion in dbEvent.c and a hang under
+  MALLOC_PERTURB_); the stop now cancels every subscription and deletes its
+  channel before closing the context. A write transaction left in the host
+  queue after its write expired claimed the record's next admission in the
+  old queue position; a transaction now records the generation it scheduled
+  and claims only that generation, and the host orders pending writes across
+  all its groups instead of per group. The GuardedSet DESC exceeded 40
+  characters. Recorded without change: the session destructor calls
+  finishWrite outside the session mutex, as the read path's finishRequests
+  does, and the slot's identity check keeps the terminal result single-owner.
+  Pins added: IntegerSet with buffer length 8 and the 39-character stringout
+  value in success, the queued_order case, and the oopt_exit case, a bare
+  IOC with one request longout (tests/request_set_exit.db) exited under
+  MALLOC_PERTURB_=165 three times. The recheck showed that the same variable
+  on the suite's OOPT cases did not catch the shutdown defect, because the
+  larger database and client traffic reuse the freed memory; the bare form
+  fails on the defective build in every run and passes on the corrected one.
+  The recheck also noted that the write result still bounded the reply's
+  octets by the record buffer; a write now keeps the typed value and drops
+  octets that do not fit, as it does the text; no case pins the octet rule,
+since the loopback peer echoes the value sent.
+- Tests: tests/request_set.db, tests/request_set_exit.db (one request longout
+  for the bare exit case), tests/request_set_shared.db (a legacy output,
+  a request output and a legacy readback on one OID, kept apart because its
+  periodic legacy poll would hold the host and the held replies in the other
+  cases), tests/request_set_rejects.db and tests/test_request_set.py (suite
+  request-set, 20 cases) on the writable loopback peer, which now decodes
+  Opaque float SETs, answers a stored float as an Opaque float and offers
+  three SET response faults and a dropped request; documentation/devSnmp.html, docs/snmp-request.md
+  and tests/README.md describe the outputs.
 
 ##### Test Plan
 
@@ -3341,7 +3461,7 @@ Superseded Plan Artifacts: none
 | --- | --- | --- | --- | --- |
 | T1 | Legacy baseline | Legacy-set suite and repeated readback case before any change | Actual IOC, writable snmpd, Debian 13 and Rocky 8 | L1 to L6 observed with evidence; baseline counts recorded. |
 | T2 | Binding and completion | Each record and set type pair, rejected pairs, `R` on ao `F`, longout and stringout, other flags, I/O Intr, longout OOPT other than Every Time at binding, and changed at run time by caput both between writes and during an active write; ao init from the database; PINI; writes with a held and a released reply | Actual IOC, writable snmpd, UDP observer | Rejected bindings fail; a failed first-pass check gives ECA_PUTFAIL to a CA put without callback and a normal completion with the alarm to a CA put with callback; a run-time OOPT change is restored to Every Time and posted by the module's monitor callback right after the put, SEVR and STAT show WRITE/INVALID at once with a log line and no record processing, and the next legitimate write under each IVOA setting completes with its own result; a change that a first pass still finds is restored with no SET and WRITE/INVALID published by record processing, and one that a completion callback finds is restored while the write completes with the agent's result, both reached by holding the module's event thread snmpOopt with the owned-thread pause fixture (tests/owned_thread.py) during the OOPT put, as the read-path tests hold snmpComplete, and after the thread is released the record keeps the result of that pass and the released event does nothing; the same value put again afterwards is sent; no SET at init; PACT held until the response; one completion; FLNK after the result is applied. |
-| T3 | Failures | Agent error, varbind mismatch, request loss, reply loss, send failure, USM failure, admission full, unencodable values (non-integral or out-of-range INTEGER, non-finite or out-of-float-range Opaque float, over-long string), queued expiry at the deadline, late response after the deadline, session retirement | Real agent, fault proxy and socket fault | One completion per write with the status in the contract table; no silent drop; latency within the deadline. |
+| T3 | Failures | Agent error, varbind mismatch, request loss, reply loss, send failure, USM failure, unencodable values (non-integral or out-of-range INTEGER, non-finite or out-of-float-range Opaque float, over-long string), queued expiry at the deadline, late response after the deadline, session retirement | Real agent, fault proxy and socket fault | One completion per write with the status in the contract table, preserving Base UDF/INVALID for NaN under D20; admission capacity is checked in M8 / T11 under D18; no silent drop; latency within the deadline. |
 | T4 | Concurrent writes | dbPutField, CA put with callback, database links, CP-link and FLNK chains, and a scan-started chain during an active write; several records and OIDs on one host; scans during a write | Actual IOC | Behavior matches the contract rules; every admitted write accounted for; SCAN alarm only after ten dropped processing requests from scans, FLNK or database links. |
 | T5 | Value confirmation | ao RBV for INTEGER responses within and beyond DBF_LONG, with and without the `R` flag; a response varbind with the same OID but another type, injected by the fault proxy; a shared readback input | Actual IOC, writable agent and fault proxy | RBV holds the accepted INTEGER in the units sent, and a response beyond DBF_LONG succeeds with RBV unchanged; a type mismatch fails as WRITE with RBV unchanged; no stale overwrite; no timing window. |
 | T6 | Skipped write routine | SIMM on during a write, SDLY with SIMM off, IVOA "Don't drive outputs" and IVOV | Actual IOC and fault proxy | The failure alarm appears in the completion pass; the slot is freed; no SET for the SDLY case. |
@@ -3382,22 +3502,410 @@ Also observed: while the agent refused SETs, a stringout readback error wrote
 the text INVALID into TextSet VAL, with severity 0 at the next sample
 (snmpSoReadback copies that text on a read error).
 
-##### Verification Results
+##### Step 5 Verification
+
+Evidence: /tmp/snmp-m9-step5-deb13-20260927-a and -rocky8-20260927-a hold
+the first full runs (candidate built from dirty-diff f49de9f1, baseline
+db9ebf5 for the conversion waveforms, executions.json, one directory per
+suite; the Rocky container command is in container-command.txt). On both
+platforms every regression suite passed and request-set failed 9 of 17.
+Both failures were in the test fixtures, not the module: the shared-OID
+records then lived in request_set.db, so their 0.1 s legacy poll held the
+host and put held GET replies in front of the cases that hold replies, and
+the UDP peer could not encode a stored float when it answered the second
+Opaque float cycle. The shared-OID records moved to request_set_shared.db and
+the peer answers a float as an Opaque float; the module sources did not
+change. The -b runs rebuilt the candidate (dirty-diff 08c0c3a5 on Debian,
+8046806d on Rocky, differing only in this milestone text) and ran
+request-set again: 17/17 on Debian 13 (2026-09-28T05:43:40Z to 05:54:27Z)
+and 17/17 on Rocky 8 (05:54:31Z to 06:05:55Z). The -a request-set runs are
+retained as failed and not relabeled.
+
+The regression suites of the -a runs are the step 5 evidence for the
+unchanged paths: on Debian 13 (03:38:23Z to 04:36:24Z) and Rocky 8
+(04:39:50Z to 05:40:41Z) baseline waveforms 1/1, config 8/8, native 19/19,
+protocol 5/5, legacy-set 12/12, sequencing 9/9, failures 10/10, lifecycle
+17/17, batch 10/10, robustness 16/16, accounting 3/3 and conversion 2/2.
+The legacy-set readback case passed in this single run on Rocky 8; the
+carry-forward intermittency noted under M8 stands.
+
+The -c runs (/tmp/snmp-m9-step5-deb13-20260928-c and -rocky8-20260928-c)
+are the step 5 evidence for the tree after the step 5 review corrections:
+the candidate rebuilt from dirty-diff f8257d20 on Rocky 8 and from 830b1cdd
+on Debian 13, which differs from f8257d20 only in documentation/devSnmp.html
+and tests/README.md text; the same drivers as the -a runs. request-set
+passed 19/19 on Debian 13 (07:33:35Z to 07:45:00Z) and on Rocky 8 (08:43:00Z
+to 08:54:46Z). Of the regression suites, native on Debian 13 (07:48:17Z to
+07:49:01Z) failed one case in its setUp before the IOC started, "Owned CA
+repeater failed readiness" with an empty IOC log, and legacy-set on Rocky 8
+(08:59:15Z to 09:07:53Z) failed queued_coalescing: the IOC sent the three
+coalesced SETs in order, snmpd applied the two integers and answered the
+string SET with error 17 notWritable without consulting the pass_persist
+script (no entry in the agent write log), so the record kept the value with
+no alarm as in L2. Neither failure is in the module path under test; both
+are retained as failed. The -d reruns of those two suites alone, on the
+candidate rebuilt from f8257d20 (/tmp/snmp-m9-step5-deb13-20260928-d and
+-rocky8-20260928-d), passed: native 19/19 on Debian 13 (09:58:25Z to
+09:59:10Z) and legacy-set 12/12 on Rocky 8 (09:59:14Z to 10:07:42Z). All
+other regression suites of the -c runs passed, Debian 13 07:45:00Z to
+08:42:55Z and Rocky 8 08:54:46Z to 09:55:51Z.
+
+The -e runs (/tmp/snmp-m9-step5-deb13-20260928-e and -rocky8-20260928-e)
+are the step 5 evidence for the tree after the recheck corrections (the
+oopt_exit case and fixture, the write octet rule in finish, documentation):
+the candidate rebuilt from dirty-diff 2d2c63e0 on both platforms with the
+same drivers. Every suite passed: request-set 20/20 on Debian 13 (15:12:22Z
+to 15:23:58Z) and Rocky 8 (16:22:19Z to 16:33:56Z), and the regression
+suites with the counts in T8, Debian 13 15:23:58Z to 16:22:14Z and Rocky 8
+16:33:56Z to 17:35:02Z. The oopt_exit pin was checked against a build with
+only the subscription-cancel loop of devSnmpEpicsStop removed (private clone
+of the same sources, /tmp/snmp-m9-mutC): that build failed the case at its
+first probe, killed at the deadline with no shutdown confirmation
+(/tmp/snmp-m9-mutC-exit2), and hung in three of three bare probes run by
+hand with the same fixture (/tmp/snmp-m9-exitprobe, st-mutC.cmd and
+out-mutC-1 to 3.log: each log ends before the shutdown confirmation and the
+process was killed by the 20 s timeout), while the corrected build passed the case
+(/tmp/snmp-m9-dev-i-exit2) and three of three bare probes (st-dev-i.cmd,
+out-dev-i-1 to 3.log, exit 0). An earlier form of the case that started the
+IOC through the suite's Scenario, retained as /tmp/snmp-m9-mutC-exit-1 to 3
+and /tmp/snmp-m9-dev-i-exit-1 to 3, passed on the defective build as the
+two OOPT scenario cases had, which is why the pin is a bare IOC.
+
+##### Additional Verification
+
+The `request-set-extra` suite adds ten real-IOC cases against the same
+loopback UDP peer and shipped output DB. It runs through Base CA clients,
+record processing, the production SNMP module and Net-SNMP; only the UDP
+agent boundary is simulated. It does not test PVA PUT behavior.
+
+The delayed-simulation case exposed a contract failure in all three output
+record types: after SIMM changed from YES to NO during SDLY, an active call
+with no SNMP request completed with NO_ALARM. The output entry now requires
+the request to be Consuming whenever PACT is set. A normal failed result is
+still consumed, while a simulation callback without a request reports
+WRITE/INVALID and sends nothing. This changes only the module; Base and the
+installed dependencies remain unchanged.
+
+Negative control: `/tmp/snmp-m9-sdly-before-20260928` runs the delivered
+`delayed_simulation` case against the retained pre-correction IOC and fails
+the alarm assertion for ao, longout and stringout. The same case passes on
+the corrected build in `/tmp/snmp-m9-sdly-after-20260928`, including a second
+simulation cycle after a successful SET on each record. Neither run is a
+complete-suite qualification.
+
+Full additional-suite evidence:
+`/tmp/snmp-m9-extra-matrix-20260928/{debian13,rocky8}` contains the candidate
+build manifest, execution commands and exit codes, and request-set-extra
+run/results JSON, wire logs, CA commands, request trace and FLNK audit.
+Observed 2026-09-29T00:45:09Z to 00:50:05Z: 10/10 passed on each platform,
+without a cycle override, skip or abort. Ordinary repeated cases run 100
+cycles, including each IVOA choice; fixed case counts are in tests/README.md.
+The same corrected builds also pass request-set 20/20 and legacy-set 12/12
+on each platform: 42/42 cases per platform across the three suites. The full
+run interval is 2026-09-29T00:45:09Z to 01:10:31Z. Every build and suite exits
+0; all six suite manifests report partial=false, no cycle override, no abort
+and no cleanup errors. All 81 source and fixture hashes under snmpApp/ and
+tests/ (excluding README.md) matched the source snapshot of that verification
+round in both build manifests; later remaining-coverage fixtures are separate.
+
+Independent third-person review of the correction and actual test paths
+passed (rev20260928_175114); the second-person procedure and evidence review
+also passed (rev20260928_175646). Each reviewer executed all ten cases at a
+reduced cycle count across an initial run and a single-case rerun: the initial
+run retained its ptrace-permission error as failed, and first_pass_notify
+passed after the required runtime permission was available. Those partial
+reviewer runs do not replace the full platform runs above. Final result and
+handoff documentation receive a separate bounded reader cross-check.
+
+| Label | Additional observed coverage | Remaining coverage |
+| --- | --- | --- |
+| T2 | PINI emits one held SET; first-pass OOPT rejection completes a CA callback with WRITE/INVALID and no SET; OOPT monitor alarm followed by the same value succeeds under each longout IVOA choice. | Binding coverage remains limited to the delivered cases; no blanket claim for every unsupported pair. |
+| T3 | Failed SET completion and recovery are checked under each ao IVOA choice. | Native USM failure, admission full, session retirement, non-finite ao and over-long string cases remain unexecuted. |
+| T4 | CA callback to PROC waits for its own SET; serial FLNK starts B after A's result is applied; a CA-put-started PP link sets RPRO and sends a second SET; a scan-started PP chain stores VAL without RPRO, raises SCAN after eleven dropped processes and sends the stored value only on later processing. | CP/CPP chains, a held CA callback that changes VAL, direct periodic scanning of an output and the below-threshold SCAN boundary remain unexecuted for request outputs. |
+| T5 | Successful and failed ao completions preserve the expected RBV during the new IVOA cycles. | Response INTEGER outside DBF_LONG and a reply longer than the bound output buffer have no delivered test case. |
+| T6 | SDLY/SIMM-off exercises ao, longout and stringout before and after a real write, with no SET and WRITE/INVALID for the request-less pass. Failure with ao IVOA Don't drive outputs publishes the alarm before FLNK, discards the slot and recovers; Set output to IVOV leaves VAL unchanged during failure completion. | First-pass replacement of VAL by IVOV and the corresponding wire value remain unexecuted. |
+| T7 | Explicit and EOF shutdown abandon one in-flight and one queued SET, exit cleanly, send no queued SET and fabricate no FLNK completion. | Named endpoints with request outputs, request SET ordering against polls and the legacy readback-window invariant remain unexecuted. |
+| T8 | Ten additional cases and 32 output regression cases pass on Debian 13 and Rocky 8. Both additional-delta review lanes pass (rev20260928_175114 and rev20260928_175646); the original implementation's two review lanes passed on 2026-09-28 (fup20260928_103921 and fup20260928_104054). | Real-agent Opaque float SET remains unexecuted; these results do not close the remaining contract checks above. |
+
+These results supplement the dated observations below. Their unexecuted
+items describe those original runs; the table above identifies which gaps
+that additional suite closes and which remained at that checkpoint. M9 stays
+In progress. Later observations follow separately.
+
+##### Remaining Coverage Verification
+
+Observed 2026-09-29T02:27:48Z to 02:28:16Z on Debian 13, Base 7.0.10 and
+Net-SNMP 5.9.4.pre2. The development run
+`/tmp/snmp-m9-edges-deb13-20260928-e` executes the delivered
+`request-set-edges` suite with `--cycles 2`: nine of eleven cases pass.
+CP/CPP chains, a callback put to VAL, direct periodic scans, the exact
+eleven-drop SCAN threshold, out-of-DBF_LONG/long-string responses, first-pass
+IVOV, rejected binding pairs and SET ordering against legacy polls pass.
+This reduced-count run is partial evidence, not platform qualification.
+
+The two failed cases remain failed. `invalid_values` observes UDF/INVALID
+for NaN under both ao bindings; positive/negative infinity and an over-long
+string report WRITE/INVALID. All seven values send no SET. Base ao processing
+sets UDF for NaN and its UDF/INVALID alarm precedes device support; equal
+severity does not replace an existing alarm. `legacy_window` observes the
+original window ending after 3.771 s, below the test's 3.8 s minimum, while
+the request write neither starts a window nor clears the active one.
+
+The real-agent development run
+`/tmp/snmp-m9-agent-deb13-20260928-a`, observed 02:18:30Z to 02:18:41Z,
+passes four of five cases at two cycles. Actual snmpd accepts INTEGER, Opaque
+float and string through v2c and a named authNoPriv endpoint; request input
+and legacy output coexist. Unknown user and wrong authentication key each
+complete once with WRITE/INVALID and leave the agent value unchanged. The
+float path uses the shipped native scalar-watcher module, compiled against
+the installed Net-SNMP headers, with actual snmpget readback. The fifth case
+fails before IOC start because of a profile-field omission; it is not
+retirement evidence.
+
+The corrected single-case execution
+`/tmp/snmp-m9-retire-deb13-20260928-b`, observed 02:21:50Z to 02:22:53Z,
+holds a real SET response beyond the transport's stale-session threshold.
+Session deletion produces one TIMEOUT/INVALID completion at 59.677 s,
+failing the test's 60 s minimum before its late-reply/recovery checks run.
+Source inspection of `snmpTimeObject::elapsedMilliseconds` shows that the
+negative-nanosecond branch adds one billion nanoseconds without subtracting
+one second. Its reported elapsed time can therefore lead wall time by one
+second. This existing shared calculation also governs the legacy window;
+it has not been changed by this verification round.
+
+Owner dispositions (Decision Date: 2026-09-28):
+
+- D18 assigns admission-capacity verification to M8 / T11. M9 has no host
+  queue-capacity limit; stopping, occupied slots and oversized payloads are
+  distinct rejection causes.
+- D19 moves numeric representation policy to a separate float/double meeting
+  topic (Backlog M10). The executed 2^31 response result remains T5 evidence;
+  the earlier 2^32 native conversion is a distinct observation.
+- D20 retains Base UDF/INVALID precedence for NaN with UDFS=INVALID and
+  requires matching contract and test expectations.
+- D21 authorizes the shared elapsed-time correction and related regression
+  tests now. Earlier failed timing observations remain failed evidence.
+
+Implementation and verification of these dispositions remain required for
+M9 acceptance; the decisions themselves are not passing test results.
+
+Earlier failed development runs remain retained. In particular,
+`/tmp/snmp-m9-edges-deb13-20260928-d` used the wrong profile and all eleven
+cases failed before IOC startup; it verifies no record behavior. The native
+and edge observations above supplement previous evidence without changing
+the accepted contract or closing M9.
+
+Default-count edge runs under
+`/tmp/snmp-m9-remaining-{deb13,rocky8}-20260928/request-set-edges` execute all
+eleven cases: nine pass on each platform, with the same NaN and legacy-window
+failures. CP, CPP and callback-value each run 100 cycles. The UTC intervals
+on 2026-09-29 are 02:31:52Z to 02:33:29Z on Debian and 02:31:56Z to
+02:33:38Z on Rocky; both manifests report partial=false and no abort.
+
+The independent third-person review reproduced a test defect: a substring
+oracle accepted actual INTEGER 141 when the expected value was 41. The
+external fault changes only the real agent's values.json after its SET;
+the IOC, shipped fixture and snmpget remain real. The false-green evidence
+is retained in `/tmp/snmp-c20-third-oracle-injection-20260928-b`. The oracle
+now compares the OID, scalar type and parsed value exactly. The identical
+fault fails at `141 != 41` in `/tmp/snmp-c20-oracle-corrected-20260928` and
+in the independent reviewer's corrected run. Earlier native runs remain
+development evidence rather than final oracle qualification.
+
+The corrected default-count native runs are under
+`/tmp/snmp-m9-c20-corrected-{deb13,rocky8}-20260928/request-set-agent`.
+Debian runs from 02:45:45Z to 02:50:39Z and Rocky from 02:45:49Z to
+02:51:22Z on 2026-09-29. Four of five cases pass on each, partial=false,
+without abort or cleanup errors. Each v2c and named-endpoint case checks
+500 writes and 500 FLNK audits: 100 cycles of ao INTEGER with R, ao INTEGER
+without R, longout INTEGER, ao Opaque float and stringout. The value at
+FLNK, ao INTEGER RBV, cause-specific USM REPORTs, request identities and
+result/FLNK/completion order are checked. Session retirement still fails
+the unchanged 60 s minimum; no complete native-suite PASS is claimed.
+
+Final retirement-only runs under those same roots as `retirement-final`
+execute the final test ordering: strict two-generation verification precedes
+the timing verdict. On both platforms, the first write completes once as
+TIMEOUT/INVALID, the old reply is released, and a second write completes
+once with the new value and no alarm. The strict checker confirms two
+generations, two FLNK audits and two wire requests. The enclosing case still
+fails at 59.474 s on Debian and 59.179 s on Rocky, observed 02:49:45Z to
+02:50:47Z and 02:49:51Z to 02:50:53Z respectively. Its acceptance.json
+describes only the successful generation checks; results.json retains the
+failed overall timing result. These selected-case runs are partial.
+
+The native full runs capture suite hash 93e41a287a06a8d79d5fed3525ab8ab14b2fc5cd776339d7375d160165eab806.
+The final retirement runs capture 4849146dae464b5a65bcf5fc9bdb72052de0a24cb8546ca8127a7e073c1dd3e5;
+the only difference moves the two timing assertions outside the Scenario
+context so the strict checker runs first. The compiled production sources
+and DB fixtures are unchanged by that test-order correction.
+
+Shared-helper regression evidence under
+`/tmp/snmp-m9-remaining-{deb13,rocky8}-20260928` covers native, protocol and
+config from 02:41:55Z to 02:43:22Z. Rocky passes 19/19, 5/5 and 8/8.
+Debian passes protocol 5/5 and config 8/8; native passes 18/19, with the
+descriptor case failing its precondition because the process limit is 1024.
+That case passes after setting the test process limit to 4096 in
+`/tmp/snmp-m9-c20-descriptor-deb13-20260928`. The original failure remains
+failed. The production tree's 22 snmpApp files match the prior C19 build;
+this round changes tests and documentation, not the runtime or installed Base.
+
+The C20.1 correction passes independent review (fup20260928_195133),
+including the actual false-value negative control, both ao INTEGER forms,
+USM causes and final retirement recovery. The C20.2 checkpoint passes the
+reader review (rev20260928_193901). A passing reviewer sample of the legacy
+window does not resolve the earlier failures or the pending shared-time
+decision. M9 remains In progress; no acceptance or commit follows until
+the D18-D21 changes and their required checks finish.
+
+##### Disposition Verification
+
+D18-D21 are implemented. The only production change after the preceding
+remaining-coverage snapshot is the missing second decrement in
+snmpTimeObject::elapsedMilliseconds when the nanosecond difference borrows.
+Timeout settings and test thresholds are unchanged. The invalid-values test
+now checks Base NaN alarm precedence in both the record and its FLNK audit.
+The queue-capacity boundary and separate numeric meeting are documented.
+
+Fresh candidates and default-count runs are retained under
+`/tmp/snmp-m9-dispositions-20260928/{debian13,rocky8}`. The edge suite passes
+11/11 on each platform, observed 2026-09-29T03:47:26Z to 03:49:09Z. The native
+output suite passes 5/5, observed 03:49:01Z to 03:54:41Z. Each manifest reports
+partial=false, no cycle override, no abort and no cleanup errors. Native
+output checks use the real snmpd scalar-watcher fixture, exact snmpget
+OID/type/value comparisons, and five output bindings through v2c and a named
+SNMPv3 endpoint, 100 cycles per binding and protocol.
+
+| Measurement | Debian 13 | Rocky 8 | Unchanged criterion |
+| --- | --- | --- | --- |
+| Legacy readback window | 4.121333 s | 4.137119 s | 3.8 <= elapsed < 5.5 s |
+| Session retirement | 60.118915 s | 60.118740 s | 60 <= elapsed < 70 s |
+
+Both retirement cases also pass strict verification of two request
+generations, two FLNK audits and two wire requests: timeout, released old
+reply, then successful recovery. Both invalid-values cases check seven
+rejections without a SET; NaN produces UDF/INVALID and the other tested
+values produce WRITE/INVALID. Earlier failed timing and alarm runs retain
+their original verdicts.
+
+Independent review C21.1 passes (rev20260928_205346). A caller linked to the
+actual production library passes 14/14 timestamp boundary cases; the same
+executable against the retained pre-correction library fails five borrow
+cases by exactly 1000 ms. This method check does not replace IOC verification.
+The reviewer also executes the real invalid-values case, three legacy-window
+runs and retirement with recovery. C21.2 passes after the contract's Encoding
+paragraph is aligned with Base alarm priority and the decision/backlog tables
+are corrected (fup20260928_205535).
+
+The initial legacy-set matrix executions remain FAIL, 4/12 on each platform.
+Eight loss cases cannot observe termination before their deadline because
+file-backed IOC stdout retains the line until cleanup. Independent execution
+of the unchanged case with and without GNU stdbuf confirms this observer
+condition (fup20260928_211649). The qualified launch documented in
+tests/README.md prefixes the runner with `stdbuf -oL`; production code,
+fixtures, assertions, retry counts and deadlines remain identical.
+
+The complete legacy-set reruns in `legacy-set-line-buffered` pass 12/12 on
+each platform, observed 2026-09-29T04:18:25Z to 04:25:20Z. The manifests
+record the loaded libstdbuf identity and clean IOC exits. Each platform has
+24 actual loss observations: 18 native timeout callbacks and six stale-session
+retirements. The inherited-settings cases send six packets per output and
+retire after 60 seconds. These reruns qualify the corrected observation
+procedure; they do not relabel the original failed matrix executions.
+
+The qualified matrix passes 15 suites and 157 cases on each platform.
+Debian runs from 2026-09-29T03:47:26Z to 05:02:33Z; Rocky runs from
+03:47:26Z to 05:06:59Z. Every selected suite has partial=false, no cycle
+override, no abort and no cleanup errors. There are 363 completed IOC
+cleanup records per platform, all with cleanup_error=null. Both build
+manifests match the current 86 production/test files; subsequent document
+updates do not change the executed sources or fixtures.
+
+| Qualified suite | Cases per platform |
+| --- | --- |
+| request-set-edges | 11 |
+| request-set-agent | 5 |
+| request-set-extra | 10 |
+| request-set | 20 |
+| legacy-set-line-buffered | 12 |
+| native | 19 |
+| protocol | 5 |
+| config | 8 |
+| sequencing | 9 |
+| failures | 10 |
+| lifecycle | 17 |
+| batch | 10 |
+| robustness | 16 |
+| accounting | 3 |
+| conversion | 2 |
+| Total | 157 |
+
+The original matrix orchestration exits 1 on both platforms because its
+original legacy-set result remains 4/12 FAIL. The independent qualified
+legacy-set orchestration exits 0. Each platform therefore retains 169 raw
+candidate case executions: 157 from the original matrix plus 12 from the
+line-buffered legacy rerun. The 157-case qualification selects that complete
+rerun for legacy-set, rather than selecting individual successful cases.
+It does not claim the original orchestration was wholly successful.
+
+Conversion compares 100 waveform observations with a separately built
+`db9ebf51bc81d6f63d9395513d94d60b3b7eda83` baseline on each platform;
+baseline-comparison.json reports equal=true. The selected baseline waveform
+case passes separately and remains partial baseline evidence, excluded from
+the 157 candidate cases. Accounting checks 1000 healthy completions with and
+without a silent peer: loaded maximum/p99 are 48.300/44.714 ms on Debian and
+48.104/45.496 ms on Rocky. These are measured laboratory results, not new
+production latency guarantees. Final independent C21.3 reviews pass:
+fup20260928_221726 (second-person) and fup20260928_222023 (third-person).
+The latter independently derives native values and request/result/FLNK order
+from the actual oracle, driver, wire and audit records, in addition to source
+identity, complete case counts and timing. Both accept local implementation
+and verification only, with the documented legacy observation precondition.
+
+##### Earlier Verification Results
+
+These dated results describe the original implementation snapshot. Their
+coverage gaps are historical; the current results follow this table.
 
 | Label | Observed At | Environment | Result | Evidence |
 | --- | --- | --- | --- | --- |
 | T1 | 2026-09-26T20:13:24Z to 20:31:44Z | Committed 965dd64 built with tests/build_fixture.py; Debian 13/Net-SNMP 5.9.4.pre2 and Rocky 8/5.8-33.el8_10; actual IOC, writable snmpd, UDP fault proxy | PASS: L1 to L6 observed on both platforms | legacy-set 12/12 on each; readback case repeated 20 times, 0 failures on Debian 13 and 5 on Rocky 8; see Legacy SET Baseline above. |
-| T2 | Not run | Binding and completion | Pending | none |
-| T3 | Not run | Failure classes | Pending | none |
-| T4 | Not run | Concurrent writes | Pending | none |
-| T5 | Not run | Value confirmation | Pending | none |
-| T6 | Not run | Skipped write routine | Pending | none |
-| T7 | Not run | Compatibility and shutdown | Pending | none |
-| T8 | Not run | Platforms and review | Pending | none |
+| T2 | 2026-09-28T15:12:22Z to 16:33:56Z | request-set on Debian 13.7/Net-SNMP 5.9.4.pre2 and Rocky 8.10/5.8-33.el8_10; actual test IOC, writable UDP peer, CA clients | PASS on both platforms, partial coverage | success (100 cycles, five outputs incl. ao raw, engineering and Opaque float, a longout buffer length shorter than the reply text, 7- and 39-character strings, RBV checked, no SET at init, ao VAL from the database), held_completion (PACT held, peer applied before the reply), rejected_bindings (six rejected records incl. `R` on ao `F`, other flags, I/O Intr and OOPT at binding, no SET), oopt_restored, oopt_during_write and oopt_first_pass (run-time OOPT change restored by the monitor, the completion callback and a first pass, the last reported to a plain CA put as a failed write), oopt_exit (bare IOC with one request longout exits cleanly under MALLOC_PERTURB_, three runs). The writable peer is the loopback UDP peer, not snmpd. PINI, a CA put with callback on a failed first pass, and the next write under each IVOA setting after the monitor alarm are not exercised by a case. See Step 5 Verification. |
+| T3 | 2026-09-28T15:12:22Z to 16:33:56Z | Same runs; socket fault fixture for open and send failures | PASS on both platforms, partial coverage | agent_error (WRITE), response_mismatch (other type, extra varbind, no varbind: WRITE, RBV kept), request_loss and reply_loss (TIMEOUT; the peer applied the value in the second), unencodable_value (non-integral, out-of-range INTEGER and out-of-float-range: no SET, first pass WRITE), queued_expiry (queued write TIMEOUT unsent, sent write TIMEOUT), queued_order (a write re-admitted after expiring keeps its new position), late_reply (result unchanged), transport_failures (open and send: WRITE, nothing on the wire). USM failure, admission full, session retirement, a non-finite ao value and an over-long string are not exercised by a case; the retirement path is code-read only. |
+| T4 | 2026-09-28T15:12:22Z to 16:33:56Z | Same runs | PASS on both platforms, partial coverage | put_during_write: a CA put during an active write sets RPRO and the latest value is sent in a second transaction (100 cycles). CA put with callback, database-link and CP-link chains, several records on one host and scans during a write are not exercised by a case. |
+| T5 | 2026-09-28T15:12:22Z to 16:33:56Z | Same runs | PASS on both platforms, partial coverage | RBV holds the accepted INTEGER (raw with R, engineering without) after each success and keeps the last accepted value after a type mismatch; a shared legacy readback follows the device value (shared_oid). A response beyond DBF_LONG is not exercised by a case. |
+| T6 | 2026-09-28T15:12:22Z to 16:33:56Z | Same runs | PASS on both platforms, partial coverage | simulation_during_write (SIMM on during a held write: result discarded after FLNK, slot freed, next write normal, 100 cycles) and ivoa_guard (IVOA Don't drive outputs on an INVALID limit: no SET, next valid value sent). SDLY with SIMM off and IVOV are not exercised by a case. |
+| T7 | 2026-09-28T15:12:22Z to 17:35:02Z | Same runs plus the regression suites of the -e runs | PASS on both platforms, partial coverage | shared_oid: a legacy output, a request output and a legacy readback on one OID; both SETs transmitted as separate transactions, legacy readback follows the device (100 cycles). legacy-set 12/12 and legacy inputs unchanged on both platforms. Named endpoints with request outputs, the untouched legacy readback window and shutdown with pending writes are not exercised by a case. |
+| T8 | 2026-09-28T15:12:15Z to 17:35:02Z | Debian 13.7 and Rocky 8.10 (container), see Step 5 Verification | Suites PASS on both platforms; review pending | request-set 20/20 and config 8, native 19, protocol 5, legacy-set 12, sequencing 9, failures 10, lifecycle 17, batch 10, robustness 16, accounting 3 and conversion 2 on each platform in the -e runs; in the earlier -c runs native on Debian 13 and legacy-set on Rocky 8 each failed once outside the module path and passed in the -d reruns (see Step 5 Verification). Opaque float SETs ran against the loopback peer only; the pass_persist agent fixture has no float type, so no real-agent float SET was run. |
+
+##### Verification Results
+
+Current candidate evidence is under
+`/tmp/snmp-m9-dispositions-20260928/{debian13,rocky8}`. Per-suite run.json
+records exact UTC intervals, inputs and platform identities; results.json
+records the enclosing case verdicts. The output suites below run at their
+default counts on Debian 13.7/Net-SNMP 5.9.4.pre2 and Rocky 8.10/5.8-33.el8_10,
+both with Base 7.0.10. No reduced-count run supplies current qualification.
+
+| Label | Observed At | Environment | Result | Evidence |
+| --- | --- | --- | --- | --- |
+| T1 | 2026-09-26T20:13:24Z to 20:31:44Z | Original committed baseline, actual writable snmpd | PASS: baseline observation retained | The earlier T1 row and Legacy SET Baseline identify L1-L6 and the original readback-window failures. This is the pre-change observation, not a new run of that snapshot. |
+| T2 | 2026-09-29; exact intervals in run.json | Both platforms; actual IOC, CA, UDP peer and writable snmpd | PASS | request-set 20/20, request-set-extra 10/10, request-set-edges 11/11 and request-set-agent 5/5. Five output bindings through v2c and a named SNMPv3 endpoint each run 100 cycles; Opaque float uses the native scalar watcher and exact snmpget oracle. PINI, held reply, binding pairs, OOPT, first-pass callback and each IVOA recovery are exercised. |
+| T3 | 2026-09-29; exact intervals in run.json | Same candidates, real agent, UDP and socket fault boundaries | PASS within D18/D20 | Agent and transport failures, mismatch, loss, expiry, late response, unknown user, wrong key, invalid values and retirement with recovery each produce the required record/FLNK outcome. NaN retains Base UDF/INVALID; rejected values send no SET. Retirement is 60.118915 s and 60.118740 s. Queue capacity/overflow belongs to M8 / T11. |
+| T4 | 2026-09-29; exact intervals in run.json | Actual record processing and CA clients on both platforms | PASS | Active put and callback VAL writes, serial FLNK, CA-started PP and scan-started PP chains, CP/CPP chains, direct periodic scans, ten-drop/eleven-drop SCAN boundary and several queued records. CP/CPP/callback VAL each run 100 cycles; trace/audit checks account for admitted requests and the documented RPRO behavior. |
+| T5 | 2026-09-29; exact intervals in run.json | Actual IOC and externally controlled response on both platforms | PASS for the current contract | Raw and engineering ao INTEGER RBV, matching and mismatched reply types, INTEGER response 2^31 beyond DBF_LONG with unchanged RBV, long response strings and shared readback. The separate 2^32 native-conversion observation does not replace the 2^31 result; numeric representation policy remains M10 under D19. |
+| T6 | 2026-09-29; exact intervals in run.json | Actual Base output processing on both platforms | PASS | Simulation during an active write, SDLY with SIMM returning to NO on all three output record types, failed completion under each ao IVOA setting, first-pass IVOV replacement and its actual wire value. A request-less active pass sends no SET and reports WRITE/INVALID; subsequent real writes recover. |
+| T7 | 2026-09-29; exact intervals in run.json | Same candidates; qualified legacy-set launch uses GNU stdbuf -oL | PASS with D21 shared-time correction | Legacy-set rerun 12/12 per platform, named endpoint and mixed request/legacy paths, shared OID, poll ordering, legacy window 4.121333/4.137119 s, and explicit/EOF exit with in-flight and queued writes. No queued SET or fabricated FLNK on exit. Original buffered-observer runs remain 4/12 FAIL and are not counted as passing. |
+| T8 | 2026-09-29T03:47:26Z to 05:06:59Z; final reviews 2026-09-28 PDT | Full Debian 13 and Rocky 8 matrix; independent archived waveform baseline | Execution and independent review PASS | Each platform passes the 15-suite/157-case qualification described above. The complete line-buffered legacy rerun replaces the original failed legacy observation for qualification; raw failures and original orchestration exit 1 remain preserved. Conversion 2/2 includes 100 waveform observations equal to the separately built baseline. Real-agent Opaque float runs on both platforms. Final C21.3 local acceptance: fup20260928_221726 and fup20260928_222023. |
 
 ##### Closure Evidence
 
-- None.
+- Local implementation and verification accepted on 2026-09-28 after
+  fup20260928_221726 and fup20260928_222023. D18-D21 and the qualified
+  both-platform matrix are recorded above; no review finding remains open.
+- Local milestone commit and remote landing remain pending. M9 remains
+  In progress until its closure conditions have evidence; local acceptance
+  does not establish remote landing or physical-device qualification.
 
 ## Backlog
 
@@ -3405,10 +3913,63 @@ the text INVALID into TextSet VAL, with severity 0 at the next sample
 
 | ID | Work unit | Type | Status | Ready | Deps | Done when / Evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-
-No unassigned work is recorded in this initial generation. Out-of-scope ideas
-are not approved work items.
+| M10 | Numeric representation meeting | Carry-forward | Deferred | No | D19 | Record the agreed INTEGER and float/double policy and any separately authorized work. |
 
 ### Backlog Details
+
+#### M10 - Numeric representation meeting
+
+Origin: db9ebf5 / M10
+Identity History: Created in Backlog on 2026-09-28.
+GitHub Issue: none
+Status: Deferred
+
+##### Summary
+
+Discuss numeric representation limits together with float/double, separately
+from current M9 acceptance. Decision Date: 2026-09-28 (D19).
+
+##### Scope
+
+INTEGER wire range, Net-SNMP native representation, DBF_LONG/RBV range, and
+float/double precision and conversion policy. Distinguish response acceptance
+from what can be represented in an EPICS record field.
+
+Out of scope: implementation changes, removal of the existing T5 result, and
+changing the separately accepted Base NaN alarm precedence (D20).
+
+##### Completion Criteria
+
+The meeting records the agreed policy, limits and any follow-up implementation
+scope. No implementation follows from merely recording this agenda.
+
+##### Dependencies And Decisions
+
+D19 defers this discussion from current M9 execution. Resume by a dated meeting
+direction. T5's 2^31 response leaves RBV unchanged; the earlier 2^32 response
+was observed as zero after native conversion. These are distinct observations.
+
+##### Implementation Plan
+
+Plan Status: draft
+Plan Acceptance: none
+Implementation Authorization: none
+Superseded Plan Artifacts: none
+
+1. Review the existing numeric contracts and retained native response evidence.
+2. Discuss INTEGER and float/double together and record decisions before
+   defining any implementation work.
+
+##### Test Plan
+
+| Label | Check | Method | Environment | Pass condition |
+| --- | --- | --- | --- | --- |
+| T1 | Decision coverage | Review meeting decisions against the listed numeric types, ranges and conversions | Existing contract and retained runtime evidence | Each policy is explicit; unverified behavior is identified as unverified. |
+
+##### Verification Results
+
+Not performed; meeting deferred.
+
+##### Closure Evidence
 
 None.

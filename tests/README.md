@@ -179,7 +179,7 @@ python3 tests/build_fixture.py "${SNMP_BUILD_ARGS[@]}" --output "$SNMP_V3_BUILD"
 SNMP_TEST_IOC="$SNMP_V3_BUILD/bin/linux-x86_64/snmpRequestTest"
 SNMP_V3_ARGS=(--ioc "$SNMP_TEST_IOC" --profile tests/profiles/snmpv3.json)
 python3 tests/run_snmp.py "${SNMP_V3_ARGS[@]}" --suite v3-baseline
-python3 tests/run_snmp.py "${SNMP_V3_ARGS[@]}" --suite legacy-set
+stdbuf -oL python3 tests/run_snmp.py "${SNMP_V3_ARGS[@]}" --suite legacy-set
 ```
 
 The v3-baseline suite has five observation cases: 100 cold IOC starts,
@@ -215,6 +215,15 @@ state independently of the IOC and its UDP observer. The ASCII laboratory
 values, actual applied SET log and raw request/response metadata remain in
 the case directory.
 
+Run this suite through GNU `stdbuf -oL` as shown above. Its live termination
+observer requires line-buffered IOC stdout because it reads the regular
+log file while the IOC is running. Fully buffered stdout can hide a completed
+SET timeout until cleanup and fail the observer's deadline. The inherited
+buffering setting affects only output visibility; the IOC, SNMP transport,
+fixtures, retry counts and assertions remain unchanged. Each IOC manifest
+records the loaded `libstdbuf` identity. A run without this condition does not
+qualify the live termination observer, even if its final log has the message.
+
 Coverage includes successful SETs, agent error responses, queued writes to
 one OID behind a held GET, three output types, shared-OID readback and
 SetSkipReadbackMSec, plus request loss and response loss after application.
@@ -238,6 +247,130 @@ explicit default-policy cases omit SessionTimeout and SessionRetries.
 These suites are individual P801 observations. run_matrix.py does not yet
 include the replacement-worker acceptance matrix; neither suite qualifies
 the final architecture or physical hardware by itself.
+
+## Request-Driven Writes
+
+The additional `request-set-extra` suite covers PINI, a CA put callback to
+PROC during an active write, serial FLNK writes, database PP writes from a
+CA-put chain, a periodic scan chain, failed completion under all three ao
+IVOA settings, delayed simulation switched back to device mode, OOPT alarm
+recovery under all three longout IVOA settings, a put callback on a rejected
+first pass, and explicit/EOF exit with an in-flight and a queued write.
+It loads the same `request_set.db`; `request_set_triggers.db` supplies the
+PINI override and the soft database-link source. It requires the same Base
+clients and owned-thread ptrace capability as `request-set`.
+
+```bash
+SNMP_PROFILE=tests/profiles/loopback.json
+python3 tests/run_snmp.py --ioc "$SNMP_TEST_IOC" --profile "$SNMP_PROFILE" --suite request-set-extra
+```
+
+Repeated callback, FLNK, database-link, failure/IVOA and OOPT-recovery cases
+run 100 cycles by default. PINI, scan-chain and rejected-first-pass cases run
+once; delayed simulation runs two cycles for each of ao, longout and
+stringout, including recovery after each cycle; pending exit covers both exit
+routes. `--cycles` reduces only the repeated cases and marks the run partial.
+Ordinary admitted writes use the strict per-generation trace and FLNK checker.
+Simulation without a request, first-pass rejection and teardown use explicit
+trace/audit assertions because those paths have no admitted completion to
+match. The `delayed_simulation` case must fail the WRITE/INVALID assertion
+against an IOC that accepts PACT without checking the request consumption
+state; its pre-fix failure is a negative control, not a successful suite run.
+These are CA and local record-processing tests, not PVA PUT tests. They do
+not qualify hardware, CP-link chains, native USM failures, admission capacity,
+session retirement, or real-agent Opaque float writes.
+
+The `request-set-edges` suite exercises CP/CPP links, a callback put to VAL
+while a write is active, direct periodic output scans, the exact SCAN alarm
+threshold, response values outside DBF_LONG and the text buffer, non-finite
+and over-long output values, first-pass IVOV replacement, rejected binding
+pairs, the legacy readback window and request ordering against legacy polls.
+NaN is rejected without a SET and reports Base UDF/INVALID at the record and
+FLNK; other unencodable test values report WRITE/INVALID.
+It uses the loopback profile and the delivered `request_set_edges.db` overrides.
+The scan-threshold case processes an idle fanout through IOC shell `dbtr`;
+its link reaches the active output through normal Base processing.
+
+```bash
+SNMP_PROFILE=tests/profiles/loopback.json
+python3 tests/run_snmp.py --ioc "$SNMP_TEST_IOC" --profile "$SNMP_PROFILE" --suite request-set-edges
+```
+
+The `request-set-agent` suite runs INTEGER, Opaque float and string SETs
+against actual Net-SNMP `snmpd`, both through a v2c host and a named
+authNoPriv endpoint. INTEGER covers longout and ao with and without `R`;
+ao RBV and the value observed at FLNK are checked independently. The snmpget
+oracle compares the returned OID, type and scalar value exactly. It also
+checks unknown-user and wrong-authentication-key
+failures, request-input and legacy-output coexistence, and session retirement.
+The native cases require `snmpd`, `snmpget`, `cc` and `net-snmp-config` in PATH
+and a Net-SNMP build supporting the agent's `dlmod` facility and Opaque float.
+The fixture compiles `agent_float.c` as a private module using the installed
+Net-SNMP headers; the agent's standard scalar watcher handles its SETs.
+Compilation commands, compiler output and source hash remain in the evidence.
+The retirement case uses the external peer to hold a reply beyond 60 seconds;
+it does not replace the clock or the production session cleanup path.
+
+```bash
+SNMP_PROFILE=tests/profiles/snmpv3.json
+python3 tests/run_snmp.py --ioc "$SNMP_TEST_IOC" --profile "$SNMP_PROFILE" --suite request-set-agent
+```
+
+These suites describe test coverage, not acceptance. Current observations,
+failed assertions and pending contract decisions are recorded in M9 of the
+[canonical milestone document](../docs/milestone-db9ebf5.md). Neither suite
+implements or qualifies a request admission-capacity limit. The current host
+queue has no capacity bound; the 256-transaction/1 MiB worker limits and
+overflow tests belong to M8 / T11.
+
+The request-set suite exercises the `SnmpRequest` output device support (ao,
+longout and stringout) against the writable loopback UDP peer of
+`snmp_peer.py`; no snmpd or snmpget is needed. Its fixtures are
+`request_set.db` (the request outputs, one FLNK audit per output and a request
+input), `request_set_shared.db` (a legacy output, a request output and a
+legacy readback input on one OID, kept apart because its periodic legacy poll
+would hold the host and the held replies of the other cases) and
+`request_set_rejects.db` (bindings that must fail at iocInit). The candidate
+build from `build_fixture.py` and the Base CA clients in PATH are required.
+The two OOPT cases that suspend the owned IOC's `snmpOopt` thread need ptrace
+of owned child threads, as the scheduling faults above do; the transport case
+compiles `socket_fault.c` with the system C compiler (see Outer Socket Failure
+Fixture). The oopt_exit case starts a bare IOC three times with
+`request_set_exit.db` (one request longout) and `MALLOC_PERTURB_` set, and
+requires a normal exit with the module's shutdown confirmation; the suite's
+larger fixtures and their client traffic reuse freed memory and would mask a
+use of freed dbEvent state at exit.
+
+```bash
+SNMP_TEST_IOC="$SNMP_TEST_BUILD/bin/linux-x86_64/snmpRequestTest"
+python3 tests/run_snmp.py --ioc "$SNMP_TEST_IOC" --profile tests/profiles/loopback.json --suite request-set
+```
+
+The twenty cases: success (ao raw and engineering INTEGER and Opaque float,
+longout with a buffer length shorter than the reply's text view, stringout
+with a 7- and a 39-character value; response echoed, ao RBV checked, no SET at
+initialization); held_completion (PACT observed while the peer holds the
+reply); agent_error; response_mismatch (another type, an extra varbind, no
+varbind); request_loss and reply_loss (TIMEOUT, the latter after the agent
+applied the value); unencodable_value (never reaches the wire, first pass
+WRITE); put_during_write (resent through RPRO); oopt_restored (run-time OOPT
+change restored by the monitor); simulation_during_write; ivoa_guard (IVOA
+Don't drive outputs on an INVALID limit); queued_expiry (a write expiring in
+the host queue and the sent write reaching the same deadline); queued_order
+(a write re-admitted after expiring goes out in its new admission position);
+late_reply; transport_failures (socket open and send); oopt_during_write
+(restored by the completion callback with the `snmpOopt` thread held);
+oopt_first_pass (restored by the write routine, the plain CA put reporting
+the failed write); oopt_exit (bare IOC exit with one request longout under
+a free-filling allocator); rejected_bindings (six records refused at iocInit, nothing
+sent); shared_oid. Each write has its own SET transaction; the wire, the FLNK
+audit and the request trace are checked per generation as for the input
+suites, except that unencodable_value, oopt_restored, ivoa_guard,
+oopt_first_pass and rejected_bindings assert their own wire and record state
+and close without the trace check. The repeated cases, including request_loss,
+reply_loss and oopt_during_write, run 100 cycles; unencodable_value,
+oopt_restored, ivoa_guard, oopt_first_pass, queued_order, oopt_exit and
+rejected_bindings run once.
 
 ## Native Session Adapter
 
@@ -412,6 +545,10 @@ python3 tests/run_snmp.py "${SNMP_TEST_ARGS[@]}" --suite batch
 | Suite | Cases | Default repetitions |
 | --- | --- | --- |
 | lifecycle | 17 | 100 ordinary cycles per variant; 1000 immediate responses; priority_per_request once |
+| request-set | 20 | 100 cycles for the repeated cases, including the loss cases and oopt_during_write; unencodable_value, oopt_restored, ivoa_guard, oopt_first_pass, queued_order, oopt_exit and rejected_bindings run once |
+| request-set-extra | 10 | 100 cycles for active_notify, serial_writes, database_put_chain, failure_ivoa and oopt_recovery (each IVOA choice); fixed cases and delayed-simulation/exit variants as described above |
+| request-set-edges | 11 | 100 cycles each for cp_chain, cpp_chain and callback_value; remaining cases once |
+| request-set-agent | 5 | 100 cycles of each of five output bindings for v2c and named_endpoint; security and retirement cases once |
 | batch | 10 | 100 cycles per case, split across four fresh IOCs |
 | conversion | 2 | 100 value cycles per case |
 

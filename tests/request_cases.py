@@ -21,7 +21,7 @@ PREFIX = "SNMPTEST:"
 class Scenario:
     def __init__(self, test, label, fixture="lifecycle.db", peers=1, hold=False,
                  macros="", timeout_us=None, max_oids=None, extra=(), writable=False, values=None,
-                 transport_fault=None, ioc_options=None):
+                 transport_fault=None, ioc_options=None, overrides=()):
         self.test = test
         self.work = Path(tempfile.mkdtemp(prefix=label + "-", dir=test.work))
         self.peers = []
@@ -56,6 +56,7 @@ class Scenario:
             substitutions = f"P={PREFIX},HOST={self.hosts[0]},HOST_B={self.hosts[-1]}" + macros
             lines += list(extra)
             lines += [f'dbLoadRecords("{ROOT}/tests/{fixture}", "{substitutions}")']
+            lines += [f'dbLoadRecords("{ROOT}/tests/{name}", "{substitutions}")' for name in overrides]
             if config.get("negative_control") == "miswired":
                 lines += [f'dbLoadRecords("{ROOT}/tests/sequence_miswired.db", "P={PREFIX}")']
             process_env = transport_fault.environment(self.peer.server_address[1]) if transport_fault else None

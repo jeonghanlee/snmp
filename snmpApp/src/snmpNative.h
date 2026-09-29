@@ -15,6 +15,20 @@ struct variable_list;
  * the storage reserved in result. Native storage is never retained. */
 void snmpNativeCopyValue(SnmpValue &result, const variable_list *value);
 
+/* Appends one varbind for a request SET from an owned typed payload, as
+ * binary through snmp_pdu_add_variable, never through text. wireType selects
+ * the encoding: ASN_INTEGER from a Signed payload within INTEGER32,
+ * ASN_OPAQUE_FLOAT from a finite Real payload within single-precision range
+ * (a negative zero is sent as 0.0), ASN_OCTET_STR from an Octets payload.
+ * Returns false and adds nothing when the payload does not fit the type;
+ * the record-side checks make that unreachable in normal operation. */
+bool snmpNativeAddSetVariable(snmp_pdu *pdu, const unsigned long *oid, size_t oidLength,
+                              SnmpWireType wireType, const SnmpValue &payload);
+
+/* The library ASN constant for a wire type, or 0 when this build lacks it
+ * (Opaque float needs NETSNMP_WITH_OPAQUE_SPECIAL_TYPES). */
+unsigned char snmpNativeWireAsnType(SnmpWireType wireType);
+
 /* Resolves an authentication or privacy algorithm name through the linked
  * library's own lookup helpers and copies its protocol OID. Returns false
  * when the library does not know the name. Policy filtering is the caller's. */

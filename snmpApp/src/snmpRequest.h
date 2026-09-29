@@ -9,15 +9,20 @@
 extern int snmpRequestTimeoutMSec;
 extern int snmpRequestTrace;
 
-/* One preallocated acquisition slot per input record. Network work never
- * takes the record lock. Only the EPICS callback consumes a ready result.
+/* One preallocated request slot per record, for a request input (one GET)
+ * or a request output (one SET). Network work never takes the record lock.
+ * Only the EPICS callback consumes a ready result.
  *
  * Transport side: begin() runs with the record lock held and takes the slot
- * mutex itself. claim(), dispatched() and finish() identify one transport
- * transaction by an opaque SnmpIdentity that the caller supplies; zero is
- * reserved for no transaction and an identity must never be reused within
- * the process, otherwise a stale response could satisfy a later pass. The
- * native request ID is trace data only, never the identity.
+ * mutex itself; for an output it copies the checked value to send into the
+ * owned payload, which stays immutable until the slot returns to Idle.
+ * markScheduled() lets one scheduler own a queued write until it is claimed
+ * or expires, so a write is never queued twice. claim(), dispatched() and
+ * finish() identify one transport transaction by an opaque SnmpIdentity
+ * that the caller supplies; zero is reserved for no transaction and an
+ * identity must never be reused within the process, otherwise a stale
+ * response could satisfy a later pass. The native request ID is trace data
+ * only, never the identity.
  *
  * Completion side, called from the Base callback thread in this order:
  * completionWanted() (abandons the slot and returns false while stopping),
@@ -34,9 +39,14 @@ class devSnmp_request {
 public:
     devSnmp_request(const SnmpBinding &binding, const SnmpCompletion &completion);
     ~devSnmp_request();
-    bool begin();
+    bool begin(const SnmpValue *value = NULL);
     bool pending();
-    bool claim(SnmpIdentity transaction);
+    bool markScheduled(unsigned long long &scheduledGeneration);
+    epicsUInt64 acceptedAt();
+    bool isWrite() const { return binding.operation == SnmpSet; }
+    SnmpWireType wireType() const { return binding.wireType; }
+    const SnmpValue &payload() const { return payloadValue; }
+    bool claim(SnmpIdentity transaction, unsigned long long scheduledGeneration = 0);
     void dispatched(SnmpIdentity transaction, long wireId);
     void finish(SnmpIdentity transaction, const SnmpValue &value, bool timedOut);
     unsigned capacity() const { return binding.capacity; }
@@ -51,6 +61,7 @@ public:
     bool hasNativeLong();
     bool hasNativeDouble();
     bool valid();
+    bool consuming();
     bool timedOut();
     static void start();
     static bool configurationOpen();
@@ -65,7 +76,8 @@ private:
     epicsMutex mutex;
     State state;
     SnmpValue result;
-    bool stopping, callbackPending, timeout;
+    SnmpValue payloadValue;
+    bool stopping, callbackPending, timeout, scheduled;
     unsigned long long generation;
     unsigned long long transaction;
     long wireId;

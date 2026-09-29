@@ -4,6 +4,7 @@ import json
 import os
 from pathlib import Path
 import select
+import shlex
 import shutil
 import socket
 import subprocess
@@ -158,7 +159,7 @@ class Proxy:
 
 
 class Agent:
-    def __init__(self, work, profile, writable=False):
+    def __init__(self, work, profile, writable=False, opaque_float=False):
         self.work = work / "agent"
         self.work.mkdir(mode=0o700)
         (self.work / "state").mkdir(mode=0o700)
@@ -175,6 +176,16 @@ class Agent:
         if writable:
             write_json(self.values_path, {"values": {"5": 500, "6": 600, "7": "initial"}, "reject_set": False})
             extension = f"pass_persist .1.3.6.1.4.1.55555 {sys.executable} {ROOT}/tests/agent_values.py {self.values_path} {self.work}/writes.jsonl\n"
+        if opaque_float:
+            module = self.work / "fixtureFloat.so"
+            flags = shlex.split(subprocess.check_output(["net-snmp-config", "--cflags"], text=True))
+            command = ["cc", "-shared", "-fPIC", *flags, "-o", str(module), str(ROOT / "tests/agent_float.c")]
+            result = subprocess.run(command, capture_output=True, text=True)
+            write_json(self.work / "float-build.json", dict(argv=command, status=result.returncode,
+                       stdout=result.stdout, stderr=result.stderr, source_sha256=digest(ROOT / "tests/agent_float.c")))
+            if result.returncode:
+                raise AssertionError("Native float fixture failed to build: " + result.stderr)
+            extension += f"dlmod fixtureFloat {module}\n"
         config = self.work / "snmpd.conf"
         config.write_text(f"agentaddress udp:127.0.0.1:{self.port}\nengineID fixture-agent\n"
                           "rwcommunity public 127.0.0.1\nsysName fixture-agent\n" +

@@ -176,10 +176,11 @@ the device.
 
 ## Request-Driven Writes
 
-This section is a proposed contract for milestone M9; the module does not
-implement it yet. It applies Base asynchronous output processing, as described
-for ao, longout and stringout in their record references, to one SNMP SET per
-processing pass. The legacy `Snmp` output path is unchanged.
+This section is the contract the module implements for request outputs
+(`DTYP="SnmpRequest"` on ao, longout and stringout). It applies Base
+asynchronous output processing, as described for ao, longout and stringout
+in their record references, to one SNMP SET per processing pass. The legacy
+`Snmp` output path is unchanged.
 
 ### Why Writes Are Asynchronous
 
@@ -226,7 +227,12 @@ hosts and named endpoints both apply. The set type selects the SNMP type:
 | stringout | `s` | OCTET STRING | VAL up to its terminating null |
 
 The `R` flag selects RVAL and is accepted only on ao with set type `i`, where
-the record's unit conversion produces it. Any other record and set type pair,
+the record's unit conversion produces it. That conversion runs before the
+device write routine and clamps a value beyond the INTEGER32 range to the
+range limit, and it turns a NaN into a converted integer with UDF set, so the
+encoding checks under Processing see only the converted value and refuse
+neither; a site that must refuse such values sends OVAL without `R` or bounds
+VAL with DRVH and DRVL. Any other record and set type pair,
 `R` on ao `F`, `R` on longout or stringout, or any flag other than `R` fails
 the binding with a record error. The mask is not used. The buffer length must
 be 2 through 65536 bytes, as for request inputs; for a request output it
@@ -331,7 +337,9 @@ encoder receives only values that passed these checks in the write routine:
 | `s` from stringout VAL | fits the buffer length | ASN_OCTET_STR |
 
 A value that fails its check is never queued or sent; the first pass
-completes with WRITE/INVALID and the record keeps the value. The
+raises WRITE/INVALID subject to Base alarm precedence, and the record keeps
+the value. NaN with UDFS=INVALID retains UDF/INVALID, as described under
+Failures below. The
 double-to-float narrowing loses precision by design, since the device holds
 a float; a negative zero is encoded as 0.0, as the legacy path does, because
 some devices reject it. Record-level limits such as ao DRVH and
@@ -424,6 +432,19 @@ INVALID with status:
 | Agent error status, or a response without exactly one varbind matching the OID and type sent | WRITE |
 | Value not encodable, send failure, security error, admission full | WRITE |
 | No response: library timeout after its retries, a reply the library discards, retirement of a session that sent the SET, or the request deadline | TIMEOUT |
+
+Alarm selection follows Base priority: an alarm already raised at the same
+severity is not replaced. In particular, NaN on an ao with UDFS=INVALID
+raises UDF/INVALID before device support. For INTEGER without `R` and Opaque
+float, the module rejects the unencodable OVAL without sending a SET; both
+the record and its FLNK observe UDF/INVALID. With `R`, Base converts VAL to
+RVAL before device support, as described under value encoding. IVOA and a
+configured UDFS continue to follow Base rules.
+
+The current per-host queue has no transaction-count or byte capacity bound.
+Admission-full rejection is a worker contract: its 256-transaction and 1 MiB
+limits and overflow tests belong to the worker implementation. Current slot,
+shutdown and payload rejections do not qualify that future capacity limit.
 
 These are menuAlarmStat choices. TIMEOUT means the outcome is unknown: the
 SET may not have been sent, or the agent may have applied it without a reply

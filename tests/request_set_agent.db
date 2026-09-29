@@ -1,0 +1,88 @@
+record(ao, "$(P)AnalogSet") {
+    field(DESC, "Native agent raw integer SET")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) $(COMM,public) .1.3.6.1.4.1.55555.5.0 INTEGER: 128 iR")
+    field(LINR, "SLOPE")
+    field(ESLO, "0.1")
+    field(FLNK, "$(P)AuditAnalogSet")
+}
+record(sub, "$(P)AuditAnalogSet") {
+    field(DESC, "Native raw integer completion audit")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)AnalogSet NPP")
+    field(INPB, "$(P)AnalogSet.PACT NPP")
+    field(INPC, "$(P)AnalogSet.SEVR NPP")
+    field(INPD, "$(P)AnalogSet.STAT NPP")
+    field(INPE, "$(P)AnalogSet.UDF NPP")
+    field(INPF, "$(P)AnalogSet.RBV NPP")
+}
+record(ao, "$(P)EngineeringSet") {
+    field(DESC, "Native agent engineering integer SET")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) $(COMM,public) .1.3.6.1.4.1.55555.5.0 INTEGER: 128 i")
+    field(FLNK, "$(P)AuditEngineeringSet")
+}
+record(sub, "$(P)AuditEngineeringSet") {
+    field(DESC, "Native engineering completion audit")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)EngineeringSet NPP")
+    field(INPB, "$(P)EngineeringSet.PACT NPP")
+    field(INPC, "$(P)EngineeringSet.SEVR NPP")
+    field(INPD, "$(P)EngineeringSet.STAT NPP")
+    field(INPE, "$(P)EngineeringSet.UDF NPP")
+    field(INPF, "$(P)EngineeringSet.RBV NPP")
+}
+record(longout, "$(P)IntegerSet") {
+    field(DESC, "Native agent integer SET")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) $(COMM,public) .1.3.6.1.4.1.55555.6.0 INTEGER: 128 i")
+    field(FLNK, "$(P)AuditIntegerSet")
+}
+record(sub, "$(P)AuditIntegerSet") {
+    field(DESC, "Native integer completion audit")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)IntegerSet NPP")
+    field(INPB, "$(P)IntegerSet.PACT NPP")
+    field(INPC, "$(P)IntegerSet.SEVR NPP")
+    field(INPD, "$(P)IntegerSet.STAT NPP")
+    field(INPE, "$(P)IntegerSet.UDF NPP")
+}
+record(ao, "$(P)FloatSet") {
+    field(DESC, "Native agent Opaque float SET")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) $(COMM,public) .1.3.6.1.4.1.55556.9.0 Float: 128 F")
+    field(FLNK, "$(P)AuditFloatSet")
+}
+record(sub, "$(P)AuditFloatSet") {
+    field(DESC, "Native float completion audit")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)FloatSet NPP")
+    field(INPB, "$(P)FloatSet.PACT NPP")
+    field(INPC, "$(P)FloatSet.SEVR NPP")
+    field(INPD, "$(P)FloatSet.STAT NPP")
+    field(INPE, "$(P)FloatSet.UDF NPP")
+}
+record(stringout, "$(P)TextSet") {
+    field(DESC, "Native agent string SET")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) $(COMM,public) .1.3.6.1.4.1.55555.7.0 STRING: 40 s")
+    field(FLNK, "$(P)AuditTextSet")
+}
+record(sub, "$(P)AuditTextSet") {
+    field(DESC, "Native string completion audit")
+    field(SNAM, "requestAudit")
+    field(INPB, "$(P)TextSet.PACT NPP")
+    field(INPC, "$(P)TextSet.SEVR NPP")
+    field(INPD, "$(P)TextSet.STAT NPP")
+    field(INPE, "$(P)TextSet.UDF NPP")
+}
+record(longin, "$(P)IntegerRead") {
+    field(DESC, "Named endpoint request input")
+    field(DTYP, "SnmpRequest")
+    field(INP, "@$(HOST) $(COMM,public) .1.3.6.1.4.1.55555.6.0 INTEGER: 128")
+}
+record(longout, "$(P)LegacySet") {
+    field(DESC, "Named endpoint legacy output")
+    field(DTYP, "Snmp")
+    field(OUT, "@$(HOST) $(COMM,public) .1.3.6.1.4.1.55555.5.0 INTEGER: 128 i")
+}

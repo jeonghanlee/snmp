@@ -118,11 +118,11 @@ The following EPICS record types are supported:
 <h3 id="RecordSpec">Record specification</h3>
 
 <p>The existing <code>Snmp</code> device support retains cached polling for all
-listed record types. <code>SnmpRequest</code> supports ai, longin and stringin:
-record processing starts an acquisition, keeps PACT set while waiting, consumes
-one terminal result, and lets Base finish conversion, alarms, monitors and
-FLNK before clearing PACT. Waveform and output records continue to use
-<code>Snmp</code>.</p>
+listed record types. <code>SnmpRequest</code> supports ai, longin and stringin
+as inputs and ao, longout and stringout as outputs: record processing starts
+one GET or one SET, keeps PACT set while waiting, consumes one terminal result,
+and lets Base finish conversion, alarms, monitors and FLNK before clearing
+PACT. Waveform records continue to use <code>Snmp</code>.</p>
 
 <p>A request input uses the same INP format below, with a buffer length of
 2 through 65536 bytes. Passive inputs require a processing trigger. I/O Intr
@@ -140,6 +140,65 @@ Base-only example covering all three request types plus legacy input. The
 default numeric OIDs and community are for the shipped loopback test peer;
 provide the device-specific macros before use. Load after DBD registration
 and before iocInit. The example contains no output record.</p>
+
+<p>A request output uses the OUT format below with a set type and, on ao
+with set type <code>i</code>, the optional <code>R</code> flag: ao sends OVAL
+(or RVAL with <code>R</code>) as INTEGER with <code>i</code> or as Opaque
+float with <code>F</code>, longout sends VAL as INTEGER with <code>i</code>,
+and stringout sends VAL as an OCTET STRING with <code>s</code>. The buffer
+length must be 2 through 65536 as for request inputs; for an output it
+bounds only the octets a stringout sends. Any other record and set type
+pair, any other flag, SCAN I/O Intr, a longout with OOPT other than Every
+Time, or set type <code>F</code> on a Net-SNMP build without the Opaque
+special types fails at iocInit with a record error and the record sends
+nothing. Initialization sends no SET; ao VAL comes from the
+database or autosave. Each processing pass sends one SET and the record
+completes when the agent answers or a terminal error is known; a put during
+an active write follows Base RPRO rules. A response that repeats the OID
+with the type sent and no error status is a success, and an ao with set type
+<code>i</code> stores the returned INTEGER in RBV. Failures set INVALID with
+status TIMEOUT for a library timeout or the request deadline and WRITE for an
+agent error, a response of another shape, an unencodable value (a
+non-integral or out-of-range INTEGER, a non-finite or out-of-float-range
+value, a string longer than the buffer length), a send failure, a
+security failure or a refused admission (the record's request slot is
+not idle); a value that fails its check is not sent and the record
+completes in that pass. Base retains an alarm already raised at the same
+severity: NaN on an ao with UDFS=INVALID therefore reports UDF/INVALID.
+For INTEGER without <code>R</code> and Opaque float, NaN is rejected without
+a SET; the record and its FLNK retain that alarm. Request outputs read no poll cache and use no
+readback window. With the <code>R</code> flag the record's own conversion
+produces RVAL before the write routine runs: a value beyond the INTEGER32
+range arrives clamped to the range limit and is sent as such, and a NaN
+arrives as a converted integer while the record reports UDF, so the
+encoding checks cannot refuse either. Where such values must be refused,
+send OVAL without <code>R</code> or bound VAL with DRVH and DRVL.</p>
+
+<p>A request longout keeps OOPT at Every Time because Base repeats the OOPT
+test in the completion pass of an asynchronous write and would otherwise drop
+a value put during the write and turn a retry of a failed value into no SET.
+The module watches OOPT through the IOC event service (thread
+<code>snmpOopt</code>): a run-time change is set back to Every Time and
+logged, and the record shows WRITE/INVALID when the monitor or a first
+processing pass restores it; a restore by the completion of a write in
+progress leaves only the log line, and that write is reported as the agent
+answered. A put that arrives between the OOPT change and the restore, and
+that the changed setting would skip, is not sent and must be put again; a
+site that must rule this out makes OOPT read-only through access security.
+Where a device must not receive an unchanged value again, compare the value
+in a synchronous calcout in front of the record. See
+docs/snmp-architecture.md "Request-Driven Writes" for the complete
+contract.</p>
+
+<p>Net-SNMP retransmits a request SET within the host's timeout and retry
+settings, so a reply lost after the agent applied the value can make the
+agent apply it again; for an OID that must not be applied twice, bind the
+record to a named endpoint with retries 0, since a legacy host shares
+SessionRetries with all its reads. TIMEOUT means the outcome is unknown:
+the SET may not have been sent, or the agent may have applied it without a
+reply arriving. With the default 10 s timeout and 5 retries a lost SET
+holds its host for about 60 s, and other writes to that host queued behind
+it can reach their own deadline unsent.</p>
 
 <p>The consumer must rebuild its expanded DBD and generated
 registerRecordDeviceDriver source against devSnmp.dbd and the matching library.
@@ -479,7 +538,7 @@ for a helpful little perl script which provides a numeric definition such as:
 
     <tr>
       <td>SessionTimeout</td>
-      <td align="right">1000000</td>
+      <td align="right">10000000</td>
       <td><p>Timeout value to use for underlying SNMP reads.  Units are
           in microseconds.<br><br>
           This is a newly-exposed parameter as of release 1.0.RC8, it is
@@ -490,7 +549,7 @@ for a helpful little perl script which provides a numeric definition such as:
     <tr>
       <td>SessionRetries</td>
       <td align="right">5</td>
-      <td><p>Number of retries to use for underlying SNMP reads.<br><br>
+      <td><p>Number of retries to use for underlying SNMP reads and request SETs.<br><br>
           This is a newly-exposed parameter as of release 1.0.RC8, it is
           unknown whether adjusting it after remote-host communications have
           begun will have any effect.  Feedback appreciated.</p></td>

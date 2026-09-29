@@ -80,7 +80,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ioc", type=Path, required=True)
     parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion", "robustness", "pressure", "teardown", "accounting", "registration", "v3-baseline", "legacy-set", "native", "config"), required=True)
+    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion", "robustness", "pressure", "teardown", "accounting", "registration", "v3-baseline", "legacy-set", "native", "config", "request-set", "request-set-extra", "request-set-edges", "request-set-agent"), required=True)
     parser.add_argument("--output", type=Path, help="New evidence directory; never overwritten")
     parser.add_argument("--negative-control", choices=("wrong-value", "miswired", "trace-loss"))
     parser.add_argument("--case", help="One case, explicitly reported as partial coverage")
@@ -97,8 +97,8 @@ def main():
             parser.error("Missing positive acceptance limit: " + name)
     if args.repeat < 1:
         parser.error("--repeat must be positive")
-    if args.cycles is not None and (args.cycles < 1 or args.suite not in ("lifecycle", "batch", "conversion", "robustness")):
-        parser.error("--cycles must be positive and requires lifecycle, batch, conversion or robustness")
+    if args.cycles is not None and (args.cycles < 1 or args.suite not in ("lifecycle", "batch", "conversion", "robustness", "request-set", "request-set-extra", "request-set-edges", "request-set-agent")):
+        parser.error("--cycles must be positive and requires lifecycle, batch, conversion, robustness or a request-set suite")
     if not args.ioc.is_file():
         parser.error("--ioc must name the actual built executable")
     build = args.ioc.resolve().parents[2] / "build-inputs.json"
@@ -170,6 +170,18 @@ def main():
         elif args.suite == "legacy-set":
             from test_legacy_set import LegacySetTest, CASES
             case_class, names = LegacySetTest, CASES
+        elif args.suite == "request-set":
+            from test_request_set import RequestSetTest, CASES
+            case_class, names = RequestSetTest, CASES
+        elif args.suite == "request-set-extra":
+            from test_request_set_extra import RequestSetExtraTest, CASES
+            case_class, names = RequestSetExtraTest, CASES
+        elif args.suite == "request-set-edges":
+            from test_request_set_edges import RequestSetEdgesTest, CASES
+            case_class, names = RequestSetEdgesTest, CASES
+        elif args.suite == "request-set-agent":
+            from test_request_set_agent import RequestSetAgentTest, CASES
+            case_class, names = RequestSetAgentTest, CASES
         elif args.suite == "lifecycle":
             from test_lifecycle import LifecycleTest, CASES
             case_class, names = LifecycleTest, CASES

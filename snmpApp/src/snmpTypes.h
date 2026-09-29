@@ -9,15 +9,20 @@ typedef unsigned long long SnmpIdentity;
 
 enum SnmpOperation { SnmpGet, SnmpSet };
 
-/* Immutable per-input binding fixed at record initialization. id repeats the
+/* SNMP type a request output sends and expects back; the transport maps it
+ * to the library's ASN constant so the adapter stays free of Net-SNMP. */
+enum SnmpWireType { SnmpWireNone = 0, SnmpWireInteger, SnmpWireFloat, SnmpWireOctets };
+
+/* Immutable per-record binding fixed at record initialization. id repeats the
  * completion handle; profile is the host/community group creation ordinal
- * held for the later validated-profile component; operation is always
- * SnmpGet in request mode. The acquisition slot reads only name, oid and
- * capacity today. */
+ * held for the later validated-profile component; operation is SnmpGet for a
+ * request input and SnmpSet for a request output. wireType is the SNMP type
+ * a request output sends and expects back; it is SnmpWireNone for inputs. */
 struct SnmpBinding {
     SnmpIdentity id;
     SnmpIdentity profile;
     SnmpOperation operation;
+    SnmpWireType wireType;
     std::string name;
     std::vector<unsigned long> oid;
     unsigned capacity;

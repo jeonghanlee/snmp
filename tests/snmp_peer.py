@@ -2,6 +2,7 @@
 
 import json
 import socketserver
+import struct
 import threading
 import time
 
@@ -78,12 +79,20 @@ class Handler(socketserver.BaseRequestHandler):
                             value = int.from_bytes(field_value[1], "big", signed=True)
                         elif field_value[0] == 4:
                             value = field_value[1].decode()
+                        elif field_value[0] == 0x44 and field_value[1][:3] == b"\x9f\x78\x04":
+                            # Opaque float: Opaque wrapping the 0x78 application float tag
+                            value = struct.unpack(">f", field_value[1][3:7])[0]
                         else:
                             raise ValueError("Unsupported SET type")
                         sets.append({"oid": oid_text(oid), "key": name,
                                      "type": field_value[0], "value": value})
                     value = peer.values[name]
-                    encoded = integer(value) if isinstance(value, int) else tlv(4, value.encode())
+                    if isinstance(value, int):
+                        encoded = integer(value)
+                    elif isinstance(value, float):
+                        encoded = tlv(0x44, b"\x9f\x78\x04" + struct.pack(">f", value))
+                    else:
+                        encoded = tlv(4, value.encode())
                     fault = peer.faults.get(name, peer.mode)
                     if fault in ("exception", "no_instance", "end_view"):
                         encoded = tlv({"exception": 0x80, "no_instance": 0x81, "end_view": 0x82}[fault], b"")
@@ -109,11 +118,27 @@ class Handler(socketserver.BaseRequestHandler):
                          "id": int.from_bytes(fields[0][1], "big", signed=True)}
                 peer.requests.append(entry)
                 peer.record(entry)
+                if peer.mode == "drop_request":
+                    return  # the request never reaches the agent: nothing applied, no reply
                 error = 17 if request[0] == 0xA3 and not peer.writable else (5 if peer.mode == "error" else 0)
                 if request[0] == 0xA3 and not error:
                     for item in sets:
                         peer.values[item["key"]] = item["value"]
+                    # A SET response repeats the request varbinds; the fault modes below
+                    # answer with another type, an extra varbind or no varbind at all.
                     reply = [binding[2] for binding in bindings]
+                    if peer.mode == "set_wrong_type":
+                        reply = [tlv(0x30, tlv(6, oid) + tlv(0x42 if kind[0] == 2 else 2, kind[1]))
+                                 for (_, binding, _), (oid, kind) in
+                                 zip(bindings, [(list(items(b))[0][1], list(items(b))[1][:2]) for _, b, _ in bindings])]
+                    elif peer.mode == "set_extra":
+                        reply = reply + [tlv(0x30, tlv(6, oid_bytes((1, 3, 6, 1, 4, 1, 55555, 100, 0))) + integer(999))]
+                    elif peer.mode == "set_missing":
+                        reply = []
+                    elif peer.mode == "set_large_integer":
+                        reply = [tlv(0x30, tlv(6, oid) + integer(1 << 31))]
+                    elif peer.mode == "set_long_string":
+                        reply = [tlv(0x30, tlv(6, oid) + tlv(4, b"x" * 256))]
                 response = tlv(0xA2, fields[0][2] + integer(error) + integer(0)
                                + tlv(0x30, b"".join(reply)))
                 packet = tlv(0x30, version[2] + community[2] + response)

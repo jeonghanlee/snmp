@@ -1,9 +1,12 @@
 # Request-driven SNMP inputs
 
 `DTYP="SnmpRequest"` binds `ai`, `longin`, and `stringin` to an asynchronous
-acquisition initiated by record processing. The existing `Snmp` DTYP remains
-the default compatibility path. Waveform and output records retain `Snmp`;
-this mode does not implement asynchronous SET or a fanout completion barrier.
+acquisition initiated by record processing, and `ao`, `longout` and
+`stringout` to one asynchronous SET per processing pass. The existing `Snmp`
+DTYP remains the default compatibility path. Waveform records retain `Snmp`;
+this mode does not implement a fanout completion barrier. The write contract
+is docs/snmp-architecture.md "Request-Driven Writes"; this document describes
+the shared request slot and the input path.
 
 ## Configuration
 

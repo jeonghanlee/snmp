@@ -36,7 +36,8 @@ std::atomic<bool> configurationLocked(false);
 
 devSnmp_request::devSnmp_request(const SnmpBinding &input, const SnmpCompletion &target)
     : binding(input), completion(target), state(Idle), result(input.capacity),
-      stopping(false), callbackPending(false), timeout(false), generation(0), transaction(0),
+      payloadValue(input.capacity), stopping(false), callbackPending(false), timeout(false),
+      scheduled(false), generation(0), transaction(0),
       wireId(0), accepted(0), deadline(0)
 {
     unsigned used = 0;
@@ -161,16 +162,35 @@ void devSnmp_request::dumpTrace()
     }
 }
 
-bool devSnmp_request::begin()
+/* The payload copy is bounded by the capacity reserved at binding; a caller
+ * hands over only a value that already passed the record's encoding checks. */
+bool devSnmp_request::begin(const SnmpValue *value)
 {
     epicsGuard<epicsMutex> guard(mutex);
     if (stopping || state != Idle) {
         ++statistics.rejectedCount;
         return false;
     }
+    if (value) {
+        if (value->length > payloadValue.bytes.size()) {
+            ++statistics.rejectedCount;
+            return false;
+        }
+        payloadValue.kind = value->kind;
+        payloadValue.wireType = value->wireType;
+        payloadValue.signedValue = value->signedValue;
+        payloadValue.unsignedValue = value->unsignedValue;
+        payloadValue.realValue = value->realValue;
+        payloadValue.length = value->length;
+        if (value->length) memcpy(&payloadValue.bytes[0], &value->bytes[0], value->length);
+        payloadValue.valid = true;
+    } else {
+        payloadValue.valid = false;
+    }
     ++generation;
     result.valid = result.hasLong = result.hasDouble = false;
     timeout = false;
+    scheduled = false;
     transaction = 0;
     wireId = 0;
     accepted = epicsMonotonicGet();
@@ -191,10 +211,26 @@ bool devSnmp_request::pending()
     return !stopping && state == Queued;
 }
 
-bool devSnmp_request::claim(SnmpIdentity identity)
+bool devSnmp_request::markScheduled(unsigned long long &scheduledGeneration)
+{
+    epicsGuard<epicsMutex> guard(mutex);
+    if (stopping || state != Queued || scheduled || expire()) return false;
+    scheduled = true;
+    scheduledGeneration = generation;
+    return true;
+}
+
+epicsUInt64 devSnmp_request::acceptedAt()
+{
+    epicsGuard<epicsMutex> guard(mutex);
+    return accepted;
+}
+
+bool devSnmp_request::claim(SnmpIdentity identity, unsigned long long scheduledGeneration)
 {
     epicsGuard<epicsMutex> guard(mutex);
     if (stopping || state != Queued || expire()) return false;
+    if (scheduledGeneration && scheduledGeneration != generation) return false;
     transaction = identity;
     statistics.claimedAt = epicsMonotonicGet();
     state = InFlight;
@@ -216,17 +252,22 @@ void devSnmp_request::finish(SnmpIdentity identity, const SnmpValue &value, bool
     epicsGuard<epicsMutex> guard(mutex);
     if (stopping || state != InFlight || transaction != identity || expire()) return;
     result.valid = result.hasLong = result.hasDouble = false;
-    if (value.valid && strlen(&value.text[0]) < result.text.size() &&
-        value.length <= result.bytes.size() && value.length <= value.bytes.size() &&
-        value.oid.size() <= result.oid.capacity()) {
+    // An input keeps the legacy text view and the octets, so both must fit the
+    // record's buffer; an output's result is a typed value, and its text and
+    // octets are kept only when they fit.
+    bool textFits = strlen(&value.text[0]) < result.text.size();
+    bool bytesFit = value.length <= result.bytes.size();
+    if (value.valid && (textFits || isWrite()) && (bytesFit || isWrite()) &&
+        value.length <= value.bytes.size() && value.oid.size() <= result.oid.capacity()) {
         result.kind = value.kind;
         result.wireType = value.wireType;
         result.signedValue = value.signedValue;
         result.unsignedValue = value.unsignedValue;
         result.realValue = value.realValue;
-        result.length = value.length;
-        memcpy(&result.text[0], &value.text[0], strlen(&value.text[0]) + 1);
-        if (value.length) memcpy(&result.bytes[0], &value.bytes[0], value.length);
+        result.length = bytesFit ? value.length : 0;
+        if (textFits) memcpy(&result.text[0], &value.text[0], strlen(&value.text[0]) + 1);
+        else result.text[0] = '\0';
+        if (result.length) memcpy(&result.bytes[0], &value.bytes[0], result.length);
         result.oid.assign(value.oid.begin(), value.oid.end());
         result.valid = true;
         result.hasLong = value.hasLong;
@@ -325,6 +366,12 @@ bool devSnmp_request::valid()
 {
     epicsGuard<epicsMutex> guard(mutex);
     return state == Consuming && result.valid;
+}
+
+bool devSnmp_request::consuming()
+{
+    epicsGuard<epicsMutex> guard(mutex);
+    return state == Consuming;
 }
 
 bool devSnmp_request::timedOut()

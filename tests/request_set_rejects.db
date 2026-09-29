@@ -1,0 +1,51 @@
+record(longout, "$(P)RejectOopt") {
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.6.0 INTEGER: 128 i")
+    field(OOPT, "On Change")
+}
+record(longout, "$(P)RejectRawFlag") {
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.6.0 INTEGER: 128 iR")
+}
+record(ao, "$(P)RejectFloatRaw") {
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.9.0 Float: 128 FR")
+}
+record(stringout, "$(P)RejectStringType") {
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.7.0 STRING: 40 i")
+}
+record(longout, "$(P)RejectScan") {
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.6.0 INTEGER: 128 i")
+    field(SCAN, "I/O Intr")
+}
+record(longout, "$(P)RejectOtherFlag") {
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.6.0 INTEGER: 128 ip")
+}
+record(ao, "$(P)RejectAnalogString") {
+    field(DESC, "Reject ao with OCTET STRING")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.7.0 STRING: 40 s")
+}
+record(longout, "$(P)RejectIntegerFloat") {
+    field(DESC, "Reject longout with Opaque float")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.9.0 Float: 128 F")
+}
+record(longout, "$(P)RejectIntegerString") {
+    field(DESC, "Reject longout with OCTET STRING")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.7.0 STRING: 40 s")
+}
+record(stringout, "$(P)RejectStringFloat") {
+    field(DESC, "Reject stringout with Opaque float")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.9.0 Float: 128 F")
+}
+record(stringout, "$(P)RejectStringRaw") {
+    field(DESC, "Reject R on stringout")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.7.0 STRING: 40 sR")
+}

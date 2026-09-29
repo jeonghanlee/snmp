@@ -1,0 +1,9 @@
+record(longout, "$(P)IntegerSet") {
+    field(DESC, "Request SET initialization control")
+    field(PINI, "$(PINI,NO)")
+    field(VAL, "17")
+}
+record(longout, "$(P)Source") {
+    field(DESC, "Database link source for active SET")
+    field(OUT, "$(P)IntegerSet PP")
+}

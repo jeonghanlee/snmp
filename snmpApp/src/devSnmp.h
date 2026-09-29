@@ -64,6 +64,9 @@ typedef struct {
   char set_type;
   long special_flags;
   bool request_mode;
+  /* request output record kind: 'a' ao, 'l' longout, 's' stringout; 0 for
+   * an input or a legacy record */
+  char request_kind;
 } configDataPV;
 
 #define V3_TXT_LEN 512
@@ -238,6 +241,11 @@ class devSnmp_session
 
     void addReading(devSnmp_oid *pOID);
     void addSetting(devSnmp_oid *pOID, devSnmp_setting *pSet);
+    /* Binds one claimed request write to this SET session and encodes its
+     * payload as the binding's SNMP type. Returns false when the encoder
+     * refused the value; the request is then finished as failed here. */
+    bool addWrite(devSnmp_oid *pOID, devSnmp_request *request);
+    bool isRequestWrite(void) { return writeRequest != NULL; }
 
     int replyProcessing(int op, SNMP_SESSION *sp, int reqId, SNMP_PDU *pdu);
 
@@ -258,6 +266,12 @@ class devSnmp_session
     bool             sent;
     bool             tried_send;
     unsigned long long transactionId;
+    /* Request write carried by a SET session, or NULL for a legacy setting
+     * or a GET. The result copy is bounded by the request's capacity. */
+    devSnmp_request *writeRequest;
+    devSnmp_oid     *writeOid;
+    std::unique_ptr<SnmpValue> writeResult;
+    void finishWrite(netsnmp_variable_list *value, bool timedOut);
 };
 //----------------------------------------------------------------------
 class devSnmp_transaction
@@ -310,6 +324,21 @@ class devSnmp_setTransaction : public devSnmp_transaction
     devSnmp_setting *ourSetting;
 };
 //----------------------------------------------------------------------
+class devSnmp_writeTransaction : public devSnmp_transaction
+/* one request-driven SET: one record's slot, one OID, one varbind; never
+   merged with or replaced by another write */
+{
+  public:
+    devSnmp_writeTransaction(devSnmp_oid *pOID, devSnmp_request *request, unsigned long long generation);
+    virtual ~devSnmp_writeTransaction(void);
+    virtual devSnmp_session *createSession(void);
+
+  protected:
+    devSnmp_oid        *ourOID;
+    devSnmp_request    *ourRequest;
+    unsigned long long  ourGeneration;
+};
+//----------------------------------------------------------------------
 
 typedef struct {
     bool    valid;
@@ -342,6 +371,12 @@ class devSnmp_oid
 
     void queueUpdate(void);
     void addRequest(devSnmp_request *request);
+    void addWrite(devSnmp_request *request);
+    /* Appends each queued, not yet scheduled write of this OID with the
+     * generation it scheduled; the caller orders them by admission and
+     * queues one transaction per entry. */
+    void collectPendingWrites(std::vector<devSnmp_request *> &pending,
+                              std::vector<unsigned long long> &generations);
     bool hasPendingRequest(void);
     bool claimRequests(devSnmp_session *session);
     void dispatchRequests(devSnmp_session *session, long wireId);
@@ -427,6 +462,7 @@ class devSnmp_oid
     /* Non-owning acquisition slots; each devSnmp_epics owns its slot.
      * The shared scratch result below is owned here; see copyRequestValue. */
     std::vector<devSnmp_request *> requests;
+    std::vector<devSnmp_request *> writes;
     std::unique_ptr<SnmpValue> requestValue;
 
     void clearData(void);
@@ -533,6 +569,11 @@ class devSnmp_group
                       OID              *oid,
                       struct dbCommon  *pRecord);
     void processing(epicsTimeStamp *pnow);
+    /* Moves the request writes this group's processing collected to the
+     * caller, which orders them with every other group of the host. */
+    void takePendingWrites(std::vector<devSnmp_request *> &pending,
+                           std::vector<devSnmp_oid *> &owners,
+                           std::vector<unsigned long long> &generations);
 
     const char *hostName(void);
     const char *communityName(void);
@@ -562,6 +603,9 @@ class devSnmp_group
     devSnmp_host         *pOurHost;
     SNMP_SESSION         *base_session;
     snmpPointerList      *pvList;
+    std::vector<devSnmp_request *>  pendingWrites;
+    std::vector<devSnmp_oid *>      pendingOwners;
+    std::vector<unsigned long long> pendingGenerations;
     snmpPointerList      *oidList;
     snmpWeightCollection *weightCollection;
     SnmpIdentity          profileId;
@@ -604,6 +648,7 @@ class devSnmp_host
     bool reportMatchAny(char *match);
     void queueGetTransaction(devSnmp_getTransaction *pTrans);
     void queueSetTransaction(devSnmp_setTransaction *pTrans);
+    void queueWriteTransaction(devSnmp_writeTransaction *pTrans);
 
     int getSnmpVersion(void);
     bool setSnmpVersion(int version);
@@ -628,6 +673,7 @@ class devSnmp_host
     snmpPointerList *groupList;
     snmpPointerList *getQueue;
     snmpPointerList *setQueue;
+    snmpPointerList *writeQueue;
     snmpPointerList *activeSessionList;
     int              snmpVersion;
     int              maxOidsPerReq;
@@ -657,7 +703,8 @@ class devSnmp_manager
     void getHostSnmpV3Params(char *host, devSnmp_v3params *v3params);
     int getHostMaxOidsPerReq(char *host);
     bool setMaxOidsPerReq(char *host, int maxoids);
-    devSnmp_pv *addPV(struct dbCommon *pRec, struct link *pLink, bool requestMode = false);
+    devSnmp_pv *addPV(struct dbCommon *pRec, struct link *pLink, bool requestMode = false,
+                      char requestKind = 0);
     void processing(epicsTimeStamp *pnow);
     void zeroCounters(void);
     void report(int level, char *match);

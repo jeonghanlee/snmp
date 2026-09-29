@@ -1,0 +1,110 @@
+record(ao, "$(P)AnalogSet") {
+    field(DESC, "Request analog SET, raw integer")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.5.0 INTEGER: 128 iR")
+    field(LINR, "SLOPE")
+    field(ESLO, "0.1")
+    field(PREC, "1")
+    field(FLNK, "$(P)AuditAnalogSet")
+}
+record(sub, "$(P)AuditAnalogSet") {
+    field(DESC, "Analog SET value and state at FLNK")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)AnalogSet NPP")
+    field(INPB, "$(P)AnalogSet.PACT NPP")
+    field(INPC, "$(P)AnalogSet.SEVR NPP")
+    field(INPD, "$(P)AnalogSet.STAT NPP")
+    field(INPE, "$(P)AnalogSet.UDF NPP")
+    field(INPF, "$(P)AnalogSet.RBV NPP")
+}
+record(ao, "$(P)EngineeringSet") {
+    field(DESC, "Request analog SET, engineering integer")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.8.0 INTEGER: 128 i")
+    field(FLNK, "$(P)AuditEngineeringSet")
+}
+record(sub, "$(P)AuditEngineeringSet") {
+    field(DESC, "Engineering SET value and state at FLNK")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)EngineeringSet NPP")
+    field(INPB, "$(P)EngineeringSet.PACT NPP")
+    field(INPC, "$(P)EngineeringSet.SEVR NPP")
+    field(INPD, "$(P)EngineeringSet.STAT NPP")
+    field(INPE, "$(P)EngineeringSet.UDF NPP")
+    field(INPF, "$(P)EngineeringSet.RBV NPP")
+}
+record(ao, "$(P)FloatSet") {
+    field(DESC, "Request analog SET, Opaque float")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.9.0 Float: 128 F")
+    field(PREC, "3")
+    field(VAL, "12.5")
+    field(FLNK, "$(P)AuditFloatSet")
+}
+record(sub, "$(P)AuditFloatSet") {
+    field(DESC, "Float SET value and state at FLNK")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)FloatSet NPP")
+    field(INPB, "$(P)FloatSet.PACT NPP")
+    field(INPC, "$(P)FloatSet.SEVR NPP")
+    field(INPD, "$(P)FloatSet.STAT NPP")
+    field(INPE, "$(P)FloatSet.UDF NPP")
+    field(INPF, "$(P)FloatSet.RBV NPP")
+}
+# buffer length 8 is shorter than the reply's legacy text view ("INTEGER: -77")
+# and must play no part in the result of a request SET
+record(longout, "$(P)IntegerSet") {
+    field(DESC, "Request integer SET")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.6.0 INTEGER: 8 i")
+    field(FLNK, "$(P)AuditIntegerSet")
+}
+record(sub, "$(P)AuditIntegerSet") {
+    field(DESC, "Integer SET value and state at FLNK")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)IntegerSet NPP")
+    field(INPB, "$(P)IntegerSet.PACT NPP")
+    field(INPC, "$(P)IntegerSet.SEVR NPP")
+    field(INPD, "$(P)IntegerSet.STAT NPP")
+    field(INPE, "$(P)IntegerSet.UDF NPP")
+    field(INPF, "$(P)IntegerSet.OOPT NPP")
+}
+record(stringout, "$(P)TextSet") {
+    field(DESC, "Request string SET")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.7.0 STRING: 40 s")
+    field(FLNK, "$(P)AuditTextSet")
+}
+record(sub, "$(P)AuditTextSet") {
+    field(DESC, "String SET value and state at FLNK")
+    field(SNAM, "requestAudit")
+    field(INPA, "0")
+    field(INPB, "$(P)TextSet.PACT NPP")
+    field(INPC, "$(P)TextSet.SEVR NPP")
+    field(INPD, "$(P)TextSet.STAT NPP")
+    field(INPE, "$(P)TextSet.UDF NPP")
+}
+record(longin, "$(P)IntegerRead") {
+    field(DESC, "Request input on the integer SET OID")
+    field(DTYP, "SnmpRequest")
+    field(INP, "@$(HOST) public .1.3.6.1.4.1.55555.6.0 INTEGER: 128")
+}
+record(ao, "$(P)GuardedSet") {
+    field(DESC, "Request SET behind INVALID limit, IVOA")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.10.0 INTEGER: 128 i")
+    field(HIHI, "900")
+    field(HHSV, "INVALID")
+    field(IVOA, "Don't drive outputs")
+    field(FLNK, "$(P)AuditGuardedSet")
+}
+record(sub, "$(P)AuditGuardedSet") {
+    field(DESC, "Guarded SET value and state at FLNK")
+    field(SNAM, "requestAudit")
+    field(INPA, "$(P)GuardedSet NPP")
+    field(INPB, "$(P)GuardedSet.PACT NPP")
+    field(INPC, "$(P)GuardedSet.SEVR NPP")
+    field(INPD, "$(P)GuardedSet.STAT NPP")
+    field(INPE, "$(P)GuardedSet.UDF NPP")
+    field(INPF, "$(P)GuardedSet.RBV NPP")
+}

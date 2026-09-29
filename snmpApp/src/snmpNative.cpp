@@ -1,5 +1,7 @@
 #include "snmpNative.h"
 
+#include <cfloat>
+#include <cmath>
 #include <errno.h>
 #include <limits.h>
 #include <stdint.h>
@@ -23,8 +25,15 @@ void snmpNativeCopyValue(SnmpValue &result, const variable_list *value)
   if (!value || value->type == SNMP_NOSUCHOBJECT ||
       value->type == SNMP_NOSUCHINSTANCE || value->type == SNMP_ENDOFMIBVIEW) return;
   result.wireType = value->type;
-  int count = snprint_value(&result.text[0], result.text.size(), value->name, value->name_length, value);
+  // The library's float and double printers need a few hundred bytes of room
+  // regardless of the printed length, so format into a scratch buffer. A text
+  // that does not fit the bounded legacy view yields no value at all here; a
+  // request write copies into a result sized above any printed value and
+  // applies its own text rule when the slot finishes.
+  std::vector<char> scratch(result.text.size() < 1024 ? 1024 : result.text.size());
+  int count = snprint_value(&scratch[0], scratch.size(), value->name, value->name_length, value);
   if (count < 0 || static_cast<unsigned>(count) >= result.text.size()) return;
+  memcpy(&result.text[0], &scratch[0], count + 1);
   switch (value->type) {
   case ASN_INTEGER:
     if (!value->val.integer) return;
@@ -82,6 +91,46 @@ void snmpNativeCopyValue(SnmpValue &result, const variable_list *value)
     break;
   }
   result.valid = true;
+}
+
+unsigned char snmpNativeWireAsnType(SnmpWireType wireType)
+{
+  switch (wireType) {
+  case SnmpWireInteger: return ASN_INTEGER;
+  case SnmpWireOctets: return ASN_OCTET_STR;
+#ifdef NETSNMP_WITH_OPAQUE_SPECIAL_TYPES
+  case SnmpWireFloat: return ASN_OPAQUE_FLOAT;
+#endif
+  default: return 0;
+  }
+}
+
+bool snmpNativeAddSetVariable(snmp_pdu *pdu, const unsigned long *oidValue, size_t oidLength,
+                              SnmpWireType wireType, const SnmpValue &payload)
+{
+  if (!pdu || !oidValue || !oidLength || !payload.valid) return false;
+  switch (snmpNativeWireAsnType(wireType)) {
+  case ASN_INTEGER: {
+    if (payload.kind != SnmpValue::Signed) return false;
+    if (payload.signedValue < INT32_MIN || payload.signedValue > INT32_MAX) return false;
+    long value = static_cast<long>(payload.signedValue);
+    return snmp_pdu_add_variable(pdu, oidValue, oidLength, ASN_INTEGER, &value, sizeof(value)) != NULL;
+  }
+#ifdef NETSNMP_WITH_OPAQUE_SPECIAL_TYPES
+  case ASN_OPAQUE_FLOAT: {
+    if (payload.kind != SnmpValue::Real) return false;
+    double real = payload.realValue;
+    if (!std::isfinite(real) || std::fabs(real) > FLT_MAX) return false;
+    float value = real == 0.0 ? 0.0f : static_cast<float>(real);
+    return snmp_pdu_add_variable(pdu, oidValue, oidLength, ASN_OPAQUE_FLOAT, &value, sizeof(value)) != NULL;
+  }
+#endif
+  case ASN_OCTET_STR:
+    if (payload.kind != SnmpValue::Octets || payload.length > payload.bytes.size()) return false;
+    return snmp_pdu_add_variable(pdu, oidValue, oidLength, ASN_OCTET_STR,
+                                 payload.length ? &payload.bytes[0] : NULL, payload.length) != NULL;
+  }
+  return false;
 }
 
 bool snmpNativeAuthProtocol(const char *name, std::vector<unsigned long> &protocol)

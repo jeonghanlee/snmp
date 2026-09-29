@@ -1,0 +1,9 @@
+# One request longout and nothing else, loaded by a bare IOC that exits right
+# after iocInit: the module must cancel its OOPT subscription before closing
+# the event context, and with so few other allocations a use of freed dbEvent
+# state is not masked by memory reuse.
+record(longout, "$(P)ExitSet") {
+    field(DESC, "Request longout kept until exit")
+    field(DTYP, "SnmpRequest")
+    field(OUT, "@$(HOST) public .1.3.6.1.4.1.55555.6.0 INTEGER: 128 i")
+}

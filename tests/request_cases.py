@@ -187,6 +187,12 @@ class Scenario:
         test.assertEqual(set(groups), set(seen), "Missing FLNK observation")
         faults = self.transport_fault.events() if self.transport_fault else []
         used_faults = set()
+        worker_wire = {}
+        if settings().get("worker_helper"):
+            for match in re.finditer(r"SNMPWIRE (\d+) epoch=(\d+) tx=(\d+) wire=(\d+)", log):
+                stamp, epoch, transaction, native_id = map(int, match.groups())
+                test.assertNotIn(transaction, worker_wire, "Worker replayed an application transaction")
+                worker_wire[transaction] = (stamp, epoch, native_id)
         for key, events in groups.items():
             expected = self.expected[key]
             names = ["accepted", "claimed", "dispatch", "result", "applied", "complete"]
@@ -207,7 +213,14 @@ class Scenario:
                 test.assertFalse(terminal["success"])
             else:
                 test.assertGreater(int(identity["tx"]), 0)
-            matches = [entry for entry in wire if entry["id"] == int(identity["wire"]) and
+            native_id = int(identity["wire"])
+            if settings().get("worker_helper") and expected["failure"] != "queued":
+                test.assertEqual(native_id, 0, "IPC dispatch must not invent a native request ID")
+                stamp, epoch, native_id = worker_wire[int(identity["tx"])]
+                test.assertGreater(epoch, 0)
+                test.assertLessEqual(events[0]["time"], stamp)
+                test.assertLessEqual(stamp, terminal["time"])
+            matches = [entry for entry in wire if entry["id"] == native_id and
                        identity["oid"] in entry["numeric_oids"]]
             if expected["failure"] == "queued":
                 test.assertEqual(matches, [])

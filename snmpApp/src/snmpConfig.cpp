@@ -1,5 +1,6 @@
 #include "snmpConfig.h"
 #include "snmpNative.h"
+#include "snmpSupervisor.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -261,7 +262,7 @@ bool parseProfile(const char *filename, SnmpProfileConfig &profile, std::string 
             error = "profile authType is not permitted by policy";
             return false;
         }
-        if (!snmpNativeAuthProtocol(profile.authType.c_str(), profile.authProtocol)) {
+        if (!snmpSupervisorEnabled() && !snmpNativeAuthProtocol(profile.authType.c_str(), profile.authProtocol)) {
             error = "profile authType is unavailable in the linked library";
             return false;
         }
@@ -273,7 +274,7 @@ bool parseProfile(const char *filename, SnmpProfileConfig &profile, std::string 
             error = "profile privType is not permitted by policy";
             return false;
         }
-        if (!snmpNativePrivProtocol(profile.privType.c_str(), profile.privProtocol)) {
+        if (!snmpSupervisorEnabled() && !snmpNativePrivProtocol(profile.privType.c_str(), profile.privProtocol)) {
             error = "profile privType is unavailable in the linked library";
             return false;
         }
@@ -317,8 +318,8 @@ bool parseCredentials(const std::string &filename, SnmpProfileConfig &profile, s
     if (ok) {
         profile.authPassphrase = values["authPassPhrase"];
         if (privacy) profile.privPassphrase = values["privPassPhrase"];
-        if (!derivable(profile, profile.authPassphrase) ||
-            (privacy && !derivable(profile, profile.privPassphrase))) {
+        if (!snmpSupervisorEnabled() && (!derivable(profile, profile.authPassphrase) ||
+            (privacy && !derivable(profile, profile.privPassphrase)))) {
             error = "credential key derivation failed";
             ok = false;
         }
@@ -351,7 +352,8 @@ bool compatible(const SnmpEndpointConfig &candidate, std::string &error)
         const SnmpEndpointConfig &other = *i->second;
         const SnmpProfileConfig &b = *other.profile;
         if (other.address != candidate.address || b.securityName != a.securityName) continue;
-        if (a.authProtocol != b.authProtocol || a.privProtocol != b.privProtocol ||
+        if (a.authType != b.authType || a.privType != b.privType ||
+            a.authProtocol != b.authProtocol || a.privProtocol != b.privProtocol ||
             a.authPassphrase != b.authPassphrase || a.privPassphrase != b.privPassphrase) {
             error = "endpoint profile conflicts with endpoint " + other.name +
                     ": same address and securityName with different protocols or credentials";

@@ -7,7 +7,7 @@ CA clients and UDP. It uses an external controllable peer for faults and a
 real Net-SNMP snmpd for native protocol, USM, GET and SET coverage. Test-only
 FLNK audit support belongs to `snmpRequestTest`, not the production IOC.
 
-Hardware, production operation, the future worker/profile architecture and
+Hardware, production operation, final mixed legacy/worker operation and
 extended pressure/resource acceptance are outside these suites. Their
 acceptance requirements and observed results remain in
 [the canonical milestone document](../docs/milestone-db9ebf5.md).
@@ -51,6 +51,41 @@ both executables so they consume the same delivered DB and peer definitions.
 The baseline does not provide SnmpRequest or request trace support.
 
 ## Execute
+
+### Worker process boundary
+
+The `worker` suite selects the shipped worker startup loader and runs the
+actual IOC, helper, native library and external snmpd or writable UDP peer.
+It requires Linux x86-64, a C compiler for the noninterposing rtld-audit
+observer, and the native tools described above. Use the matching helper next
+to the selected test IOC:
+
+```bash
+python3 tests/run_snmp.py --ioc "$SNMP_TEST_IOC" --profile tests/profiles/snmpv3.json --suite worker
+```
+
+The suite covers native ownership, startup failure, default and explicit
+watchdog budgets, shared-address budgets, fragmented/malformed/old/duplicate
+IPC, partial-progress deadlines, child recovery, frozen credential snapshots,
+parent death during real discovery and a SET applied before worker loss.
+The full default watchdog test waits 150 seconds. Discovery isolation runs
+1000 healthy reads in each of control, cold discovery loss and worker-restart
+discovery loss, requesting 100 ms intervals with a 400 ms record deadline
+and four-second native timeout. It retains actual request intervals and checks
+zero healthy INVALID completions, maximum completion below one second and
+p99 no more than 100 ms above the control.
+
+Use `--case <name>` for diagnosis; the runner marks this partial coverage.
+`--worker-helper /absolute/path/to/snmpWorker` selects worker mode for an
+existing request suite. Only suites compatible with this stage may be used:
+legacy polling, mixed traffic, batching and full queue admission belong to
+later qualification. Parent traces identify IPC dispatch; SNMPWIRE identifies
+the actual native request, and the shared request checker connects both to
+external UDP and FLNK observations. It does not treat `wire=0` as a packet ID.
+
+See [worker startup and recovery](../docs/snmp-worker.md) for the consumer
+configuration and supported record boundary. These tests use disposable
+agents and credentials, never hardware inventory settings.
 
 ### Complete platform matrix
 

@@ -1,0 +1,3 @@
+# Load after DBD registration and before every other devSnmp command.
+# SNMP_WORKER must be the absolute path to the matching helper executable.
+devSnmpConfigureWorkers("$(SNMP_WORKER)", $(SNMP_MAX_WORKERS=32))

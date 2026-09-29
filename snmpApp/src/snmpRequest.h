@@ -47,6 +47,7 @@ public:
     SnmpWireType wireType() const { return binding.wireType; }
     const SnmpValue &payload() const { return payloadValue; }
     bool claim(SnmpIdentity transaction, unsigned long long scheduledGeneration = 0);
+    bool claimWorker(SnmpIdentity transaction, SnmpValue &payload, uint64_t &originalDeadline);
     void dispatched(SnmpIdentity transaction, long wireId);
     void finish(SnmpIdentity transaction, const SnmpValue &value, bool timedOut);
     unsigned capacity() const { return binding.capacity; }

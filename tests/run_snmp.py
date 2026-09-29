@@ -80,9 +80,10 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--ioc", type=Path, required=True)
     parser.add_argument("--profile", type=Path, required=True)
-    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion", "robustness", "pressure", "teardown", "accounting", "registration", "v3-baseline", "legacy-set", "native", "config", "request-set", "request-set-extra", "request-set-edges", "request-set-agent"), required=True)
+    parser.add_argument("--suite", choices=("legacy", "sequencing", "failures", "protocol", "lifecycle", "batch", "conversion", "robustness", "pressure", "teardown", "accounting", "registration", "v3-baseline", "legacy-set", "native", "config", "request-set", "request-set-extra", "request-set-edges", "request-set-agent", "worker"), required=True)
     parser.add_argument("--output", type=Path, help="New evidence directory; never overwritten")
     parser.add_argument("--negative-control", choices=("wrong-value", "miswired", "trace-loss"))
+    parser.add_argument("--worker-helper", type=Path, help="Explicit helper setup before IOC module initialization")
     parser.add_argument("--case", help="One case, explicitly reported as partial coverage")
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--cycles", type=int, help="Partial lifecycle repetitions for development")
@@ -121,6 +122,7 @@ def main():
         work = Path(tempfile.mkdtemp(prefix=datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S-"), dir=parent))
     dtype = "Snmp" if args.suite == "legacy" else args.dtyp
     config = {"ioc": str(args.ioc.resolve()), "profile": profile, "output": str(work),
+              "worker_helper": str(args.worker_helper.resolve()) if args.worker_helper else None,
               "cycles": args.cycles,
               "negative_control": args.negative_control, "dtyp": dtype,
               "baseline_ioc": str(args.baseline_ioc.resolve()) if args.baseline_ioc else None,
@@ -164,6 +166,9 @@ def main():
         elif args.suite == "config":
             from test_config import ConfigTest, CASES
             case_class, names = ConfigTest, CASES
+        elif args.suite == "worker":
+            from test_worker import WorkerTest, CASES
+            case_class, names = WorkerTest, CASES
         elif args.suite == "native":
             from test_native import NativeTest, CASES
             case_class, names = NativeTest, CASES

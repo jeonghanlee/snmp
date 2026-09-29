@@ -9,38 +9,28 @@ Remote tracker: none
 Source baseline: `db9ebf51bc81d6f63d9395513d94d60b3b7eda83`
 Created: 2026-09-22
 
-Next session entry point: M9, request-driven writes: baseline (step 1) and
-contract review with owner acceptance (steps 2 and 3) are done, step 4 is
-implemented and its original step 5 runs and reviews passed on both platforms.
-Additional verification found and corrected a completion
-without a request that incorrectly reported NO_ALARM; the module now checks
-the request consumption state on active entry. The ten additional cases,
-twenty request-output cases and twelve legacy-output cases pass on Debian 13
-and Rocky 8. Independent third-person and second-person reviews of this delta
-passed. The remaining-coverage development runs now exercise CP/CPP, callback
-VAL writes, scan boundaries, response limits, IVOV, binding pairs, poll
-ordering and native float/security paths. The accepted NaN alarm contract
-and shared elapsed-time correction are implemented; edge tests pass 11/11
-and native output tests pass 5/5 on both platforms. M9 local implementation
-and verification are accepted by both final review lanes; the local milestone
-commit and remote landing remain pending. Both platforms
-pass the qualified 15-suite, 157-case matrix; the initial buffered legacy
-observer failures remain preserved separately.
-Admission-capacity tests belong
-to M8; the current M9 host queue has no capacity bound. The remaining-verification correction review passes; native writes
-now cover all five output bindings on both platforms. See Remaining Coverage
-Verification below for the dated dispositions and retained failures;
-M8 step 5 follows M9's accepted design. M8 step 4
-is committed as 8962312 and 6b507ab. Step 3 is committed as
-d34a6b3; it passes its native suite 19/19 and the regression suites on
-Debian 13 and Rocky 8, and its third bounded recheck (fup20260924_212921)
-passed on 2026-09-24 after the review and recheck findings were corrected.
-The reviewed M8 step 1 fixtures and step 2 extraction are committed. Step 2 passed
-its regressions on Debian 13 and Rocky 8 under D10 and its independent
-third-person and maintainer reviews on 2026-09-24; the stale-session
-deletion race is carried to step 6. Step 1's corrected baseline and
-current-state documentation passed the bounded third-person and maintainer
-recheck on 2026-09-24.
+Next session entry point: M8 step 6 bounded mixed scheduling, following the
+step 5 local handoff and commit checkpoint.
+M9 is locally committed as 509757a82e8e698718411fb2a0fd7ad731ace657;
+its qualified 15-suite/157-case matrix passes on Debian 13 and Rocky 8 and
+both final review lanes accepted it. Remote landing remains pending.
+The worker product, private IPC, supervisor and request-record path pass the
+complete 18-case worker suite on Debian 13 and Rocky 8. The staged T5/T18
+subsets and T8 discovery isolation pass through the actual IOC/helper/native
+path; both correction review lanes pass. The evidence below qualifies this
+implementation stage only.
+See Step 5 Worker Boundary Verification for exact scope and identities. The intermediate
+worker path is selected by explicit helper setup and rejects legacy polling;
+step 6 owns migration of legacy GET/SET and bounded mixed scheduling. The
+unchanged startup path retains the previously qualified transport meanwhile.
+Final mixed-runtime adoption and production qualification remain pending.
+
+M8 step 4 is committed as 8962312 and 6b507ab; step 3 as d34a6b3.
+The reviewed step 1 baseline and step 2 extraction are committed. The
+stale-session deletion race remains assigned to step 6. M9 fixes the common
+elapsed-time borrow and verifies readback and retirement timing on both target
+platforms; step 6 still owns the transport-lifetime migration.
+
 M5 handoff cross-check passed and its fourteen reviewed paths are committed
 locally as 750ea26243614ec4402994959e21bd970b0a6856. M8's fresh 43-case
 compatibility baseline and 100-cold/1000-warm real IOC v3 observations are
@@ -2351,7 +2341,8 @@ and a compatible absolute worker deadline independent of record deadlines.
 The following table maps the same nine steps to implementation targets and
 observable advancement conditions. It is part of this plan, not a second work
 register. Step 1 fixtures, the step 2 extraction, the step 3 adapter and the
-step 4 configuration are delivered; later components remain planned. Run each step's available checks before migration
+step 4 configuration are delivered; step 5 now has the scoped implementation
+and verification recorded below. Later components remain planned. Run each step's available checks before migration
 depends on that step; record partial coverage explicitly. Step 8 reruns the complete acceptance matrix on the final
 candidate even when an earlier implementation passed its subset.
 
@@ -2435,6 +2426,9 @@ separately and cannot close an IOC test label.
 | T16 | 2026-09-25T09:13:08.886232+00:00 to 2026-09-25T10:11:52.341604+00:00 | Step 4 candidate on Debian 13/Net-SNMP 5.9.4.pre2 and Rocky 8/5.8; actual test IOC, real snmpd agents and UDP observer | Parsing and initial exchange subset PASS on both platforms; reboot, changed identity, distinct context and T8 fault cases pending | Automatic, named explicit (0X upper case), host setter and file engine IDs read the value; contextEngineID set independently; a wrong explicit ID is sent as configured and fails; 5-byte and 32-byte IDs complete real exchanges with agents started under those IDs; every invalid format is rejected before any session opens. |
 | T17 | 2026-09-24T19:46:42.217277+00:00 | Archived 750ea26 IOC; actual ao/longout/stringout, native writable snmpd and external UDP fault proxy; Debian 13/Base 7.0.10 | Baseline 12/12 PASS; final candidate comparison pending | Success, agent error, queued coalescing, readback suppression and request/reply loss at retries 0/1/3/defaults passed. Native retransmissions and default-policy 60-second session retirement are recorded separately below. No worker or exactly-once device guarantee follows. |
 | T18 | 2026-09-23T12:33:06-07:00 | Native experiments only; worker/IPC/IOC implementation not run | Pending | Process separation and native timer measurements are preliminary evidence, not verification of the proposed watchdog, supervisor or IPC path. |
+| T5 | 2026-09-29T08:26:02Z | Actual IOC/helper, real snmpd, Debian 13 and Rocky 8 | Worker/default/override subset PASS | Complete worker suite 18/18 per platform; exact default, example, shared, sentinel and boundary budgets described in Step 5 Worker Boundary Verification. Full configuration matrix remains pending. |
+| T8 | 2026-09-29T08:26:02Z | Actual request IOC and two native agents, external discovery loss, both target platforms | Staged worker isolation PASS | 1000 healthy reads each for control, cold discovery loss and restart; zero INVALID, p99 within control plus 100 ms, maximum below 1 s. Final mixed runtime rerun pending. |
+| T18 | 2026-09-29T08:26:02Z | Actual IOC/helper/IPC, external frame proxy and OS signals, both target platforms | Startup/framing/crash/deadline subset PASS | Complete corrected 18-case worker suite; 150-second watchdog, independent record deadlines, SET no replay, child-only observed native calls and startup-snapshot recovery. Queue/load/resource/full shutdown matrix remains pending. |
 
 ##### Pre-Migration IOC Baseline
 
@@ -2647,6 +2641,103 @@ for the session mutex moves from 3800 to 3810. Sequencing 9/9 and failures
 10/10 pass on it in /tmp/snmp-m8-comments-tests-20260924-c, and the Rocky 8
 image compiles the same tree in /tmp/snmp-m8-rocky8-comments-20260924-c.
 Recheck by rebuilding and comparing `objdump -d` output per object.
+
+##### Step 5 Worker Boundary Verification
+
+Observed on 2026-09-29, ending at 08:26:02 UTC. This is the opt-in
+SnmpRequest worker stage, not final M8 acceptance. D10 selects Debian 13
+(Net-SNMP 5.9.4.pre2) and Rocky 8.10 (Net-SNMP 5.8), both with Base 7.0.10.
+The actual Linux helper is built with the module and launched by the actual
+IOC using posix_spawn/socketpair. Operator setup and recovery are described
+in [SNMP Worker Runtime](snmp-worker.md); the shipped startup loader is
+examples/request-worker.iocsh. Unconfigured IOCs retain the existing transport.
+
+Evidence root: /tmp/snmp-m8-qualified-20260929. The complete corrected worker
+runs are debian13-corrected/worker and rocky8-corrected/worker. Each has
+partial=false, 18 passed cases, no abort and no cleanup errors. Their
+candidate/build-inputs.json files identify source commit 509757a plus the
+working changes and every source/product digest. The earlier debian13 and
+rocky8 candidates supply the unchanged-production regressions below; only
+tests/test_worker.py and tests/worker_proxy.py differ between those candidates
+and the corrected worker candidates. The final record update changes this
+milestone document only, not the qualified code or fixtures.
+
+The corrected build manifests have SHA-256
+11baeac0e3c65a89f955d2381daa8c7987c27979c00c840c2922f68ad68cd0f3
+(Debian) and
+fbbb95f33c8c594a297d0ea530d73990996af8952cca3770361da741d75d3600
+(Rocky). They retain the actual helper, IOC, shared-library and DBD hashes;
+the working source and fixture hashes match both corrected manifests.
+
+| Executed coverage per platform | Result | Scope |
+| --- | --- | --- |
+| worker, 18 cases | PASS | Default/example/shared watchdogs, invalid and large budgets, helper/process limits, child and parent loss, native ownership, actual IPC faults, fixed deadlines, snapshot restart and discovery isolation. |
+| native 19, config 8, sequencing 9, accounting 3 | PASS | Existing unconfigured runtime and adapter regressions against the same production source. |
+| Worker-enabled request-set: success, held_completion, response_mismatch | PASS | Three selected cases, explicitly partial; each runs 100 cycles by default, observing 500, 100 and 600 accepted generations respectively. They do not replace the complete request-set suite. |
+
+T5's staged checks confirm automatic 150000 ms, rejection of 149999 ms and
+acceptance of explicit 150000 ms under inherited 10-second/five-retry settings.
+The 20000/7600/900000 ms examples pass. Native -1 sentinels resolve to an
+18000 ms budget on both linked libraries. A shared address uses the greater
+20000/150000 ms requirement; an undersized override rejects the longer
+binding before application traffic. Invalid native settings and arithmetic
+limits reject startup; an automatic 2640198000 ms budget above INT_MAX
+completes a real GET. These observations do not close the full T5 matrix.
+
+The 150000 ms watchdog retires a suspended child after 150.097862 seconds on
+Debian and 150.093739 seconds on Rocky, then a replacement completes a GET.
+The record completes within one second independently. Partial request frames
+and delayed result fragments do not renew the separate 5300 ms watchdog.
+An applied SET whose reply is held completes once as an error after child
+loss, with no automatic replay; a new explicit command succeeds. Actual
+native-call observations contain positive child initialization/key/session/
+send calls and no observed parent calls. This is executed-path evidence,
+not an assertion that every configuration path has been exercised.
+
+T8 runs 1000 healthy reads per scenario with a 100 ms requested interval,
+400 ms record deadline and 4-second native timeout. Each row has zero INVALID
+healthy completions; actual mean acceptance intervals are 100.48 to 100.74 ms.
+The real request traces and FLNK audits verify result application before
+FLNK and PACT clearing afterward for each generation.
+
+| Platform | Scenario | Healthy p99, ms | Healthy maximum, ms |
+| --- | --- | --- | --- |
+| Debian 13 | Control | 13.248 | 13.917 |
+| Debian 13 | Cold discovery loss | 13.004 | 13.741 |
+| Debian 13 | Restart with discovery loss | 13.149 | 13.580 |
+| Rocky 8 | Control | 13.797 | 15.558 |
+| Rocky 8 | Cold discovery loss | 15.023 | 17.163 |
+| Rocky 8 | Restart with discovery loss | 14.346 | 16.453 |
+
+Both fault scenarios meet baseline p99 plus 100 ms and maximum below one
+second. The pre-migration observation of 80/1000 INVALID completions remains
+a failure of the old path. The current staged T8 result is PASS; the final
+mixed-runtime candidate must repeat it in steps 6 and 8.
+
+The independent actual APC consumer builds against the candidate module and
+loads the shipped worker startup file. Three request-input values complete
+without alarm and shutdown exits cleanly; consumer/result.json and
+consumer/consumer-inputs.json retain its scope and source identity. This is
+consumer linking/startup/request evidence, not T13's full APC DB/PVA suite.
+
+The original Rocky 17-case worker run remains failed: the proxy selected
+Python 3.6, so two IPC cases never reached their intended path. The corrected
+proxy uses the runner's PATH-selected Python and startup assertions require
+observed BOOTSTRAP/READY traffic. The retained rocky8-proxy-negative run
+deliberately restores the interpreter mismatch and fails the new BOOTSTRAP
+assertion. The original startup false positive is not acceptance evidence.
+Earlier build-a native-ownership/SET-response defects and preliminary build-b/c
+observations remain separately retained; corrected final results do not
+relabel them. Independent correction reports fup20260929_011528 and
+fup20260929_012122 accept their respective demonstrated fixes.
+
+T18 startup/framing/crash and fixed-deadline coverage passes for this stage;
+full resource/load/shutdown qualification remains pending. Step 6 still owns
+the 256-transaction/1 MiB admission bounds, batching/fairness, reusable native
+sessions and legacy GET/SET migration. Step 7 owns the remaining freeze and
+credential matrix. Step 8 owns the full compatibility/APC matrix, dedicated
+descriptor/resource checks, sanitizers and soak. No physical device, firmware,
+installed Base, production deployment or remote landing is qualified here.
 
 ##### Step 4 Named Profiles And Engine Identity
 
@@ -3903,7 +3994,9 @@ both with Base 7.0.10. No reduced-count run supplies current qualification.
 - Local implementation and verification accepted on 2026-09-28 after
   fup20260928_221726 and fup20260928_222023. D18-D21 and the qualified
   both-platform matrix are recorded above; no review finding remains open.
-- Local milestone commit and remote landing remain pending. M9 remains
+- Local milestone commit: 509757a82e8e698718411fb2a0fd7ad731ace657.
+  Its reviewed 31 paths and post-commit hashes were verified on 2026-09-28;
+  the working tree was clean. Remote landing remains pending. M9 remains
   In progress until its closure conditions have evidence; local acceptance
   does not establish remote landing or physical-device qualification.
 

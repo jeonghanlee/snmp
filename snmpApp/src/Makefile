@@ -26,6 +26,15 @@ devSnmp_SRCS += snmpRequest.cpp
 devSnmp_SRCS += snmpEpics.cpp
 devSnmp_SRCS += snmpNative.cpp
 devSnmp_SRCS += snmpConfig.cpp
+devSnmp_SRCS += snmpIpc.cpp snmpWorkerConfig.cpp snmpSupervisor.cpp
+
+PROD_HOST_Linux += snmpWorker
+snmpWorker_SRCS += snmpWorker.cpp snmpIpc.cpp snmpWorkerConfig.cpp snmpNative.cpp
+snmpWorker_LIBS += Com
+
+WORKER_SOURCES = snmpIpc.cpp snmpIpc.h snmpWorker.cpp snmpWorkerConfig.cpp snmpSupervisor.cpp
+WORKER_SOURCES += snmpSupervisor.h snmpNative.cpp snmpNative.h snmpTypes.h
+WORKER_INPUTS = $(addprefix ../,$(WORKER_SOURCES))
 
 devSnmp_LIBS += $(EPICS_BASE_IOC_LIBS)
 
@@ -54,5 +63,12 @@ snmp_LIBS += $(EPICS_BASE_IOC_LIBS)
 #===========================
 
 include $(TOP)/configure/RULES
+
+snmpWorkerBuild.h: $(WORKER_INPUTS) ../workerBuildId.pl
+	$(PERL) ../workerBuildId.pl $(WORKER_INPUTS) > $@
+
+snmpWorker$(OBJ): snmpWorkerBuild.h
+snmpSupervisor$(OBJ): snmpWorkerBuild.h
+snmpWorker.d snmpSupervisor.d: snmpWorkerBuild.h
 #----------------------------------------
 #  ADD RULES AFTER THIS LINE

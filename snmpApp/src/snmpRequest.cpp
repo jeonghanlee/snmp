@@ -247,6 +247,19 @@ void devSnmp_request::dispatched(SnmpIdentity identity, long nativeId)
     event("dispatch", true);
 }
 
+bool devSnmp_request::claimWorker(SnmpIdentity identity, SnmpValue &payload, uint64_t &originalDeadline)
+{
+    epicsGuard<epicsMutex> guard(mutex);
+    if (stopping || state != Queued || expire()) return false;
+    payload = payloadValue;
+    originalDeadline = deadline;
+    transaction = identity;
+    statistics.claimedAt = epicsMonotonicGet();
+    state = InFlight;
+    event("claimed", true);
+    return true;
+}
+
 void devSnmp_request::finish(SnmpIdentity identity, const SnmpValue &value, bool timedOut)
 {
     epicsGuard<epicsMutex> guard(mutex);

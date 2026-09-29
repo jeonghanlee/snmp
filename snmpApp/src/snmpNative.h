@@ -41,6 +41,11 @@ bool snmpNativePrivProtocol(const char *name, std::vector<unsigned long> &protoc
 bool snmpNativeDeriveKey(const unsigned long *authProtocol, size_t authProtocolLength,
                          const std::string &passphrase, unsigned char *key, size_t *keyLength);
 
+/* Resolves the native -1 default sentinels without opening a transport.
+ * This is the snmp_api.c default-store rule audited for supported 5.x builds;
+ * invalid non-default values remain invalid for watchdog admission. */
+bool snmpNativeResolveBudget(long &timeoutUs, int &retries);
+
 /* Terminal outcome of one native exchange, valid only during the completion
  * call. Response: the agent answered; errorStatus and errorIndex come from
  * the response PDU, and values holds one entry per requested OID in request
@@ -96,6 +101,10 @@ public:
 
     bool open(const snmp_session &settings);
     bool get(SnmpIdentity transaction, const std::vector<std::vector<unsigned long> > &oids, unsigned capacity);
+    /* An optional wireId receives the accepted native request ID for trace
+     * correlation only; zero means that no application PDU was accepted. */
+    bool transact(SnmpIdentity transaction, const std::vector<std::vector<unsigned long> > &oids,
+                  unsigned capacity, SnmpWireType wireType, const SnmpValue *payload, long *wireId = NULL);
     void close();
     bool isOpen() const { return handle != 0; }
     size_t pending() const { return exchanges.size() + deferred.size(); }
@@ -107,11 +116,10 @@ public:
      * timeout is due, reads ready sockets and runs library timeouts for every
      * open session in sessions. EINTR ends the wait early and still runs the
      * timeouts. Returns the number of completions delivered, or -1 when the
-     * wait failed, in which case no session was read. The wait watches only
-     * session sockets; nothing else can end it early, so an owner with other
-     * work bounds its latency through maxWait. The worker wake path belongs
-     * to the worker loop design. */
-    static int service(const std::vector<SnmpNativeSession *> &sessions, double maxWait);
+     * wait failed, in which case no session was read. A nonnegative
+     * wakeDescriptor also ends the wait when readable; the caller owns and
+     * reads that descriptor. The helper supplies its private IPC socket. */
+    static int service(const std::vector<SnmpNativeSession *> &sessions, double maxWait, int wakeDescriptor = -1);
 
 private:
     struct Exchange;

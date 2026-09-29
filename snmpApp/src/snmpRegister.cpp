@@ -101,6 +101,15 @@ static const iocshFuncDef iocsh_devSnmpSetSnmpV3ConfigFile_FuncDef = {"devSnmpSe
 
 /*--------------------------------------------------------------------*/
 /* Named SNMPv3 profiles and endpoints; a failure sets the IOC shell error. */
+static void iocsh_devSnmpConfigureWorkers(const iocshArgBuf *args)
+{
+  iocshSetError(devSnmpConfigureWorkers(args[0].sval, args[1].ival));
+}
+static const iocshArg workerPathArg = { "absolute executable", iocshArgString };
+static const iocshArg workerLimitArg = { "maximum workers", iocshArgInt };
+static const iocshArg *const workerArgs[] = { &workerPathArg, &workerLimitArg };
+static const iocshFuncDef workerDef = { "devSnmpConfigureWorkers", 2, workerArgs };
+
 static void iocsh_devSnmpLoadV3Profile(const iocshArgBuf *args)
 {
   iocshSetError(devSnmpLoadV3Profile(args[0].sval,args[1].sval));
@@ -245,6 +254,7 @@ void snmp_Register()
   iocshRegister(&iocsh_devSnmpSetSnmpV3ConfigFile_FuncDef, iocsh_devSnmpSetSnmpV3ConfigFile);
   iocshRegister(&iocsh_devSnmpLoadV3Profile_FuncDef,       iocsh_devSnmpLoadV3Profile);
   iocshRegister(&iocsh_devSnmpDefineEndpoint_FuncDef,      iocsh_devSnmpDefineEndpoint);
+  iocshRegister(&workerDef, iocsh_devSnmpConfigureWorkers);
   iocshRegister(&iocsh_devSnmpSetEndpointParam_FuncDef,    iocsh_devSnmpSetEndpointParam);
   iocshRegister(&iocsh_devSnmpSetParam_FuncDef,            iocsh_devSnmpSetParam);
   iocshRegister(&iocsh_snmpr_FuncDef,                      iocsh_snmpr);

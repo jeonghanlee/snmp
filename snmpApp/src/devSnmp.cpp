@@ -49,6 +49,8 @@
 #include <vector>
 #include "snmpNative.h"
 #include "snmpEpics.h"
+#include "snmpSupervisor.h"
+#include <algorithm>
 #include <memory>
 
 #include <alarm.h>
@@ -403,7 +405,8 @@ static void checkRangesChange(void)
   if (snmpCheckRanges < 0) snmpCheckRanges = 0;
   if (snmpCheckRanges > 1) snmpCheckRanges = 1;
   int ival = (snmpCheckRanges) ? 0 : 1;
-  netsnmp_ds_set_boolean(NETSNMP_DS_LIBRARY_ID,NETSNMP_DS_LIB_DONT_CHECK_RANGE,ival);
+  if (!snmpSupervisorEnabled())
+    netsnmp_ds_set_boolean(NETSNMP_DS_LIBRARY_ID,NETSNMP_DS_LIB_DONT_CHECK_RANGE,ival);
 }
 //----------------------------------------------------------------------
 static bool checkInit(void)
@@ -411,11 +414,13 @@ static bool checkInit(void)
   if (doingEpicsExit) return(false);
 
   if (! didEpicsInit) {
+    if (!snmpSupervisorEnabled()) {
 #if devSnmp_NETSNMP_VERSION < 50400
 	  init_mib();
 #else
 	  netsnmp_init_mib();
 #endif
+    }
 
     // set last-tick
     epicsTimeGetCurrent(&globalLastTick);
@@ -2472,7 +2477,9 @@ devSnmp_pv::devSnmp_pv
                               pOID->getOid()->Oid, pOID->getOid()->OidLen, pGroup->profileIdentity(),
                               oidExtra.request_kind ? SnmpSet : SnmpGet, wireType);
     pRequest = pEpics->request();
-    if (oidExtra.request_kind)
+    if (snmpSupervisorEnabled()) {
+      // Worker admission owns these slots independently of the legacy queues.
+    } else if (oidExtra.request_kind)
       pOID->addWrite(pRequest);
     else
       pOID->addRequest(pRequest);
@@ -2918,6 +2925,13 @@ devSnmp_group::devSnmp_group(devSnmp_manager *pMgr, devSnmp_host *host, char *co
   if (! base_session) return;
   memset(base_session,0,sizeof(SNMP_SESSION));
   memset(&v3params,0,sizeof(devSnmp_v3params));
+
+  if (snmpSupervisorEnabled()) {
+    base_session->peername = dup_string(pOurHost->peerName());
+    base_session->community = (unsigned char *)dup_string(community);
+    (*okay) = true;
+    return;
+  }
 
   // initialize base session structure from this group's host: a named
   // endpoint supplies its address, profile, engine IDs and optional
@@ -4102,7 +4116,7 @@ void devSnmp_host::report(int level, char *match)
 //--------------------------------------------------------------------
 devSnmp_manager::devSnmp_manager(void)
 {
-  init_snmp("devSnmp");
+  if (!snmpSupervisorEnabled()) init_snmp("devSnmp");
 
   started               = false;
   sendTask_abort        = false;
@@ -4138,6 +4152,7 @@ devSnmp_manager::~devSnmp_manager(void)
 //--------------------------------------------------------------------
 bool devSnmp_manager::stop(void)
 {
+  if (snmpSupervisorEnabled()) return snmpSupervisorStop();
   sendTask_abort = true;
   readTask_abort = true;
   for (unsigned attempt = 0; attempt < 300; ++attempt) {
@@ -4150,6 +4165,7 @@ bool devSnmp_manager::stop(void)
 //--------------------------------------------------------------------
 int devSnmp_manager::start(void)
 {
+  if (snmpSupervisorEnabled()) return snmpSupervisorStart() ? epicsOk : epicsError;
   if (started) {
     printf("devSnmp: error, already started\n");
     return(epicsError);
@@ -4387,6 +4403,10 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bo
   if (! snmpParseInOut(instioStr,&base,&extra)) return(NULL);
   extra.request_mode = requestMode;
   extra.request_kind = requestKind;
+  if (snmpSupervisorEnabled() && !requestMode) {
+    printf("devSnmp ERROR: worker transport requires request records; legacy migration is not enabled\n");
+    return NULL;
+  }
   if (requestMode && (extra.data_len < 2 || extra.data_len > 65536)) return NULL;
   if (requestKind && !snmpValidRequestOutput(extra, requestKind)) {
     printf("devSnmp ERROR: %s: set type '%c' with flags '%s' is not valid for this request output\n",
@@ -4398,7 +4418,7 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bo
   // validate OID text, fill in OID structure
   OID oid;
   init_OID_struct(&oid,base.oidStr);
-  if (! get_node(oid.Name, oid.Oid, &oid.OidLen)) {
+  if (!snmpSupervisorEnabled() && ! get_node(oid.Name, oid.Oid, &oid.OidLen)) {
     if (! read_objid(oid.Name,oid.Oid,&oid.OidLen)) {
       printf("devSnmp: error parsing %s '%s'\n",pRec->name,instioStr);
       printf("         OID '%s' read_objid failed\n",oid.Name);
@@ -4443,8 +4463,53 @@ devSnmp_pv *devSnmp_manager::addPV(struct dbCommon *pRec, struct link *pLink, bo
     return(NULL);
   }
 
+  uint64_t workerBinding = 0;
+  if (snmpSupervisorEnabled()) {
+    SnmpWorkerBinding config;
+    config.address = pHost->peerName();
+    config.community = base.community;
+    config.version = pHost->getSnmpVersion() == SNMP_VERSION_3 ? 3 :
+                     pHost->getSnmpVersion() == SNMP_VERSION_1 ? 1 : 2;
+    config.timeoutUs = pHost->sessionTimeoutUs();
+    config.retries = pHost->sessionRetries();
+    config.oidName = base.oidStr;
+    config.capacity = extra.data_len;
+    config.operation = requestKind ? SnmpSet : SnmpGet;
+    config.wireType = !requestKind ? SnmpWireNone : extra.set_type == 'i' ? SnmpWireInteger :
+                      extra.set_type == 'F' ? SnmpWireFloat : SnmpWireOctets;
+    const SnmpEndpointConfig *endpoint = pHost->endpointConfig();
+    if (endpoint) {
+      const SnmpProfileConfig &profile = *endpoint->profile;
+      config.securityName = profile.securityName;
+      config.contextName = profile.contextName;
+      config.securityLevel = profile.securityLevel;
+      config.authType = profile.authType;
+      config.privType = profile.privType;
+      config.authPassphrase = profile.authPassphrase;
+      config.privPassphrase = profile.privPassphrase;
+      config.profile = profile.revision;
+      config.securityEngineID = endpoint->securityEngineID;
+      config.contextEngineID = endpoint->contextEngineID;
+    } else if (config.version == 3) {
+      printf("devSnmp ERROR: worker SNMPv3 requires a named endpoint during transport migration\n");
+      term_OID_struct(&oid);
+      return NULL;
+    }
+    std::vector<unsigned long> resolved;
+    std::string error;
+    workerBinding = snmpSupervisorBind(config, resolved, error);
+    if (!workerBinding) {
+      printf("devSnmp ERROR: %s: %s\n", pRec->name, error.c_str());
+      term_OID_struct(&oid);
+      return NULL;
+    }
+    oid.OidLen = resolved.size();
+    std::copy(resolved.begin(), resolved.end(), oid.Oid);
+  }
+
   // add PV to this host
   devSnmp_pv *pPV = pHost->addPV(&base,&extra,&oid,pRec);
+  if (workerBinding && pPV) snmpSupervisorAttach(workerBinding, pPV->request());
   term_OID_struct(&oid);
 
   // point record's dpvt at created PV object
@@ -4556,6 +4621,10 @@ void devSnmp_manager::report(int level, char *match)
 {
   devSnmp_request::report();
   devSnmp_request::dumpTrace();
+  if (snmpSupervisorEnabled()) {
+    snmpSupervisorReport();
+    return;
+  }
   if ((! snmpHostList) || (snmpHostList->count() == 0)) {
     printf("no devSnmp hosts defined\n");
     return;
@@ -4960,6 +5029,16 @@ int devSnmpSetSnmpVersion(char *hostName, char *versionStr)
   return pManager->setHostSnmpVersion(hostName,versionStr) ? epicsOk : epicsError;
 }
 //--------------------------------------------------------------------
+int devSnmpConfigureWorkers(const char *executable, int maximum)
+{
+  std::string error;
+  if (pManager || !snmpSupervisorConfigure(executable, maximum, error)) {
+    printf("devSnmp ERROR: worker setup must precede module initialization; %s\n", error.c_str());
+    return epicsError;
+  }
+  return epicsOk;
+}
+//--------------------------------------------------------------------
 int devSnmpSetSnmpV3Param(char *hostName, char *paramName, char *value)
 {
   if (! checkInit()) return(epicsError);
@@ -4984,6 +5063,7 @@ static int configResult(const char *command, bool ok, const std::string &error)
 int devSnmpLoadV3Profile(const char *name, const char *fileName)
 {
   if (! checkInit()) return(epicsError);
+  snmpSupervisorLock();
   std::string error;
   bool ok = snmpConfigLoadProfile(name, fileName, error);
   return configResult("devSnmpLoadV3Profile", ok, error);
@@ -5013,6 +5093,10 @@ int devSnmpSetMaxOidsPerReq(char *hostName, int maxoids)
 //--------------------------------------------------------------------
 int devSnmpSetParam(const char *param, int value)
 {
+  if (param && !strcmp(param, "WorkerProgressLimitMSec")) {
+    std::string error;
+    return configResult("WorkerProgressLimitMSec", snmpSupervisorOverride(value, error), error);
+  }
   if (! checkInit()) return(epicsError);
   if (param && (!strcmp(param, "RequestTimeoutMSec") || !strcmp(param, "RequestTrace"))) {
     bool timeout = !strcmp(param, "RequestTimeoutMSec");

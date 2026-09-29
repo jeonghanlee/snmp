@@ -127,8 +127,10 @@ class IOC:
                          "ioc": str(self.executable), "ioc_sha256": digest(self.executable),
                          "dbd": str(self.dbd), "dbd_sha256": digest(self.dbd), "ca_port": port,
                          "repeater_port": repeater_port}
+        helper_setup = ([f'devSnmpConfigureWorkers({json.dumps(self.config["worker_helper"])}, 32)']
+                        if self.config.get("worker_helper") else [])
         startup = [f'dbLoadDatabase({json.dumps(str(self.dbd))})',
-                   f'{self.executable.name}_registerRecordDeviceDriver(pdbbase)'] + lines
+                   f'{self.executable.name}_registerRecordDeviceDriver(pdbbase)'] + helper_setup + lines
         startup += [f'dbLoadRecords("{ROOT}/tests/identity.db", "P={prefix},INSTANCE={self.instance}")',
                     "iocInit"]
         (self.work / "st.cmd").write_text("\n".join(startup) + "\n")

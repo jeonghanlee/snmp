@@ -778,6 +778,7 @@ extern "C" {
   int devSnmpSetSnmpV3Param(char *hostName, char *paramName, char *value);
   int devSnmpSetSnmpV3ConfigFile(char *hostName, char *fileName);
   int devSnmpLoadV3Profile(const char *name, const char *fileName);
+  int devSnmpConfigureWorkers(const char *executable, int maximum);
   int devSnmpDefineEndpoint(const char *name, const char *address, const char *profile);
   int devSnmpSetEndpointParam(const char *name, const char *parameter, const char *value);
   int devSnmpSetMaxOidsPerReq(char *hostName, int maxoids);

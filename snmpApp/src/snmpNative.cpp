@@ -161,6 +161,21 @@ bool snmpNativeDeriveKey(const unsigned long *authProtocol, size_t authProtocolL
                        passphrase.size(), key, keyLength) == SNMPERR_SUCCESS;
 }
 
+bool snmpNativeResolveBudget(long &timeoutUs, int &retries)
+{
+    if (retries == SNMP_DEFAULT_RETRIES) {
+        retries = netsnmp_ds_get_int(NETSNMP_DS_LIBRARY_ID, NETSNMP_DS_LIB_RETRIES);
+        if (retries < 0) retries = 5;
+    }
+    if (timeoutUs == SNMP_DEFAULT_TIMEOUT) {
+        int seconds = netsnmp_ds_get_int(NETSNMP_DS_LIBRARY_ID, NETSNMP_DS_LIB_TIMEOUT);
+        if (seconds <= 0) timeoutUs = 1000000;
+        else if (static_cast<uint64_t>(seconds) > static_cast<uint64_t>(LONG_MAX) / 1000000) return false;
+        else timeoutUs = static_cast<long>(seconds) * 1000000;
+    }
+    return timeoutUs > 0 && retries >= 0 && retries < INT_MAX;
+}
+
 /* One accepted request, keyed by the request ID that snmp_pdu_create assigns
  * before sending. messageId follows the SNMPv3 message ID of the latest sent
  * attempt, because the library matches received SNMPv3 messages to requests
@@ -171,7 +186,7 @@ struct SnmpNativeSession::Exchange {
     SnmpIdentity transaction;
     long requestId;
     long messageId;
-    bool terminal;
+    bool terminal, write;
     std::vector<std::vector<unsigned long> > oids;
     SnmpNativeResult result;
 };
@@ -208,6 +223,14 @@ bool SnmpNativeSession::open(const snmp_session &settings)
 bool SnmpNativeSession::get(SnmpIdentity transaction, const std::vector<std::vector<unsigned long> > &oids,
                             unsigned capacity)
 {
+    return transact(transaction, oids, capacity, SnmpWireNone, NULL);
+}
+
+bool SnmpNativeSession::transact(SnmpIdentity transaction,
+                                const std::vector<std::vector<unsigned long> > &oids,
+                                unsigned capacity, SnmpWireType wireType, const SnmpValue *payload, long *wireId)
+{
+    if (wireId) *wireId = 0;
     if (!handle || closing) {
         lastError = "session not open";
         return false;
@@ -228,7 +251,11 @@ bool SnmpNativeSession::get(SnmpIdentity transaction, const std::vector<std::vec
             return false;
         }
     }
-    snmp_pdu *pdu = snmp_pdu_create(SNMP_MSG_GET);
+    if (payload && oids.size() != 1) {
+        lastError = "SET requires one binding";
+        return false;
+    }
+    snmp_pdu *pdu = snmp_pdu_create(payload ? SNMP_MSG_SET : SNMP_MSG_GET);
     if (!pdu) {
         lastError = "PDU allocation failed";
         return false;
@@ -239,7 +266,9 @@ bool SnmpNativeSession::get(SnmpIdentity transaction, const std::vector<std::vec
         return false;
     }
     for (size_t i = 0; i < oids.size(); ++i) {
-        if (oids[i].empty() || !snmp_add_null_var(pdu, (const oid *)&oids[i][0], oids[i].size())) {
+        if (oids[i].empty() || (payload
+            ? !snmpNativeAddSetVariable(pdu, &oids[i][0], oids[i].size(), wireType, *payload)
+            : !snmp_add_null_var(pdu, (const oid *)&oids[i][0], oids[i].size()))) {
             snmp_free_pdu(pdu);
             lastError = "invalid OID";
             return false;
@@ -250,6 +279,7 @@ bool SnmpNativeSession::get(SnmpIdentity transaction, const std::vector<std::vec
     exchange->requestId = pdu->reqid;
     exchange->messageId = pdu->msgid;
     exchange->terminal = false;
+    exchange->write = payload != NULL;
     exchange->oids = oids;
     exchange->result.outcome = SnmpNativeResult::ProtocolError;
     exchange->result.errorStatus = 0;
@@ -267,6 +297,7 @@ bool SnmpNativeSession::get(SnmpIdentity transaction, const std::vector<std::vec
         snmp_free_pdu(pdu);
         return false;
     }
+    if (wireId) *wireId = exchange->requestId;
     if (exchange->terminal) {
         exchanges.erase(exchange->requestId);
         deferred.push_back(exchange);
@@ -289,7 +320,8 @@ void SnmpNativeSession::close()
     closing = false;
 }
 
-int SnmpNativeSession::service(const std::vector<SnmpNativeSession *> &sessions, double maxWait)
+int SnmpNativeSession::service(const std::vector<SnmpNativeSession *> &sessions, double maxWait,
+                               int wakeDescriptor)
 {
     unsigned long long before = 0;
     for (size_t i = 0; i < sessions.size(); ++i) before += sessions[i]->completed;
@@ -302,6 +334,10 @@ int SnmpNativeSession::service(const std::vector<SnmpNativeSession *> &sessions,
     netsnmp_large_fd_set_init(&descriptors, FD_SETSIZE);
     NETSNMP_LARGE_FD_ZERO(&descriptors);
     int count = 0;
+    if (wakeDescriptor >= 0) {
+        NETSNMP_LARGE_FD_SET(wakeDescriptor, &descriptors);
+        count = wakeDescriptor + 1;
+    }
     for (size_t i = 0; i < sessions.size(); ++i) {
         SnmpNativeSession *session = sessions[i];
         if (!session->handle) continue;
@@ -366,7 +402,8 @@ int SnmpNativeSession::dispatch(int operation, snmp_session *, int requestId, sn
                         }
                     }
                 }
-                snmpNativeCopyValue(result.values[i], matches == 1 ? matched : NULL);
+                bool exact = !exchange->write || (pdu->variables && !pdu->variables->next_variable);
+                snmpNativeCopyValue(result.values[i], matches == 1 && exact ? matched : NULL);
             }
         } else if (pdu && pdu->command == SNMP_MSG_REPORT) {
             return 1;
